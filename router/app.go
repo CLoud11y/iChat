@@ -13,6 +13,7 @@ func Router() *gin.Engine {
 	r := gin.Default()
 	registerSwagger(r)
 	r.GET("/api/index", service.Index)
+	r.POST("/api/user/register", service.RegisterUser)
 	return r
 }
 

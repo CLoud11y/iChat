@@ -35,5 +35,5 @@ func init() {
 		fmt.Printf("Unable to decode into struct, %v", err)
 	}
 	// fmt.Println(Conf.App)
-	// fmt.Println(Conf.MYSQL.User)
+	// fmt.Println(Conf.MYSQL)
 }
