@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"iChat/database"
 	"iChat/utils"
 	"net/http"
@@ -9,19 +10,12 @@ import (
 )
 
 type RegisterInfo struct {
-	PhoneNum  string
-	UserName  string
-	Password  string
-	Password2 string
+	PhoneNum  string `json:"phone_num"`
+	UserName  string `json:"user_name"`
+	Password  string `json:"password"`
+	Password2 string `json:"password2"`
 }
 
-// @BasePath /api/user
-// @Produce json
-// @Param object body RegisterInfo true "register information"
-// @Success 200 {string} string "ok"
-// @Failure 400 {object} string "bad request"
-// @Failure 500 {object} string "内部错误"
-// @Router /api/user/register [post]
 func RegisterUser(c *gin.Context) {
 	info := &RegisterInfo{}
 	// 将注册信息绑定至结构体
@@ -31,6 +25,7 @@ func RegisterUser(c *gin.Context) {
 		})
 		return
 	}
+	fmt.Println(info)
 	// 检查密码是否一致
 	if info.Password != info.Password2 {
 		c.JSON(http.StatusBadRequest, gin.H{

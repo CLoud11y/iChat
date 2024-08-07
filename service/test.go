@@ -6,8 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Index(c *gin.Context) {
+func Test(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"message": "this is an index",
+		"message": "test api success",
+		"uid":     c.GetUint("uid"),
 	})
 }

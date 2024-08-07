@@ -1,8 +1,6 @@
 package config
 
 import (
-	"fmt"
-
 	"github.com/spf13/viper"
 )
 
@@ -20,6 +18,10 @@ type Config struct {
 		Port     string `mapstructure:"port"`
 		DbName   string `mapstructure:"dbname"`
 	} `mapstructure:"MYSQL"`
+	JWT struct {
+		TokenHourLifeSpan int    `mapstructure:"tokenHourLifeSpan"`
+		Key               string `mapstructure:"key"`
+	} `mapstructure:"JWT"`
 }
 
 func init() {
@@ -28,11 +30,11 @@ func init() {
 	viper.AddConfigPath("./config")
 
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("Error reading config file, %s", err)
+		panic("Error reading config file: " + err.Error())
 	}
 
 	if err := viper.Unmarshal(&Conf); err != nil {
-		fmt.Printf("Unable to decode into struct, %v", err)
+		panic("Unable to decode into struct: " + err.Error())
 	}
 	// fmt.Println(Conf.App)
 	// fmt.Println(Conf.MYSQL)

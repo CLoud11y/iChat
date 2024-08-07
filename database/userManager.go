@@ -58,9 +58,17 @@ func (um *userManager) Signup(phone, name, password string) (*models.User, error
 	tempUser.Name = name
 	tempUser.Password = password
 	tempUser.Phone = phone
+	// 默认将标识号设置为phone
+	tempUser.Identifier = phone
 	err = um.db.Save(&tempUser).Error
 	if err != nil {
 		return nil, err
 	}
 	return tempUser, nil
+}
+
+func (um *userManager) GetUserByPhone(phone string) (*models.User, error) {
+	tempUser := &models.User{}
+	err := um.db.Where("phone = ?", phone).First(tempUser).Error
+	return tempUser, err
 }

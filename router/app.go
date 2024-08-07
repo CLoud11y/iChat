@@ -1,26 +1,25 @@
 package router
 
 import (
-	"iChat/docs"
+	"iChat/middlewares"
 	"iChat/service"
 
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func Router() *gin.Engine {
 	r := gin.Default()
-	registerSwagger(r)
-	r.GET("/api/index", service.Index)
-	r.POST("/api/user/register", service.RegisterUser)
+	public := r.Group("/api")
+	{
+		public.GET("/index", service.Index)
+		public.POST("/user/register", service.RegisterUser)
+		public.POST("/user/login", service.LoginUser)
+	}
+	protected := r.Group("/api/auth")
+	{
+		// 在路由组中使用中间件校验token
+		protected.Use(middlewares.JwtAuth)
+		protected.GET("/test", service.Test)
+	}
 	return r
-}
-
-func registerSwagger(r *gin.Engine) {
-	docs.SwaggerInfo.BasePath = "/"
-	docs.SwaggerInfo.Title = "api manager"
-	docs.SwaggerInfo.Version = "1.0"
-	docs.SwaggerInfo.Host = "localhost:8080"
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }
