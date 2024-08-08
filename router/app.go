@@ -21,5 +21,6 @@ func Router() *gin.Engine {
 		protected.Use(middlewares.JwtAuth)
 		protected.GET("/test", service.Test)
 	}
+	r.GET("/ws", service.WebSocketHandler)
 	return r
 }
