@@ -22,6 +22,13 @@ type Config struct {
 		TokenHourLifeSpan int    `mapstructure:"tokenHourLifeSpan"`
 		Key               string `mapstructure:"key"`
 	} `mapstructure:"JWT"`
+	REDIS struct {
+		Addr        string `mapstructure:"addr"`
+		Password    string `mapstructure:"password"`
+		DB          int    `mapstructure:"db"`
+		PoolSize    int    `mapstructure:"poolSize"`
+		MinIdleConn int    `mapstructure:"minIdleConn"`
+	} `mapstructure:"REDIS"`
 }
 
 func init() {

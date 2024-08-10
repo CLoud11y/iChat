@@ -2,11 +2,9 @@ package database
 
 import (
 	"errors"
-	"fmt"
-	"iChat/config"
 	"iChat/models"
+	"iChat/utils"
 
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -17,28 +15,8 @@ type userManager struct {
 }
 
 func init() {
-	// 初始化数据库连接
-	mysqlConf := &config.Conf.MYSQL
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		mysqlConf.User,
-		mysqlConf.Password,
-		mysqlConf.Host,
-		mysqlConf.Port,
-		mysqlConf.DbName,
-	)
-	fmt.Println("DSN:", dsn)
-
-	MysqlConf := mysql.New(mysql.Config{DSN: dsn})
-	GormConf := &gorm.Config{}
-
-	DB, err := gorm.Open(MysqlConf, GormConf)
-	if err != nil {
-		panic(err)
-	}
-	DB.AutoMigrate(&models.User{})
-
 	UserManager = &userManager{
-		db: DB,
+		db: utils.DB,
 	}
 }
 

@@ -1,15 +1,18 @@
 package service
 
 import (
+	"context"
 	"fmt"
+	"iChat/utils"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 )
 
-func WebSocketHandler(c *gin.Context) {
+func SendMsg(c *gin.Context) {
 	// 获取WebSocket连接
 	wsUpgrader := websocket.Upgrader{
 		HandshakeTimeout: time.Second * 10,
@@ -24,27 +27,59 @@ func WebSocketHandler(c *gin.Context) {
 	if err != nil {
 		panic(err)
 	}
-
 	defer func() {
 		if err := ws.Close(); err != nil {
 			panic(err)
 		}
 	}()
+	senderId := c.Query("sender")
+	receiverId := c.Query("receiver")
+	fmt.Println("sender: ", senderId)
+	fmt.Println("receiver: ", receiverId)
+	ctx, canceller := context.WithCancel(context.Background())
+	go reader(ctx, canceller, senderId, ws)
+	go sender(ctx, canceller, receiverId, ws)
+	<-ctx.Done()
+}
 
-	// 处理WebSocket消息
+func reader(ctx context.Context, cancel context.CancelFunc, channel string, ws *websocket.Conn) {
+	defer cancel()
+	sub := utils.RDS.Subscribe(ctx, channel)
+	subChan := sub.Channel()
+	var msg *redis.Message
+	var err error
 	for {
-		messageType, p, err := ws.ReadMessage()
-		if err != nil {
-			break
+		select {
+		case <-ctx.Done():
+			fmt.Println("reader channel: ", channel, "closed")
+			return
+		case msg = <-subChan:
+			fmt.Println("receive msg")
+			err = ws.WriteMessage(1, []byte(msg.Payload))
+			if err != nil {
+				panic(err)
+			}
 		}
+	}
+}
 
-		fmt.Println("messageType:", messageType)
-		fmt.Println("p:", string(p))
+func sender(ctx context.Context, cancel context.CancelFunc, channel string, ws *websocket.Conn) {
+	defer cancel()
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("sender channel: ", channel, "closed")
+			return
+		default:
+			messageType, p, err := ws.ReadMessage()
+			if err != nil {
+				fmt.Println("ws read msg err: ", err)
+				return
+			}
+			fmt.Println("messageType:", messageType)
+			fmt.Println("p:", string(p))
 
-		// 输出WebSocket消息内容
-		err = ws.WriteMessage(messageType, p)
-		if err != nil {
-			panic(err)
+			utils.RDS.Publish(ctx, channel, string(p))
 		}
 	}
 }
