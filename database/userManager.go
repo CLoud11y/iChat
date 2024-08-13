@@ -8,14 +8,14 @@ import (
 	"gorm.io/gorm"
 )
 
-var UserManager *userManager
+var Umanager *userManager
 
 type userManager struct {
 	db *gorm.DB
 }
 
 func init() {
-	UserManager = &userManager{
+	Umanager = &userManager{
 		db: utils.DB,
 	}
 }

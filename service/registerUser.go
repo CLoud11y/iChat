@@ -29,7 +29,7 @@ func RegisterUser(c *gin.Context) {
 		return
 	}
 	// 注册
-	_, err := database.UserManager.Signup(info.PhoneNum, info.UserName, utils.Encrypt(info.Password))
+	_, err := database.Umanager.Signup(info.PhoneNum, info.UserName, utils.Encrypt(info.Password))
 	if err != nil {
 		utils.RespFail(c.Writer, err.Error())
 		return

@@ -31,7 +31,7 @@ func LoginUser(c *gin.Context) {
 	}
 	fmt.Println(info.PhoneNum, info.Password)
 	//
-	user, err := database.UserManager.GetUserByPhone(info.PhoneNum)
+	user, err := database.Umanager.GetUserByPhone(info.PhoneNum)
 	// 用户不存在或发生其他错误
 	if err != nil {
 		utils.RespFail(c.Writer, err.Error())

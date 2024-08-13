@@ -24,7 +24,7 @@ func GenerateToken(user_id uint) (string, error) {
 
 func TokenValid(c *gin.Context) (uint, error) {
 	tokenString := ExtractToken(c)
-	// fmt.Println("token: ", tokenString)
+	fmt.Println("token: ", tokenString)
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -53,8 +53,13 @@ func ExtractToken(c *gin.Context) string {
 	// 格式为bearer [token]
 	if len(strings.Split(bearerToken, " ")) == 2 {
 		return strings.Split(bearerToken, " ")[1]
-	} else if t := c.Query("token"); t != "" {
+	}
+	//token在query中
+	if t := c.Query("token"); t != "" {
 		return t
 	}
-	return ""
+	if t := c.Request.FormValue("token"); t != "" {
+		return t
+	}
+	panic("获取token失败")
 }
