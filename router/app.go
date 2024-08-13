@@ -9,16 +9,24 @@ import (
 
 func Router() *gin.Engine {
 	r := gin.Default()
-	public := r.Group("/api")
+
+	//静态资源
+	r.Static("/asset", "asset/")
+	r.StaticFile("/favicon.ico", "asset/images/favicon.ico")
+	r.LoadHTMLGlob("views/**/*")
+
+	public := r.Group("/")
 	{
 		public.GET("/index", service.Index)
 		public.POST("/user/register", service.RegisterUser)
 		public.POST("/user/login", service.LoginUser)
+		public.GET("/toRegister", service.ToRegister)
 	}
-	protected := r.Group("/api/auth")
+	protected := r.Group("/auth")
+	// 在路由组中使用中间件校验token
+	protected.Use(middlewares.JwtAuth)
 	{
-		// 在路由组中使用中间件校验token
-		protected.Use(middlewares.JwtAuth)
+		protected.GET("/toChat", service.ToChat)
 		protected.GET("/test", service.Test)
 	}
 	r.GET("/send_msg", service.SendMsg)

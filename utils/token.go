@@ -47,12 +47,14 @@ func TokenValid(c *gin.Context) (uint, error) {
 	return 0, errors.New("token invalid")
 }
 
-// 从请求头中获取token
+// 从请求头或query中获取token
 func ExtractToken(c *gin.Context) string {
 	bearerToken := c.GetHeader("Authorization")
 	// 格式为bearer [token]
 	if len(strings.Split(bearerToken, " ")) == 2 {
 		return strings.Split(bearerToken, " ")[1]
+	} else if t := c.Query("token"); t != "" {
+		return t
 	}
 	return ""
 }
