@@ -45,18 +45,17 @@
             login:function(){
                 console.log("login")
                 console.log(this.user)
-
                 //网络请求
                 //封装了promis
                 util.post("user/login",this.user).then(res=>{
-                    console.log(res)
-                    if(res.code!=0){
-                        mui.toast(res.message)
+                    // console.log("login response: " + res)
+                    if(res.Code!=0){
+                        mui.toast(res.Msg)
                     }else{         
-                        var url = "/auth/toChat?token="+res.data.token
-                        userToken(res.data.token)
-                        userInfo(res.data.userInfo)
-                        userId(res.data.userInfo.ID)
+                        var url = "/auth/toChat?token="+res.Data.token
+                        userToken(res.Data.token)
+                        userInfo(res.Data.userInfo)
+                        userId(res.Data.userInfo.ID)
                         mui.toast("登录成功,即将跳转")
                         location.href = url
                     }
