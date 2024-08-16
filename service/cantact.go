@@ -9,7 +9,7 @@ import (
 )
 
 type FriendInfo struct {
-	Phone string `json:"phone"`
+	Phone string `json:"targetPhone"`
 }
 
 func AddFriend(c *gin.Context) {

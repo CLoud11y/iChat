@@ -23,7 +23,7 @@ func init() {
 func (rm *relationManager) SearchFriends(userId uint) ([]models.User, error) {
 	relations := make([]models.Relation, 0)
 	objIds := make([]uint, 0)
-	err := utils.DB.Where("owner_id = ? and type = ?", userId, models.FriendRelation).Find(&relations).Error
+	err := rm.db.Where("owner_id = ? and type = ?", userId, models.FriendRelation).Find(&relations).Error
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +31,7 @@ func (rm *relationManager) SearchFriends(userId uint) ([]models.User, error) {
 		objIds = append(objIds, v.TargetId)
 	}
 	users := make([]models.User, 0)
-	err = utils.DB.Where("id in ?", objIds).Find(&users).Error
+	err = rm.db.Where("id in ?", objIds).Find(&users).Error
 	if err != nil {
 		return nil, err
 	}

@@ -28,6 +28,7 @@ func Router() *gin.Engine {
 	{
 		protected.GET("/toChat", service.ToChat)
 		protected.GET("/test", service.Test)
+		protected.GET("/chat", service.Chat)
 
 		contact := protected.Group("/contact")
 		{
@@ -35,6 +36,5 @@ func Router() *gin.Engine {
 			contact.POST("/searchFriends", service.SearchFriends)
 		}
 	}
-	r.GET("/send_msg", service.SendMsg)
 	return r
 }

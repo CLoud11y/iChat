@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iChat/database"
 	"iChat/models"
-	"iChat/utils"
 	"net/http"
 	"time"
 
@@ -14,7 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func SendMsg(c *gin.Context) {
+func Chat(c *gin.Context) {
 	// 获取WebSocket连接
 	ws, err := getWebsocket(c)
 	if err != nil {
@@ -25,24 +25,28 @@ func SendMsg(c *gin.Context) {
 			panic(err)
 		}
 	}()
-	senderId := c.Query("sender")
+	senderId := c.GetUint("uid")
 	fmt.Println("sender: ", senderId)
 	ctx, canceller := context.WithCancel(context.Background())
 	go recvProc(ctx, canceller, senderId, ws)
-	go sendProc(ctx, canceller, senderId, ws)
+	go sendProc(ctx, senderId, ws)
 	<-ctx.Done()
 }
 
-func recvProc(ctx context.Context, cancel context.CancelFunc, channel string, ws *websocket.Conn) {
+// 接收goroutine如果挂了 发送goroutine也挂掉
+func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws *websocket.Conn) {
 	defer cancel()
-	sub := utils.RDS.Subscribe(ctx, channel)
-	subChan := sub.Channel()
+	subChan, err := database.Mmanager.Subscribe(senderId)
+	if err != nil {
+		fmt.Println("Mmanager.Subscribe failed: ", err)
+		// ws.WriteMessage() // TODO告诉客户端错误
+		return
+	}
 	var msg *redis.Message
-	var err error
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("reader channel: ", channel, "closed")
+			fmt.Println("reader channel for userId: ", senderId, "closed")
 			return
 		case msg = <-subChan:
 			fmt.Println("receive msg")
@@ -55,8 +59,8 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, channel string, ws
 	}
 }
 
-func sendProc(ctx context.Context, cancel context.CancelFunc, senderId string, ws *websocket.Conn) {
-	defer cancel()
+// 发送goroutine挂了不应该连累接收goroutine
+func sendProc(ctx context.Context, senderId uint, ws *websocket.Conn) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -66,18 +70,30 @@ func sendProc(ctx context.Context, cancel context.CancelFunc, senderId string, w
 			messageType, p, err := ws.ReadMessage()
 			if err != nil {
 				fmt.Println("ws read msg err: ", err)
-				return
+				// ws.WriteMessage() // TODO告诉客户端错误
+				continue
 			}
 			fmt.Println("messageType:", messageType)
 			fmt.Println("p:", string(p))
 			msg := &models.Message{}
 			err = json.Unmarshal(p, msg)
-			// 校验消息中的发送者字段是否确实是此发送者
-			if err != nil || msg.SenderId != senderId {
-				fmt.Println("json unmarshal msg failed")
-				return
+			if msg.SenderId != senderId {
+				fmt.Println("msg.SenderId与token携带id不匹配")
+				// ws.WriteMessage() // TODO告诉客户端错误
+				continue
 			}
-			utils.RDS.Publish(ctx, msg.ReceiverId, msg.Content)
+			if err != nil {
+				fmt.Println("json unmarshal msg failed: ", err)
+				// ws.WriteMessage() // TODO告诉客户端错误
+				continue
+			}
+			// 将msg发送并存入redis
+			err = database.Mmanager.PublishAndSave(msg)
+			if err != nil {
+				fmt.Println("publishAndSave msg failed: ", err)
+				// ws.WriteMessage() // TODO告诉客户端错误
+				continue
+			}
 		}
 	}
 }

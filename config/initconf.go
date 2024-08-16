@@ -34,7 +34,7 @@ type Config struct {
 func init() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath("./config")
+	viper.AddConfigPath("c:\\Users\\96316\\vscodeProjects\\goProjects\\iChat\\config")
 
 	if err := viper.ReadInConfig(); err != nil {
 		panic("Error reading config file: " + err.Error())
