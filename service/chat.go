@@ -68,10 +68,11 @@ func sendProc(ctx context.Context, senderId uint, ws *websocket.Conn) {
 			return
 		default:
 			messageType, p, err := ws.ReadMessage()
+			// websocket 发生错误 结束此sendProc
 			if err != nil {
 				fmt.Println("ws read msg err: ", err)
 				// ws.WriteMessage() // TODO告诉客户端错误
-				continue
+				return
 			}
 			fmt.Println("messageType:", messageType)
 			fmt.Println("p:", string(p))

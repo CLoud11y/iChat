@@ -77,7 +77,7 @@
                 msgcontext: {
                     targetId: -1,
                     type: -1,
-                    createTime: new Date().getTime(),
+                    createTime: 0,
                     userId: userId(),
                     id: -1,
                 },
@@ -273,16 +273,11 @@
                     data.user = user;
                     data.msg = msg;
                     // console.log(this.msglist)
-                    if (isReverse) {
+                    if (isReverse || isFirst) {
+                        //首次获取或下拉获取消息渲染
                         this.msglist = [data].concat(this.msglist);
                     } else {
-                        //首次获取消息渲染
-                        if (isFirst) {
-                            this.msglist = [data].concat(this.msglist);
-                            //下拉获取消息渲染
-                        } else {
-                            this.msglist = this.msglist.concat(data)
-                        }
+                        this.msglist = this.msglist.concat(data)
                     }
                     console.log(this.msglist)
                     this.resetInput();
@@ -312,6 +307,7 @@
                         msg.media = 1;
                         msg.content = txt;
                         msg.id = this.generateMsgId();
+                        msg.createTime = new Date().getTime()
                         console.log(msg)
                         if (msg.type == 1) {
                             this.showmsg(userInfo(), msg);
@@ -326,6 +322,7 @@
                         var msg = this.createmsgcontext();
                         msg.media = 4;
                         msg.url = picurl;
+                        msg.createTime = new Date().getTime()
                         if (msg.type == 1) {
                             this.showmsg(userInfo(), msg);
                         }
@@ -340,6 +337,7 @@
                         msg.media = 3;
                         msg.url = url;
                         msg.amount = num;
+                        msg.createTime = new Date().getTime()
                         if (msg.type == 1) {
                             this.showmsg(userInfo(), msg);
                         }
@@ -359,10 +357,12 @@
                     if (this.isDisable) {
                         //首次读取某个用户的消息记录
                         if (this.isReadRedisMsg.filter(item => item === user.ID).length <= 0) {
-                            post("user/redisMsg", { userIdA: userId(), userIdB: user.ID, start: this.start, end: this.end, isRev: false }, function (res) {
+                            post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, start: this.start, end: this.end }, function (res) {
                                 //循环读取的消息记录 并显示
-                                for (var i in res.Total) {
-                                    this.showmsg(user, JSON.parse(res.Total[i]), false, true)
+                                console.log(res)
+                                for (var i = 0; i < res.Total; i++) {
+                                    console.log(i, JSON.parse(res.Rows[i]))
+                                    this.showmsg(user, JSON.parse(res.Rows[i]), false, true)
                                 }
                             }.bind(this))
                             this.isReadRedisMsg.push(user.ID)
@@ -390,11 +390,11 @@
                                 if (translate[1] > 0 && this.isLoadMore == false) {
                                     this.isLoadMore = true;
                                     this.start = this.end + 1;
-                                    this.end = this.end + 2;
-                                    post("user/redisMsg", { userIdA: userId(), userIdB: user.ID, start: this.start, end: this.end, isRev: false }, function (res) {
-                                        //循环读取的消息记录 并显示
-                                        for (var i in res.Total) {
-                                            this.showmsg(user, JSON.parse(res.Total[i]), true)
+                                    this.end = this.end + 10;
+                                    post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, start: this.start, end: this.end }, function (res) {
+                                        for (var i = 0; i < res.Total; i++) {
+                                            console.log(i, JSON.parse(res.Rows[i]))
+                                            this.showmsg(user, JSON.parse(res.Rows[i]), true)
                                         }
                                         setTimeout(() => {
                                             this.isLoadMore = false;
@@ -629,9 +629,10 @@
                 heartbeat() {
                     if (this.webSocket.readyState == 1) {  //失去连接 3
                         var msg = this.createmsgcontext();
-                        msg.Media = -1;
-                        msg.Type = 3
-                        msg.Content = "心跳";
+                        msg.media = -1;
+                        msg.type = 3
+                        msg.content = "心跳";
+                        msg.createTime = new Date().getTime()
                         //this.showmsg(userInfo(),msg);
                         this.webSocket.send(JSON.stringify(msg))
                     }
