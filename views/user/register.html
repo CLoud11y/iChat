@@ -66,8 +66,8 @@
                 }
                 util.post("/user/register", this.user).then(res => {
                     console.log(res)
-                    if (res.code != 0) {
-                        mui.toast(res.message)
+                    if (res.Code != 0) {
+                        mui.toast(res.Msg)
                     } else {
                         location.href = "/index"
                         mui.toast("注册成功,即将跳转")
