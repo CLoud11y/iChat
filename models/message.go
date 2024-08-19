@@ -6,15 +6,28 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	HeartBeatType = iota
+	InvalidType
+	PrivateType
+	GroupType
+)
+
+const (
+	TextMedia = iota
+	PictureMedia
+	AudioMedia
+)
+
 type Message struct {
 	gorm.Model
 	Identifier uint   `json:"id"`
 	TimeStamp  int64  `json:"createTime"`
 	SenderId   uint   `json:"userId"`
 	ReceiverId uint   `json:"targetId"`
-	Type       int    `json:"type"` // 群聊/私聊...
+	Type       uint   `json:"type"` // 群聊/私聊...
 	Content    string `json:"content"`
-	Media      int    `json:"media"` // 文字/图片...
+	Media      uint   `json:"media"` // 文字/图片...
 }
 
 func (Message) TableName() string {

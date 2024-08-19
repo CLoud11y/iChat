@@ -22,10 +22,23 @@ func init() {
 	}
 }
 
-func (mm *msgManager) LoadMsgs(uIdA, uIdB uint, start, end int) ([]string, error) {
+func (mm *msgManager) LoadMsgs(uIdA, uIdB uint, earliestMsg models.Message, cnt int) ([]string, error) {
 	key := getKey(uIdA, uIdB)
+	ctx := context.Background()
 	// 最近的消息
-	return mm.rds.ZRevRange(context.Background(), key, int64(start), int64(end)).Result()
+	p, err := json.Marshal(earliestMsg)
+	if err != nil {
+		return nil, err
+	}
+	start := int64(0)
+	if earliestMsg.Type != models.InvalidType {
+		start, err = mm.rds.ZRevRank(ctx, key, string(p)).Result()
+		if err != nil {
+			return nil, err
+		}
+		start++ // 排除掉earliestMsg
+	}
+	return mm.rds.ZRevRange(ctx, key, start, start+int64(cnt-1)).Result()
 }
 
 func (mm *msgManager) SaveMsg(msg *models.Message) error {

@@ -60,7 +60,7 @@ func TestSaveAndLoadMsg(t *testing.T) {
 		}
 	}
 	// load
-	strMsgs, err := Mmanager.LoadMsgs(uIdA, uIdB, 0, round)
+	strMsgs, err := Mmanager.LoadMsgs(uIdA, uIdB, models.Message{Type: models.InvalidType}, round)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,5 +71,17 @@ func TestSaveAndLoadMsg(t *testing.T) {
 	_, err = Mmanager.rds.Del(context.Background(), getKey(uIdA, uIdB)).Result()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDeleteMsg(t *testing.T) {
+	uIdA, uIdB := uint(18), uint(9)
+	_, err := Mmanager.rds.Del(context.Background(), getKey(uIdA, uIdB)).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	strMsgs, err := Mmanager.rds.ZRange(context.Background(), getKey(uIdA, uIdB), 0, -1).Result()
+	if err != nil || len(strMsgs) != 0 {
+		t.Fatal("delete msg failed: ", err)
 	}
 }

@@ -56,8 +56,8 @@
                 },
                 isDisable: true,
                 isLoadMore: false,
-                start: 0,
-                end: 9,
+                msgCnt : 10, // 每次加载的消息条数
+                earliestMsg: {}, // 最早一条消息
                 txtmsg: "",
                 panelstat: "kbord",
                 txtstat: "kbord",
@@ -73,13 +73,13 @@
                 },
                 msglist: [],
                 isReadRedisMsg: [],  //是否已读取某个用户的缓存消息
-                cnt: 0, //被generateMsgId调用 用来生成递增的消息id
+                cnt: 1, //被generateMsgId调用 用来生成递增的消息id
                 msgcontext: {
                     targetId: -1,
                     type: -1,
                     createTime: 0,
                     userId: userId(),
-                    id: -1,
+                    id: 0,
                 },
                 plugins: [
                     {
@@ -304,12 +304,13 @@
                     if (this.isDisable) {
                         this.setTimeFlag()
                         var msg = this.createmsgcontext();
-                        msg.media = 1;
+                        msg.type = 2;
+                        msg.media = 0;
                         msg.content = txt;
                         msg.id = this.generateMsgId();
                         msg.createTime = new Date().getTime()
                         console.log(msg)
-                        if (msg.type == 1) {
+                        if (msg.type == 2) {
                             this.showmsg(userInfo(), msg);
                         }
                         this.webSocket.send(JSON.stringify(msg))
@@ -318,12 +319,11 @@
                 sendpicmsg: function (picurl) {
                     if (this.isDisable) {
                         this.setTimeFlag()
-                        //{id:1,userid:2,dstid:3,cmd:10,media:4,url:"http://www.baidu.com/a/log,jpg"}
                         var msg = this.createmsgcontext();
-                        msg.media = 4;
+                        msg.media = 1;
                         msg.url = picurl;
                         msg.createTime = new Date().getTime()
-                        if (msg.type == 1) {
+                        if (msg.type == 2) {
                             this.showmsg(userInfo(), msg);
                         }
                         this.webSocket.send(JSON.stringify(msg))
@@ -332,13 +332,12 @@
                 sendaudiomsg: function (url, num) {
                     if (this.isDisable) {
                         this.setTimeFlag()
-                        //{id:1,userid:2,dstid:3,cmd:10,media:3,url:"http://www.a,com/dsturl.mp3",anount:40}
                         var msg = this.createmsgcontext();
                         msg.media = 3;
                         msg.url = url;
                         msg.amount = num;
                         msg.createTime = new Date().getTime()
-                        if (msg.type == 1) {
+                        if (msg.type == 2) {
                             this.showmsg(userInfo(), msg);
                         }
                         //console.log("sendaudiomsg",this.msglist);
@@ -352,17 +351,21 @@
                     this.panelstat = 'kbord';
                 },
                 singlemsg: function (user) {
-                    this.start = 0;
-                    this.end = 9;
                     if (this.isDisable) {
                         //首次读取某个用户的消息记录
                         if (this.isReadRedisMsg.filter(item => item === user.ID).length <= 0) {
-                            post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, start: this.start, end: this.end }, function (res) {
+                            this.earliestMsg.type = 1;
+                            post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
                                 //循环读取的消息记录 并显示
                                 console.log(res)
                                 for (var i = 0; i < res.Total; i++) {
                                     console.log(i, JSON.parse(res.Rows[i]))
                                     this.showmsg(user, JSON.parse(res.Rows[i]), false, true)
+                                    // 更新最早消息
+                                    if (i == res.Total - 1) {
+                                        this.earliestMsg = JSON.parse(res.Rows[i]);
+                                        console.log("update earlistMsg", this.earliestMsg)
+                                    }
                                 }
                             }.bind(this))
                             this.isReadRedisMsg.push(user.ID)
@@ -373,7 +376,7 @@
                         this.title = user.Name;
                         this.otherAvatar = user.Avatar;
                         this.msgcontext.targetId = parseInt(user.ID);
-                        this.msgcontext.type = 1;
+                        this.msgcontext.type = 2;
                         mui('.mui-scroll-wrapper').scroll({
                             scrollY: true, //是否竖向滚动
                             scrollX: false, //是否横向滚动
@@ -391,10 +394,15 @@
                                     this.isLoadMore = true;
                                     this.start = this.end + 1;
                                     this.end = this.end + 10;
-                                    post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, start: this.start, end: this.end }, function (res) {
+                                    post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
                                         for (var i = 0; i < res.Total; i++) {
                                             console.log(i, JSON.parse(res.Rows[i]))
                                             this.showmsg(user, JSON.parse(res.Rows[i]), true)
+                                            // 更新最早消息
+                                            if (i == res.Total - 1) {
+                                                this.earliestMsg = JSON.parse(res.Rows[i]);
+                                                console.log("update earlistMsg", this.earliestMsg)
+                                            }
                                         }
                                         setTimeout(() => {
                                             this.isLoadMore = false;
@@ -435,14 +443,13 @@
                         this.showmsg(user, data)
                         this.friends.map((item) => {
                             if (item.ID == data.userId) {
-                                // 1文字 2表情包 3图片 4音频
-                                if (data.media === 1) {
+                                if (data.media === 0) {
                                     item.memo = data.content
                                 } else if (data.media === 2) {
                                     item.memo = data.Url
                                 } else if (data.media === 3) {
                                     item.memo = "[语音]"
-                                } else if (data.media === 4) {
+                                } else if (data.media === 1) {
                                     item.memo = "[图片]"
                                 }
                             }
@@ -629,11 +636,10 @@
                 heartbeat() {
                     if (this.webSocket.readyState == 1) {  //失去连接 3
                         var msg = this.createmsgcontext();
-                        msg.media = -1;
-                        msg.type = 3
-                        msg.content = "心跳";
+                        msg.media = 0;
+                        msg.type = 0;
+                        msg.content = "heartbeat";
                         msg.createTime = new Date().getTime()
-                        //this.showmsg(userInfo(),msg);
                         this.webSocket.send(JSON.stringify(msg))
                     }
 

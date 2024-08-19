@@ -3,16 +3,17 @@ package service
 import (
 	"fmt"
 	"iChat/database"
+	"iChat/models"
 	"iChat/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
 type LoadMsgsInfo struct {
-	UidA  uint `json:"uidA"`
-	UidB  uint `json:"uidB"`
-	Start int  `json:"start"`
-	End   int  `json:"end"`
+	UidA        uint           `json:"uidA"`
+	UidB        uint           `json:"uidB"`
+	EarliestMsg models.Message `json:"earliestMsg"`
+	Cnt         int            `json:"cnt"`
 }
 
 func LoadMsgs(c *gin.Context) {
@@ -25,7 +26,7 @@ func LoadMsgs(c *gin.Context) {
 		utils.RespFail(c.Writer, "token uid与请求信息不符")
 		return
 	}
-	strMsgs, err := database.Mmanager.LoadMsgs(info.UidA, info.UidB, info.Start, info.End)
+	strMsgs, err := database.Mmanager.LoadMsgs(info.UidA, info.UidB, info.EarliestMsg, info.Cnt)
 	if err != nil {
 		utils.RespFail(c.Writer, err.Error())
 		return

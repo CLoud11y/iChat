@@ -12,12 +12,12 @@
                 <span v-text="JSON.stringify(msglist)"></span>
                   -->
                     <!-- if判断 首先  item.msg.Type==msgcontext.Type  类型相同才显示 私聊 群聊
-                     ((item.msg.Type==1) && (item.ismine? item.msg.TargetId==msgcontext.TargetId : item.msg.userId==msgcontext.TargetId ))  私聊判断
-               || ((item.msg.Type==2) && ( item.msg.TargetId==msgcontext.TargetId ))  群聊判断
+                     ((item.msg.Type==2) && (item.ismine? item.msg.TargetId==msgcontext.TargetId : item.msg.userId==msgcontext.TargetId ))  私聊判断
+               || ((item.msg.Type==3) && ( item.msg.TargetId==msgcontext.TargetId ))  群聊判断
                     -->
                     <li class="chat " :class="item.ismine?'mine':'other'" v-for="item in msglist" v-if=" item.msg.type==msgcontext.type  
-                    && ((item.msg.type==1) && (item.ismine? item.msg.targetId==msgcontext.targetId : item.msg.userId==msgcontext.targetId ))
-                    || ((item.msg.type==2) && ( item.msg.targetId==msgcontext.targetId ))
+                    && ((item.msg.type==2) && (item.ismine? item.msg.targetId==msgcontext.targetId : item.msg.userId==msgcontext.targetId ))
+                    || ((item.msg.type==3) && ( item.msg.targetId==msgcontext.targetId ))
                     ">
                         <!--  
                     <div v-text="item.msg"></div>
@@ -31,9 +31,9 @@
                         </div>
                         <span></span>
                         <div class="content">
-                            <div v-if="item.msg.media==1" v-text="item.msg.content"></div>
-                            <img class="pic" v-if="item.msg.media==4" :src="item.msg.url" />
-                            <div v-if="item.msg.media==3" @tap="playaudio(item.msg.url)">
+                            <div v-if="item.msg.media==0" v-text="item.msg.content"></div>
+                            <img class="pic" v-if="item.msg.media==1" :src="item.msg.url" />
+                            <div v-if="item.msg.media==2" @tap="playaudio(item.msg.url)">
                                 <img class="audio" src="/asset/images/audiom.png" />
                                 <span v-text="item.msg.amount"></span>
                             </div>

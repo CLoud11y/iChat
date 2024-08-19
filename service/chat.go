@@ -67,14 +67,13 @@ func sendProc(ctx context.Context, senderId uint, ws *websocket.Conn) {
 			fmt.Println("sender channel closed")
 			return
 		default:
-			messageType, p, err := ws.ReadMessage()
+			_, p, err := ws.ReadMessage()
 			// websocket 发生错误 结束此sendProc
 			if err != nil {
 				fmt.Println("ws read msg err: ", err)
 				// ws.WriteMessage() // TODO告诉客户端错误
 				return
 			}
-			fmt.Println("messageType:", messageType)
 			fmt.Println("p:", string(p))
 			msg := &models.Message{}
 			err = json.Unmarshal(p, msg)
@@ -89,7 +88,7 @@ func sendProc(ctx context.Context, senderId uint, ws *websocket.Conn) {
 				continue
 			}
 			// 将msg发送并存入redis
-			err = database.Mmanager.PublishAndSave(msg)
+			err = handleSendMsg(msg)
 			if err != nil {
 				fmt.Println("publishAndSave msg failed: ", err)
 				// ws.WriteMessage() // TODO告诉客户端错误
@@ -97,6 +96,24 @@ func sendProc(ctx context.Context, senderId uint, ws *websocket.Conn) {
 			}
 		}
 	}
+}
+
+// 根据消息类型对消息进行处理
+func handleSendMsg(msg *models.Message) error {
+	switch msg.Type {
+	case models.InvalidType:
+		fmt.Println("InvalidType")
+	case models.HeartBeatType:
+		fmt.Println("HeartBeatmsg: ", msg)
+	case models.PrivateType:
+		err := database.Mmanager.PublishAndSave(msg)
+		if err != nil {
+			return err
+		}
+	default:
+		fmt.Println("not support msg type: ", msg.Type)
+	}
+	return nil
 }
 
 func getWebsocket(c *gin.Context) (*websocket.Conn, error) {
