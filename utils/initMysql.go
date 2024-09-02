@@ -32,5 +32,6 @@ func init() {
 	}
 	db.AutoMigrate(&models.User{})
 	db.AutoMigrate(&models.Relation{})
+	db.AutoMigrate(&models.Group{})
 	DB = db
 }

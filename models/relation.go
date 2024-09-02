@@ -10,9 +10,9 @@ const (
 //人员关系
 type Relation struct {
 	gorm.Model
-	OwnerId  uint `gorm:"uniqueIndex:owner_target_id;"` //与targetId构成复合索引
-	TargetId uint `gorm:"uniqueIndex:owner_target_id;"` //对应人/群 ID
-	Type     uint //关系类型
+	OwnerId  uint `gorm:"uniqueIndex:owner_id;"` //与targetId和type构成复合索引
+	TargetId uint `gorm:"uniqueIndex:owner_id;"` //对应人/群 ID
+	Type     uint `gorm:"uniqueIndex:owner_id;"` //关系类型
 	Desc     string
 }
 

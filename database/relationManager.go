@@ -20,6 +20,15 @@ func init() {
 	}
 }
 
+func (rm *relationManager) AddGroupRelation(userId uint, groupId uint) error {
+	relation := models.Relation{
+		OwnerId:  userId,
+		TargetId: groupId,
+		Type:     models.GroupRelation,
+	}
+	return rm.db.Create(&relation).Error
+}
+
 func (rm *relationManager) SearchFriends(userId uint) ([]models.User, error) {
 	relations := make([]models.Relation, 0)
 	objIds := make([]uint, 0)

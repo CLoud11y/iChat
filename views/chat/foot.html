@@ -304,13 +304,15 @@
                     if (this.isDisable) {
                         this.setTimeFlag()
                         var msg = this.createmsgcontext();
-                        msg.type = 2;
+                        if (msg.type != 3){
+                            msg.type = 2;
+                        }
                         msg.media = 0;
                         msg.content = txt;
                         msg.id = this.generateMsgId();
                         msg.createTime = new Date().getTime()
                         console.log(msg)
-                        if (msg.type == 2) {
+                        if (msg.type == 2 || msg.type == 3) {
                             this.showmsg(userInfo(), msg);
                         }
                         this.webSocket.send(JSON.stringify(msg))
@@ -421,7 +423,7 @@
                         this.win = "group";
                         this.title = group.Name;
                         this.msgcontext.targetId = parseInt(group.ID);
-                        this.msgcontext.type = 2;
+                        this.msgcontext.type = 3;
                     }
                 },
                 loaduserinfo: function (userid, cb) {
@@ -495,7 +497,8 @@
                 },
                 loadcommunitys: function () {
                     var that = this;
-                    post("contact/loadcommunity", { ownerId: userId() }, function (res) {
+                    post("auth/contact/loadGroups", {}, function (res) {
+                        console.log("loadcommunitys", res.Rows)
                         that.communitys = res.Rows || [];
                     })
                 },
@@ -549,19 +552,18 @@
                 createcommunity() {
                     //console.log("createcommunity")
                     this.com.ownerId = userId()
+                    var that = this;
                     console.log(this.com)
-                    util.post("/contact/createCommunity", this.com).then(res => {
+                    post("auth/contact/createGroup", this.com, function (res) {
                         console.log(res)
                         if (res.Code != 0) {
                             mui.toast(res.Msg)
                         } else {
-                            //location.replace("localhost:8081")
-                            //location.href = "/"
                             mui.toast("建群成功")
-                            this.loadcommunitys();
-                            //goBack()
+                            that.loadcommunitys();
                         }
                     })
+                    
                 },
                 updateUserInfo() {
                     //console.log("createcommunity")
@@ -594,11 +596,10 @@
                     if (this.isDisable) {
                         this.setTimeFlag();
                         var that = this;
-                        console.log(that);
-                        post("contact/joinGroup", { comId: dstobj, "userId": userId() }, function (res) {
+                        console.log(dstobj);
+                        post("auth/contact/joinGroup", { groupId: dstobj }, function (res) {
                             if (res.Code == 0) {
                                 mui.toast("添加成功");
-
                                 that.loadcommunitys();
                             } else {
                                 mui.toast(res.Msg);
@@ -608,7 +609,7 @@
                 },
                 joincom: function () {
                     var that = this;
-                    mui.prompt('', '请输入群号或者群名称', '加群', ['取消', '确认'], function (e) {
+                    mui.prompt('', '请输入群号', '加群', ['取消', '确认'], function (e) {
                         if (e.index == 1) {
                             //    if (isNaN(e.value) || e.value <= 0) {
                             //       mui.toast('格式错误');

@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"iChat/models"
 	"iChat/utils"
 	"strconv"
@@ -71,14 +72,40 @@ func (mm *msgManager) PublishMsg(msg *models.Message) error {
 	if err != nil {
 		return err
 	}
-	receiver := strconv.FormatUint(uint64(msg.ReceiverId), 10)
-	_, err = mm.rds.Publish(context.Background(), receiver, p).Result()
+	receiverChannel := mm.getReceiverChannel(msg)
+	_, err = mm.rds.Publish(context.Background(), receiverChannel, p).Result()
 	return err
+}
+
+func (mm *msgManager) getReceiverChannel(msg *models.Message) string {
+	channel := ""
+	switch msg.Type {
+	case models.GroupType:
+		channel = "group_" + strconv.FormatUint(uint64(msg.ReceiverId), 10)
+	case models.PrivateType:
+		channel = "private_" + strconv.FormatUint(uint64(msg.ReceiverId), 10)
+	default:
+		fmt.Println("unknown msg type")
+	}
+	return channel
 }
 
 func (mm *msgManager) Subscribe(uid uint) (<-chan *redis.Message, error) {
 	channel := strconv.FormatUint(uint64(uid), 10)
 	sub := mm.rds.Subscribe(context.Background(), channel)
+	return sub.Channel(), nil
+}
+
+func (mm *msgManager) SubscribeGroups(uid uint) (<-chan *redis.Message, error) {
+	groupIds, err := Gmanager.GetGroupIds(uid)
+	if err != nil {
+		return nil, err
+	}
+	channels := make([]string, len(groupIds))
+	for i, id := range groupIds {
+		channels[i] = "group_" + strconv.FormatUint(uint64(id), 10)
+	}
+	sub := mm.rds.Subscribe(context.Background(), channels...)
 	return sub.Channel(), nil
 }
 

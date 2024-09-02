@@ -42,6 +42,10 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 		// ws.WriteMessage() // TODO告诉客户端错误
 		return
 	}
+	groupChan, err := database.Mmanager.SubscribeGroups(senderId)
+	if err != nil {
+		fmt.Println("Mmanager.SubscribeGroups failed: ", err)
+	}
 	var msg *redis.Message
 	for {
 		select {
@@ -51,6 +55,12 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 		case msg = <-subChan:
 			fmt.Println("receive msg")
 			// TODO: 将msg解绑至message结构体 获取信息后再展示
+			err = ws.WriteMessage(1, []byte(msg.Payload))
+			if err != nil {
+				panic(err)
+			}
+		case msg = <-groupChan:
+			fmt.Println("receive group msg")
 			err = ws.WriteMessage(1, []byte(msg.Payload))
 			if err != nil {
 				panic(err)
@@ -87,7 +97,7 @@ func sendProc(ctx context.Context, senderId uint, ws *websocket.Conn) {
 				// ws.WriteMessage() // TODO告诉客户端错误
 				continue
 			}
-			// 将msg发送并存入redis
+			// 处理待发送消息
 			err = handleSendMsg(msg)
 			if err != nil {
 				fmt.Println("publishAndSave msg failed: ", err)
@@ -107,6 +117,12 @@ func handleSendMsg(msg *models.Message) error {
 		fmt.Println("HeartBeatmsg: ", msg)
 	case models.PrivateType:
 		err := database.Mmanager.PublishAndSave(msg)
+		if err != nil {
+			return err
+		}
+	case models.GroupType:
+		// TODO: 群消息的存储与加载
+		err := database.Mmanager.PublishMsg(msg)
 		if err != nil {
 			return err
 		}
