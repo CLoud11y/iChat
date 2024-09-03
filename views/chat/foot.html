@@ -357,7 +357,7 @@
                         //首次读取某个用户的消息记录
                         if (this.isReadRedisMsg.filter(item => item === user.ID).length <= 0) {
                             this.earliestMsg.type = 1;
-                            post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
+                            post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, type: 2, earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
                                 //循环读取的消息记录 并显示
                                 console.log(res)
                                 for (var i = 0; i < res.Total; i++) {
@@ -396,7 +396,7 @@
                                     this.isLoadMore = true;
                                     this.start = this.end + 1;
                                     this.end = this.end + 10;
-                                    post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
+                                    post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, type: 2,earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
                                         for (var i = 0; i < res.Total; i++) {
                                             console.log(i, JSON.parse(res.Rows[i]))
                                             this.showmsg(user, JSON.parse(res.Rows[i]), true)

@@ -23,8 +23,8 @@ func init() {
 	}
 }
 
-func (mm *msgManager) LoadMsgs(uIdA, uIdB uint, earliestMsg models.Message, cnt int) ([]string, error) {
-	key := getKey(uIdA, uIdB)
+func (mm *msgManager) LoadMsgs(uIdA, uIdB, msgType uint, earliestMsg models.Message, cnt int) ([]string, error) {
+	key := getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: msgType})
 	ctx := context.Background()
 	// 最近的消息
 	p, err := json.Marshal(earliestMsg)
@@ -43,7 +43,7 @@ func (mm *msgManager) LoadMsgs(uIdA, uIdB uint, earliestMsg models.Message, cnt 
 }
 
 func (mm *msgManager) SaveMsg(msg *models.Message) error {
-	key := getKey(msg.SenderId, msg.ReceiverId)
+	key := getKey(msg)
 	_, err := mm.rds.ZAdd(context.Background(), key, &redis.Z{
 		Score:  getScore(msg),
 		Member: msg,
@@ -61,7 +61,7 @@ func (mm *msgManager) PublishAndSave(msg *models.Message) error {
 	// publish 若失败需要删掉redis中存的内容
 	err = mm.PublishMsg(msg)
 	if err != nil {
-		mm.rds.ZRem(context.Background(), getKey(msg.SenderId, msg.ReceiverId), msg)
+		mm.rds.ZRem(context.Background(), getKey(msg), msg)
 		return err
 	}
 	return nil
@@ -91,7 +91,7 @@ func (mm *msgManager) getReceiverChannel(msg *models.Message) string {
 }
 
 func (mm *msgManager) Subscribe(uid uint) (<-chan *redis.Message, error) {
-	channel := strconv.FormatUint(uint64(uid), 10)
+	channel := "private_" + strconv.FormatUint(uint64(uid), 10)
 	sub := mm.rds.Subscribe(context.Background(), channel)
 	return sub.Channel(), nil
 }
@@ -122,13 +122,21 @@ func getScore(msg *models.Message) (score float64) {
 }
 
 // key 格式为 msg_uidA_uidB (uidA<uidB)
-func getKey(uIdA, uIdB uint) string {
-	sender, receiver := strconv.FormatUint(uint64(uIdA), 10), strconv.FormatUint(uint64(uIdB), 10)
-	key := "msg_"
-	if uIdA < uIdB {
-		key += sender + "_" + receiver
+func getKey(msg *models.Message) string {
+	key := "msg:"
+	switch msg.Type {
+	case models.GroupType:
+		key += "group:"
+	case models.PrivateType:
+		key += "private:"
+	default:
+		utils.Logger.Panicln("unknown msg type", msg.Type)
+	}
+	sender, receiver := strconv.FormatUint(uint64(msg.SenderId), 10), strconv.FormatUint(uint64(msg.ReceiverId), 10)
+	if msg.SenderId < msg.ReceiverId {
+		key += sender + "." + receiver
 	} else {
-		key += receiver + "_" + sender
+		key += receiver + "." + sender
 	}
 	return key
 }

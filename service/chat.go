@@ -29,7 +29,7 @@ func Chat(c *gin.Context) {
 	fmt.Println("sender: ", senderId)
 	ctx, canceller := context.WithCancel(context.Background())
 	go recvProc(ctx, canceller, senderId, ws)
-	go sendProc(ctx, senderId, ws)
+	go sendProc(ctx, canceller, senderId, ws)
 	<-ctx.Done()
 }
 
@@ -69,8 +69,9 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 	}
 }
 
-// 发送goroutine挂了不应该连累接收goroutine
-func sendProc(ctx context.Context, senderId uint, ws *websocket.Conn) {
+// 发送goroutine挂了 接收goroutine也挂掉
+func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws *websocket.Conn) {
+	defer cancel()
 	for {
 		select {
 		case <-ctx.Done():

@@ -14,6 +14,7 @@ type LoadMsgsInfo struct {
 	UidB        uint           `json:"uidB"`
 	EarliestMsg models.Message `json:"earliestMsg"`
 	Cnt         int            `json:"cnt"`
+	Type        uint           `json:"type"`
 }
 
 func LoadMsgs(c *gin.Context) {
@@ -26,7 +27,7 @@ func LoadMsgs(c *gin.Context) {
 		utils.RespFail(c.Writer, "token uid与请求信息不符")
 		return
 	}
-	strMsgs, err := database.Mmanager.LoadMsgs(info.UidA, info.UidB, info.EarliestMsg, info.Cnt)
+	strMsgs, err := database.Mmanager.LoadMsgs(info.UidA, info.UidB, info.Type, info.EarliestMsg, info.Cnt)
 	if err != nil {
 		utils.RespFail(c.Writer, err.Error())
 		return

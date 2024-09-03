@@ -37,8 +37,10 @@ func TestSaveAndLoadMsg(t *testing.T) {
 	var err error
 	// save
 	for i := 0; i < round; i++ {
-		msg1 := &models.Message{SenderId: uIdA,
+		msg1 := &models.Message{
+			SenderId:   uIdA,
 			ReceiverId: uIdB,
+			Type:       models.PrivateType,
 			Content:    strconv.Itoa(i),
 			TimeStamp:  time.Now().UnixMilli(),
 			Identifier: uint(i),
@@ -46,6 +48,7 @@ func TestSaveAndLoadMsg(t *testing.T) {
 		msg2 := &models.Message{
 			SenderId:   uIdB,
 			ReceiverId: uIdA,
+			Type:       models.PrivateType,
 			Content:    strconv.Itoa(i),
 			TimeStamp:  time.Now().UnixMilli(),
 			Identifier: uint(i),
@@ -60,7 +63,7 @@ func TestSaveAndLoadMsg(t *testing.T) {
 		}
 	}
 	// load
-	strMsgs, err := Mmanager.LoadMsgs(uIdA, uIdB, models.Message{Type: models.InvalidType}, round)
+	strMsgs, err := Mmanager.LoadMsgs(uIdA, uIdB, models.PrivateType, models.Message{Type: models.InvalidType}, round)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +71,7 @@ func TestSaveAndLoadMsg(t *testing.T) {
 		t.Log(i, v)
 	}
 	// delete test msgs
-	_, err = Mmanager.rds.Del(context.Background(), getKey(uIdA, uIdB)).Result()
+	_, err = Mmanager.rds.Del(context.Background(), getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: models.PrivateType})).Result()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,11 +79,11 @@ func TestSaveAndLoadMsg(t *testing.T) {
 
 func TestDeleteMsg(t *testing.T) {
 	uIdA, uIdB := uint(18), uint(9)
-	_, err := Mmanager.rds.Del(context.Background(), getKey(uIdA, uIdB)).Result()
+	_, err := Mmanager.rds.Del(context.Background(), getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: models.PrivateType})).Result()
 	if err != nil {
 		t.Fatal(err)
 	}
-	strMsgs, err := Mmanager.rds.ZRange(context.Background(), getKey(uIdA, uIdB), 0, -1).Result()
+	strMsgs, err := Mmanager.rds.ZRange(context.Background(), getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: models.PrivateType}), 0, -1).Result()
 	if err != nil || len(strMsgs) != 0 {
 		t.Fatal("delete msg failed: ", err)
 	}
