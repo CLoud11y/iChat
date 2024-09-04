@@ -2,8 +2,6 @@ package models
 
 import (
 	"encoding/json"
-
-	"gorm.io/gorm"
 )
 
 const (
@@ -20,7 +18,6 @@ const (
 )
 
 type Message struct {
-	gorm.Model
 	Identifier uint   `json:"id"`
 	TimeStamp  int64  `json:"createTime"`
 	SenderId   uint   `json:"userId"`

@@ -123,7 +123,7 @@ func handleSendMsg(msg *models.Message) error {
 		}
 	case models.GroupType:
 		// TODO: 群消息的存储与加载
-		err := database.Mmanager.PublishMsg(msg)
+		err := database.Mmanager.PublishAndSave(msg)
 		if err != nil {
 			return err
 		}

@@ -121,22 +121,22 @@ func getScore(msg *models.Message) (score float64) {
 	return
 }
 
-// key 格式为 msg_uidA_uidB (uidA<uidB)
+// key 格式为 msg:private:uidA.uidB (uidA<uidB)或 msg:group:groupId
 func getKey(msg *models.Message) string {
+	sender, receiver := strconv.FormatUint(uint64(msg.SenderId), 10), strconv.FormatUint(uint64(msg.ReceiverId), 10)
 	key := "msg:"
 	switch msg.Type {
 	case models.GroupType:
-		key += "group:"
+		key += "group:" + receiver
 	case models.PrivateType:
 		key += "private:"
+		if msg.SenderId < msg.ReceiverId {
+			key += sender + "." + receiver
+		} else {
+			key += receiver + "." + sender
+		}
 	default:
 		utils.Logger.Panicln("unknown msg type", msg.Type)
-	}
-	sender, receiver := strconv.FormatUint(uint64(msg.SenderId), 10), strconv.FormatUint(uint64(msg.ReceiverId), 10)
-	if msg.SenderId < msg.ReceiverId {
-		key += sender + "." + receiver
-	} else {
-		key += receiver + "." + sender
 	}
 	return key
 }
