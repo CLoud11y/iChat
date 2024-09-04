@@ -73,6 +73,7 @@
                 },
                 msglist: [],
                 isReadRedisMsg: [],  //是否已读取某个用户的缓存消息
+                isReadGroupMsg: [],  //是否已读取某个群聊的缓存消息
                 cnt: 1, //被generateMsgId调用 用来生成递增的消息id
                 msgcontext: {
                     targetId: -1,
@@ -396,7 +397,8 @@
                                     this.isLoadMore = true;
                                     this.start = this.end + 1;
                                     this.end = this.end + 10;
-                                    post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, type: 2,earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
+                                    post("auth/loadMsgs", { uidA: userId(), uidB: user.ID, type: 2, earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
+                                        console.log("reload msg res:", res)
                                         for (var i = 0; i < res.Total; i++) {
                                             console.log(i, JSON.parse(res.Rows[i]))
                                             this.showmsg(user, JSON.parse(res.Rows[i]), true)
@@ -418,13 +420,67 @@
                 },
                 //群聊的初始化
                 groupmsg: function (group) {
-                    if (this.isDisable) {
-                        this.setTimeFlag()
-                        this.win = "group";
-                        this.title = group.Name;
-                        this.msgcontext.targetId = parseInt(group.ID);
-                        this.msgcontext.type = 3;
+                    if (!this.isDisable) {
+                        return
                     }
+                    //首次读取消息记录
+                    if (this.isReadGroupMsg.filter(item => item === group.ID).length <= 0) {
+                        this.earliestMsg.type = 1;
+                        post("auth/loadMsgs", { uidA: userId(), uidB: group.ID, type: 3, earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
+                            //循环读取的消息记录 并显示
+                            console.log(res)
+                            for (var i = 0; i < res.Total; i++) {
+                                console.log(i, JSON.parse(res.Rows[i]))
+                                this.showmsg(group, JSON.parse(res.Rows[i]), false, true)
+                                // 更新最早消息
+                                if (i == res.Total - 1) {
+                                    this.earliestMsg = JSON.parse(res.Rows[i]);
+                                    console.log("update earlistMsg", this.earliestMsg)
+                                }
+                            }
+                        }.bind(this))
+                        this.isReadGroupMsg.push(group.ID)
+                    }
+                    this.setTimeFlag()
+                    this.win = "group";
+                    this.title = group.name;
+                    this.msgcontext.targetId = parseInt(group.ID);
+                    this.msgcontext.type = 3;
+                    mui('.mui-scroll-wrapper').scroll({
+                        scrollY: true, //是否竖向滚动
+                        scrollX: false, //是否横向滚动
+                        startX: 0, //初始化时滚动至x
+                        startY: 0, //初始化时滚动至y
+                        indicators: true, //是否显示滚动条
+                        deceleration: 0.0006, //阻尼系数,系数越小滑动越灵敏
+                        bounce: true //是否启用回弹
+                    });
+                    //下拉获取历史消息记录
+                    document.querySelector('.mui-scroll-wrapper').addEventListener('scroll', (e) => {
+                            let translate = e.target.style?.transform?.match(/translate3d\(\d+px,\s*(\d+)px,\s*(\d+)px\)/i);
+                            if (translate && translate.length > 1) {
+                                if (translate[1] > 0 && this.isLoadMore == false) {
+                                    this.isLoadMore = true;
+                                    this.start = this.end + 1;
+                                    this.end = this.end + 10;
+                                    post("auth/loadMsgs", { uidA: userId(), uidB: group.ID, type: 3, earliestMsg: this.earliestMsg, cnt: this.msgCnt }, function (res) {
+                                        for (var i = 0; i < res.Total; i++) {
+                                            console.log(i, JSON.parse(res.Rows[i]))
+                                            this.showmsg(group, JSON.parse(res.Rows[i]), true)
+                                            // 更新最早消息
+                                            if (i == res.Total - 1) {
+                                                this.earliestMsg = JSON.parse(res.Rows[i]);
+                                                console.log("update earlistMsg", this.earliestMsg)
+                                            }
+                                        }
+                                        setTimeout(() => {
+                                            this.isLoadMore = false;
+                                        }, 300);
+                                    }.bind(this))
+                                    this.isReadGroupMsg.push(group.ID)
+                                }
+                            }
+                        })
                 },
                 loaduserinfo: function (userid, cb) {
                     userid = "" + userid;
