@@ -23,7 +23,7 @@ type Message struct {
 	SenderId   uint   `json:"userId"`
 	ReceiverId uint   `json:"targetId"`
 	Type       uint   `json:"type"` // 群聊/私聊...
-	Content    string `json:"content"`
+	Content    string `json:"content" gorm:"type:varchar(1024)"`
 	Media      uint   `json:"media"` // 文字/图片...
 }
 
