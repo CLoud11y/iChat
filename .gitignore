@@ -29,3 +29,6 @@ go.work.sum
 
 # asset
 /asset
+
+# log file
+/logfiles

@@ -29,6 +29,9 @@ type Config struct {
 		PoolSize    int    `mapstructure:"poolSize"`
 		MinIdleConn int    `mapstructure:"minIdleConn"`
 	} `mapstructure:"REDIS"`
+	LOG struct {
+		Path string `mapstructure:"path"`
+	} `mapstructure:"LOG"`
 }
 
 func init() {
