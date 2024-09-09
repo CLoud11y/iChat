@@ -29,7 +29,7 @@ func AddFriend(c *gin.Context) {
 
 func SearchFriends(c *gin.Context) {
 	userId := c.GetUint("uid")
-	users, err := database.Rmanager.SearchFriends(userId)
+	users, err := database.Rmanager.SearchFriends2(userId)
 	if err != nil {
 		fmt.Println(1)
 		utils.RespFail(c.Writer, err.Error())
@@ -95,7 +95,7 @@ func JoinGroup(c *gin.Context) {
 
 func LoadGroups(c *gin.Context) {
 	userId := c.GetUint("uid")
-	groups, err := database.Gmanager.GetGroupsByUid(userId)
+	groups, err := database.Gmanager.GetGroupsByUid2(userId)
 	if err != nil {
 		utils.RespFail(c.Writer, err.Error())
 		return

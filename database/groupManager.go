@@ -76,6 +76,17 @@ func (gm *groupManager) GetGroupsByUid(userId uint) ([]models.Group, error) {
 	return gm.GetGroupsById(objIds)
 }
 
+// 多表联查提高性能
+func (gm *groupManager) GetGroupsByUid2(userId uint) ([]models.Group, error) {
+	groups := []models.Group{}
+	err := gm.db.InnerJoins("JOIN relation ON group.id = relation.target_id AND relation.owner_id = ? AND relation.type = ?",
+		userId, models.GroupRelation).Find(&groups).Error
+	if err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
 // 查询用户加入的群聊id
 func (gm *groupManager) GetGroupIds(userId uint) ([]uint, error) {
 	relations := make([]models.Relation, 0)

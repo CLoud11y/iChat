@@ -88,3 +88,70 @@ func TestDeleteMsg(t *testing.T) {
 		t.Fatal("delete msg failed: ", err)
 	}
 }
+
+func BenchmarkGetGroups(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := Gmanager.GetGroupsByUid(9)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGetGroups2(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := Gmanager.GetGroupsByUid2(9)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestGetGroups2(t *testing.T) {
+	g, err := Gmanager.GetGroupsByUid2(9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(g)
+}
+
+func TestSearchFriends(t *testing.T) {
+	friends, err := Rmanager.SearchFriends(9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	friends2, err := Rmanager.SearchFriends2(9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(friends) != len(friends2) {
+		t.Fatal("search friends failed", friends, friends2)
+	}
+	for i, v := range friends {
+		if v.ID != friends2[i].ID {
+			t.Fatal("search friends failed")
+		}
+	}
+}
+
+func BenchmarkSearchFriends(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := Rmanager.SearchFriends(9)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkSearchFriends2(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := Rmanager.SearchFriends2(9)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

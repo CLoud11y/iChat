@@ -47,6 +47,17 @@ func (rm *relationManager) SearchFriends(userId uint) ([]models.User, error) {
 	return users, nil
 }
 
+// 多表联查优化性能
+func (rm *relationManager) SearchFriends2(userId uint) ([]models.User, error) {
+	users := make([]models.User, 0)
+	err := rm.db.InnerJoins("Join relation ON relation.target_id = user.id AND relation.owner_id = ? AND relation.type = ?",
+		userId, models.FriendRelation).Find(&users).Error
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
 // 添加好友
 func (rm *relationManager) AddFriendByPhone(userId uint, targetPhone string) error {
 	if targetPhone == "" {
