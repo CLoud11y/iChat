@@ -9,6 +9,42 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type ContactInfo struct {
+	Id           uint   `json:"id"`
+	DisplayName  string `json:"displayName"`
+	Avatar       string `json:"avatar"`
+	Account      string `json:"account"`
+	Index        string `json:"index"`
+	Unread       uint   `json:"unread"`
+	LastContent  string `json:"lastContent"`
+	LastSendTime int64  `json:"lastSendTime"`
+	IsNotice     int    `json:"is_notice"`
+}
+
+func GetContacts(c *gin.Context) {
+	userId := c.GetUint("uid")
+	users, err := database.Rmanager.SearchFriends2(userId)
+	if err != nil {
+		utils.RespFail(c.Writer, err.Error())
+		return
+	}
+	contacts := make([]ContactInfo, len(users))
+	for i := 0; i < len(users); i++ {
+		contacts[i] = ContactInfo{
+			Id:           users[i].ID,
+			DisplayName:  users[i].Name,
+			Avatar:       "",
+			Account:      users[i].Phone,
+			Index:        "",
+			Unread:       0,
+			LastContent:  "last content unimplemented",
+			LastSendTime: 0,
+			IsNotice:     0,
+		}
+	}
+	utils.RespOK(c.Writer, contacts, "okkkkk")
+}
+
 type FriendInfo struct {
 	Phone string `json:"targetPhone"`
 }

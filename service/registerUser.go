@@ -22,6 +22,7 @@ func RegisterUser(c *gin.Context) {
 		utils.RespFail(c.Writer, err.Error())
 		return
 	}
+	fmt.Println(c.Request.Body)
 	fmt.Println(info)
 	// 检查密码是否一致
 	if info.Password != info.Password2 {

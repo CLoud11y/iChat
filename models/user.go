@@ -23,3 +23,8 @@ type User struct {
 func (User) TableName() string {
 	return "user"
 }
+
+// 发送消息接口需要
+type FromUserInfo struct {
+	Id uint `json:"id"`
+}

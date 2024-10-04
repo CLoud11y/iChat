@@ -10,27 +10,22 @@ import (
 )
 
 type LoginInfo struct {
-	PhoneNum string `json:"phone" form:"phone"`
-	Password string `json:"password" form:"password"`
+	PhoneNum string `json:"account"`
+	Password string `json:"password"`
 }
 
 type LoginResp struct {
-	Token    string      `json:"token"`
-	UserInfo models.User `json:"userInfo"`
+	Token     string      `json:"token"`
+	SessionId string      `json:"sessionId"`
+	UserInfo  models.User `json:"userInfo"`
 }
 
 func LoginUser(c *gin.Context) {
-	info := RegisterInfo{}
+	info := &LoginInfo{}
 	// 将注册信息绑定至结构体
-	if err := c.ShouldBind(&info); err != nil {
+	if err := c.ShouldBind(info); err != nil {
 		fmt.Println("login info binding err", err)
 	}
-	if info.Password == "" || info.PhoneNum == "" {
-		info.Password = c.Request.FormValue("password")
-		info.PhoneNum = c.Request.FormValue("phone")
-	}
-	fmt.Println(info.PhoneNum, info.Password)
-	//
 	user, err := database.Umanager.GetUserByPhone(info.PhoneNum)
 	// 用户不存在或发生其他错误
 	if err != nil {
@@ -43,5 +38,5 @@ func LoginUser(c *gin.Context) {
 		utils.RespFail(c.Writer, err.Error())
 		return
 	}
-	utils.RespOK(c.Writer, LoginResp{token, *user}, "ok")
+	utils.RespOK(c.Writer, LoginResp{token, "0", *user}, "ok")
 }

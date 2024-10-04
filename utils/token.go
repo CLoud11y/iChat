@@ -49,10 +49,13 @@ func TokenValid(c *gin.Context) (uint, error) {
 
 // 从请求头或query中获取token
 func ExtractToken(c *gin.Context) string {
-	bearerToken := c.GetHeader("Authorization")
-	// 格式为bearer [token]
-	if len(strings.Split(bearerToken, " ")) == 2 {
-		return strings.Split(bearerToken, " ")[1]
+	// 格式为bearer [token] 或者 [token]
+	if bearerToken := c.GetHeader("Authorization"); bearerToken != "" {
+		if len(strings.Split(bearerToken, " ")) == 2 {
+			return strings.Split(bearerToken, " ")[1]
+		} else {
+			return bearerToken
+		}
 	}
 	//token在query中
 	if t := c.Query("token"); t != "" {

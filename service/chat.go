@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iChat/database"
 	"iChat/models"
+	"iChat/utils"
 	"net/http"
 	"time"
 
@@ -53,20 +54,32 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 			fmt.Println("reader channel for userId: ", senderId, "closed")
 			return
 		case msg = <-subChan:
-			fmt.Println("receive msg")
+			fmt.Println("receive msg: ", msg.Payload)
 			// TODO: 将msg解绑至message结构体 获取信息后再展示
-			err = ws.WriteMessage(1, []byte(msg.Payload))
+			jsonMsg := &models.Message{}
+			err = json.Unmarshal(utils.String2Bytes(msg.Payload), jsonMsg)
+			if err != nil {
+				fmt.Println("json unmarshal msg failed: ", err)
+				continue
+			}
+			b, _ := json.Marshal(SendMsgInfo{Data: jsonMsg.Conv2MsgInfo(), Type: "simple"})
+			err = ws.WriteMessage(websocket.TextMessage, b)
 			if err != nil {
 				panic(err)
 			}
 		case msg = <-groupChan:
-			fmt.Println("receive group msg")
-			err = ws.WriteMessage(1, []byte(msg.Payload))
+			fmt.Println("receive group msg", msg.Payload)
+			err = ws.WriteMessage(websocket.TextMessage, utils.String2Bytes(msg.Payload))
 			if err != nil {
 				panic(err)
 			}
 		}
 	}
+}
+
+type SendMsgInfo struct {
+	Data *models.MsgInfo `json:"data"`
+	Type string          `json:"type"`
 }
 
 // 发送goroutine挂了 接收goroutine也挂掉
@@ -144,4 +157,20 @@ func getWebsocket(c *gin.Context) (*websocket.Conn, error) {
 		},
 	}
 	return wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+}
+
+func SendMsg(c *gin.Context) {
+	msgInfo := &models.MsgInfo{}
+	if err := c.ShouldBind(msgInfo); err != nil {
+		fmt.Println("msg info binding err", err)
+	}
+	msg := msgInfo.Conv2Msg()
+	fmt.Println("msgInfo: ", msgInfo)
+	fmt.Println("msg: ", msg)
+	err := database.Mmanager.PublishAndSave(msg)
+	if err != nil {
+		utils.RespFail(c.Writer, "publishAndSave msg failed: "+err.Error())
+		return
+	}
+	utils.RespOK(c.Writer, "ok", "ok")
 }

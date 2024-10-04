@@ -7,11 +7,11 @@ import (
 )
 
 type RespInfo struct {
-	Code  int         `json:"Code"` //0成功 -1失败
-	Msg   string      `json:"Msg"`
-	Data  interface{} `json:"Data"`
-	Rows  interface{} `json:"Rows"`
-	Total interface{} `json:"Total"`
+	Code  int         `json:"code"` //0成功 -1失败
+	Msg   string      `json:"msg"`
+	Data  interface{} `json:"data"`
+	Rows  interface{} `json:"rows"`
+	Total interface{} `json:"total"`
 }
 
 func resp(w http.ResponseWriter, code int, data interface{}, msg string) {
@@ -34,7 +34,7 @@ func respList(w http.ResponseWriter, code int, data interface{}, total interface
 	w.WriteHeader(http.StatusOK)
 	h := RespInfo{
 		Code:  code,
-		Rows:  data,
+		Data:  data,
 		Total: total,
 	}
 	ret, err := json.Marshal(h)

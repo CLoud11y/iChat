@@ -9,27 +9,26 @@ import (
 
 func Router() *gin.Engine {
 	r := gin.Default()
-
-	//静态资源
-	r.Static("/asset", "asset/")
-	r.StaticFile("/favicon.ico", "asset/images/favicon.ico")
-	r.LoadHTMLGlob("views/**/*")
+	r.Use(middlewares.Cors())
 
 	public := r.Group("/")
 	{
-		public.GET("/index", service.Index)
+		public.POST("/getSystemInfo", service.GetSystemInfo)
 		public.POST("/user/register", service.RegisterUser)
 		public.POST("/user/login", service.LoginUser)
-		public.GET("/toRegister", service.ToRegister)
 	}
 	protected := r.Group("/auth")
 	// 在路由组中使用中间件校验token
 	protected.Use(middlewares.JwtAuth)
 	{
-		protected.GET("/toChat", service.ToChat)
+		protected.GET("/getws", service.Chat)
+		protected.POST("/getContacts", service.GetContacts)
+		protected.POST("/files/index", service.GetFileList)
+		protected.POST("/sendMessage", service.SendMsg)
+
 		protected.GET("/test", service.Test)
 		protected.GET("/chat", service.Chat)
-		protected.POST("/loadMsgs", service.LoadMsgs)
+		protected.POST("/getMessageList", service.GetMessageList)
 		contact := protected.Group("/contact")
 		{
 			contact.POST("/addFriend", service.AddFriend)
