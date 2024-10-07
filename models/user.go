@@ -1,18 +1,20 @@
 package models
 
 import (
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
 type User struct {
 	gorm.Model
-	Identifier string `gorm:"unique; type: varchar(32);"`
-	Name       string `gorm:"not null; type: varchar(32);"`
-	Password   string `gorm:"not null; type: char(32);"` // 存储md5 固定长度
-	Phone      string `gorm:"unique; not null; type: varchar(32);"`
-	Email      string `gorm:"type: varchar(32);"`
-	ClientIp   string `gorm:"type: varchar(16);"`
-	ClientPort string `gorm:"type: varchar(16);"`
+	Identifier string          `gorm:"unique; type: varchar(32);"`
+	Name       string          `gorm:"not null; type: varchar(32);"`
+	Password   string          `gorm:"not null; type: char(32);"` // 存储md5 固定长度
+	Phone      string          `gorm:"unique; not null; type: varchar(32);"`
+	Email      string          `gorm:"type: varchar(32);"`
+	ClientIp   string          `gorm:"type: varchar(16);"`
+	ClientPort string          `gorm:"type: varchar(16);"`
+	Ws         *websocket.Conn `gorm:"-" json:"-"`
 	// LoginTime     time.Time
 	// LogoutTime    time.Time
 	// HeartBeatTime time.Time

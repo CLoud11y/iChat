@@ -27,16 +27,42 @@ func Chat(c *gin.Context) {
 		}
 	}()
 	senderId := c.GetUint("uid")
-	fmt.Println("sender: ", senderId)
+	database.Umanager.UpdateWs(senderId, ws)
 	ctx, canceller := context.WithCancel(context.Background())
 	go recvProc(ctx, canceller, senderId, ws)
 	go sendProc(ctx, canceller, senderId, ws)
+	go heatbeatProc(ctx, canceller, ws)
 	<-ctx.Done()
+}
+
+// 心跳检测goroutine
+func heatbeatProc(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn) {
+	defer func() {
+		cancel()
+		fmt.Println("heatbeatProc closed")
+	}()
+	ticker := time.NewTicker(time.Second * 30)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b, _ := json.Marshal(models.CtrlMsg{Type: "ping", Data: nil})
+			err := ws.WriteMessage(websocket.TextMessage, b)
+			if err != nil {
+				return
+			}
+		}
+	}
 }
 
 // 接收goroutine如果挂了 发送goroutine也挂掉
 func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws *websocket.Conn) {
-	defer cancel()
+	defer func() {
+		cancel()
+		fmt.Println("recvProc closed")
+	}()
 	subChan, err := database.Mmanager.Subscribe(senderId)
 	if err != nil {
 		fmt.Println("Mmanager.Subscribe failed: ", err)
@@ -51,7 +77,6 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("reader channel for userId: ", senderId, "closed")
 			return
 		case msg = <-subChan:
 			fmt.Println("receive msg: ", msg.Payload)
@@ -62,7 +87,7 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 				fmt.Println("json unmarshal msg failed: ", err)
 				continue
 			}
-			b, _ := json.Marshal(SendMsgInfo{Data: jsonMsg.Conv2MsgInfo(), Type: "simple"})
+			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "simple"})
 			err = ws.WriteMessage(websocket.TextMessage, b)
 			if err != nil {
 				panic(err)
@@ -77,14 +102,12 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 	}
 }
 
-type SendMsgInfo struct {
-	Data *models.MsgInfo `json:"data"`
-	Type string          `json:"type"`
-}
-
 // 发送goroutine挂了 接收goroutine也挂掉
 func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws *websocket.Conn) {
-	defer cancel()
+	defer func() {
+		cancel()
+		fmt.Println("sendProc closed")
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -95,53 +118,36 @@ func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 			// websocket 发生错误 结束此sendProc
 			if err != nil {
 				fmt.Println("ws read msg err: ", err)
-				// ws.WriteMessage() // TODO告诉客户端错误
+				utils.Logger().Error("ws read msg err: ", err)
 				return
 			}
 			fmt.Println("p:", string(p))
-			msg := &models.Message{}
+			msg := &models.CtrlMsg{}
 			err = json.Unmarshal(p, msg)
-			if msg.SenderId != senderId {
-				fmt.Println("msg.SenderId与token携带id不匹配")
-				// ws.WriteMessage() // TODO告诉客户端错误
-				continue
-			}
 			if err != nil {
 				fmt.Println("json unmarshal msg failed: ", err)
-				// ws.WriteMessage() // TODO告诉客户端错误
+				utils.Logger().Error("json unmarshal msg failed: ", err)
 				continue
 			}
 			// 处理待发送消息
-			err = handleSendMsg(msg)
+			err = handleCtrlMsg(msg)
 			if err != nil {
-				fmt.Println("publishAndSave msg failed: ", err)
-				// ws.WriteMessage() // TODO告诉客户端错误
+				fmt.Println("handleCtrlMsg failed: ", err)
+				utils.Logger().Error("handleCtrlMsg failed: ", err)
 				continue
 			}
 		}
 	}
 }
 
-// 根据消息类型对消息进行处理
-func handleSendMsg(msg *models.Message) error {
+func handleCtrlMsg(msg *models.CtrlMsg) error {
 	switch msg.Type {
-	case models.InvalidType:
-		fmt.Println("InvalidType")
-	case models.HeartBeatType:
-		fmt.Println("HeartBeatmsg: ", msg)
-	case models.PrivateType:
-		err := database.Mmanager.PublishAndSave(msg)
-		if err != nil {
-			return err
-		}
-	case models.GroupType:
-		// TODO: 群消息的存储与加载
-		err := database.Mmanager.PublishAndSave(msg)
-		if err != nil {
-			return err
-		}
+	case "ping":
+		fmt.Println("rcv ping msg: ", msg)
+	case "pong":
+		fmt.Println("rcv pong msg: ", msg)
 	default:
-		fmt.Println("not support msg type: ", msg.Type)
+		fmt.Println("not support ctrlmsg type: ", msg.Type)
 	}
 	return nil
 }

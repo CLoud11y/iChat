@@ -100,3 +100,8 @@ func (msg *Message) Conv2MsgInfo() *MsgInfo {
 	}
 	return &msgInfo
 }
+
+type CtrlMsg struct {
+	Type string `json:"type"`
+	Data any    `json:"data"`
+}

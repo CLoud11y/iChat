@@ -38,5 +38,6 @@ func LoginUser(c *gin.Context) {
 		utils.RespFail(c.Writer, err.Error())
 		return
 	}
+	database.Umanager.Online(user)
 	utils.RespOK(c.Writer, LoginResp{token, "0", *user}, "ok")
 }
