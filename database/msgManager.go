@@ -242,7 +242,7 @@ func getKey(msg *models.Message) string {
 			key += receiver + "." + sender
 		}
 	default:
-		utils.Logger.Panicln("unknown msg type", msg.Type)
+		utils.Logger().Panicln("unknown msg type", msg.Type)
 	}
 	return key
 }

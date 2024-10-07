@@ -9,16 +9,18 @@ import (
 
 func Router() *gin.Engine {
 	r := gin.Default()
-	r.Use(middlewares.Cors())
+	// 日志中间件 跨域中间件
+	r.Use(middlewares.Logger2File(), middlewares.Cors())
 
 	public := r.Group("/")
 	{
 		public.POST("/getSystemInfo", service.GetSystemInfo)
 		public.POST("/user/register", service.RegisterUser)
 		public.POST("/user/login", service.LoginUser)
+		public.POST("/user/logout", service.LogoutUser)
 	}
 	protected := r.Group("/auth")
-	// 在路由组中使用中间件校验token
+	// 在此路由组中使用中间件校验token
 	protected.Use(middlewares.JwtAuth)
 	{
 		protected.GET("/getws", service.Chat)
