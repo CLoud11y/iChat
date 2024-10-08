@@ -33,6 +33,7 @@ func Chat(c *gin.Context) {
 	go sendProc(ctx, canceller, senderId, ws)
 	go heatbeatProc(ctx, canceller, ws)
 	<-ctx.Done()
+	database.Umanager.Offline(senderId)
 }
 
 // 心跳检测goroutine
