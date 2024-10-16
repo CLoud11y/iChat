@@ -2,7 +2,10 @@ package utils
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
+
+	"github.com/mozillazg/go-pinyin"
 )
 
 func Test_s2b(t *testing.T) {
@@ -32,5 +35,21 @@ func Benchmark_b2s(b *testing.B) {
 	bs := []byte("hello world hello world hello world hello world")
 	for i := 0; i < b.N; i++ {
 		_ = Bytes2String(bs)
+	}
+}
+
+func TestPinYin(t *testing.T) {
+	strs := []string{"你好，世界", "yuyuyuyu", "<eiq", "6219"}
+	for _, str := range strs {
+		if str[0] >= 'a' && str[0] <= 'z' {
+			fmt.Println(string(str[0]))
+		} else {
+			t := pinyin.Convert(str, nil)
+			if len(t) > 0 {
+				fmt.Println(string(t[0][0][0]))
+			} else {
+				fmt.Println("#")
+			}
+		}
 	}
 }

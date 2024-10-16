@@ -110,3 +110,13 @@ func (gm *groupManager) GetGroupsById(groupIds []uint) ([]models.Group, error) {
 	}
 	return groups, nil
 }
+
+func (gm *groupManager) GetGroupUsers(groupId uint) ([]models.User, error) {
+	users := []models.User{}
+	err := gm.db.InnerJoins("JOIN relation ON user.id = relation.owner_id AND relation.target_id = ? AND relation.type = ?",
+		groupId, models.GroupRelation).Find(&users).Error
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
+}

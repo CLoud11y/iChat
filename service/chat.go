@@ -95,7 +95,14 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 			}
 		case msg = <-groupChan:
 			fmt.Println("receive group msg", msg.Payload)
-			err = ws.WriteMessage(websocket.TextMessage, utils.String2Bytes(msg.Payload))
+			jsonMsg := &models.Message{}
+			err = json.Unmarshal(utils.String2Bytes(msg.Payload), jsonMsg)
+			if err != nil {
+				fmt.Println("json unmarshal msg failed: ", err)
+				continue
+			}
+			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "group"})
+			err = ws.WriteMessage(websocket.TextMessage, b)
 			if err != nil {
 				panic(err)
 			}

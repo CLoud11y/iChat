@@ -155,3 +155,13 @@ func BenchmarkSearchFriends2(b *testing.B) {
 		}
 	}
 }
+
+func TestGetGroupUsers(t *testing.T) {
+	users, err := Gmanager.GetGroupUsers(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range users {
+		t.Log(v.Name)
+	}
+}
