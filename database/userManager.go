@@ -2,9 +2,12 @@ package database
 
 import (
 	"errors"
+	"fmt"
 	"iChat/models"
 	"iChat/utils"
+	"sync"
 
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
@@ -12,11 +15,15 @@ var Umanager *userManager
 
 type userManager struct {
 	db *gorm.DB
+	// 存放所有在线用户的map
+	locker    sync.RWMutex
+	onlineMap map[uint]*models.User
 }
 
 func init() {
 	Umanager = &userManager{
-		db: utils.DB,
+		db:        utils.DB,
+		onlineMap: make(map[uint]*models.User),
 	}
 }
 
@@ -49,4 +56,34 @@ func (um *userManager) GetUserByPhone(phone string) (*models.User, error) {
 	tempUser := &models.User{}
 	err := um.db.Where("phone = ?", phone).First(tempUser).Error
 	return tempUser, err
+}
+
+func (um *userManager) Online(user *models.User) {
+	um.locker.Lock()
+	defer um.locker.Unlock()
+	um.onlineMap[user.ID] = user
+}
+
+func (um *userManager) Offline(uid uint) {
+	um.locker.Lock()
+	defer um.locker.Unlock()
+	delete(um.onlineMap, uid)
+}
+
+func (um *userManager) UpdateWs(uid uint, ws *websocket.Conn) {
+	um.locker.Lock()
+	defer um.locker.Unlock()
+	if user, ok := um.onlineMap[uid]; ok {
+		user.Ws = ws
+	}
+}
+
+func (um *userManager) GetOnlineUserWs(uid uint) *websocket.Conn {
+	um.locker.RLock()
+	defer um.locker.RUnlock()
+	fmt.Println(uid, um.onlineMap)
+	if user, ok := um.onlineMap[uid]; ok {
+		return user.Ws
+	}
+	return nil
 }

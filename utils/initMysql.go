@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"iChat/config"
+	"iChat/models"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -29,9 +30,9 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	// db.AutoMigrate(&models.User{})
-	// db.AutoMigrate(&models.Relation{})
-	// db.AutoMigrate(&models.Group{})
-	// db.AutoMigrate(&models.Message{})
+	db.AutoMigrate(&models.User{})
+	db.AutoMigrate(&models.Relation{})
+	db.AutoMigrate(&models.Group{})
+	db.AutoMigrate(&models.Message{})
 	DB = db
 }

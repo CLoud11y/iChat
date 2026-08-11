@@ -2,32 +2,47 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"iChat/models"
-	"math/rand"
 	"strconv"
 	"testing"
 	"time"
 )
 
-// 每条消息间隔0-10ms进行测试
 func TestGetScore(t *testing.T) {
-	round := 1024
-	preScore, score := 0.0, 0.0
-	var preMsg, msg *models.Message
-	rand := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < round; i++ {
-		msg = &models.Message{TimeStamp: time.Now().UnixMilli(), Identifier: uint(i)}
-		score = getScore(msg)
-		if score <= preScore {
-			t.Error("getScore 计算有误 新消息score小于旧消息")
-			t.Error(msg.TimeStamp, msg.Identifier, score)
-			t.Error(preMsg.TimeStamp, preMsg.Identifier, preScore)
-			t.FailNow()
-		}
-		preScore = score
-		preMsg = msg
-		r := rand.Intn(10)
-		time.Sleep(time.Duration(r) * time.Millisecond)
+	timestamp := time.Now().UnixMilli()
+	first := &models.Message{TimeStamp: timestamp, Identifier: 1, Content: "first"}
+	second := &models.Message{TimeStamp: timestamp, Identifier: 2, Content: "second"}
+
+	if got := getScore(first); got != float64(timestamp) {
+		t.Fatalf("score = %v, want exact timestamp %d", got, timestamp)
+	}
+	if getScore(&models.Message{TimeStamp: timestamp + 1}) <= getScore(first) {
+		t.Fatal("a later timestamp must have a greater score")
+	}
+
+	firstMember, err := encodeCachedMessage(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondMember, err := encodeCachedMessage(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstMember >= secondMember {
+		t.Fatal("members in the same millisecond must sort by identifier")
+	}
+
+	decoded, err := decodeCachedMessages([]string{secondMember, firstMember})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got models.Message
+	if err := json.Unmarshal([]byte(decoded[0]), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Identifier != second.Identifier || got.Content != second.Content {
+		t.Fatalf("decoded message = %#v, want %#v", got, *second)
 	}
 }
 
@@ -153,5 +168,15 @@ func BenchmarkSearchFriends2(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestGetGroupUsers(t *testing.T) {
+	users, err := Gmanager.GetGroupUsers(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range users {
+		t.Log(v.Name)
 	}
 }

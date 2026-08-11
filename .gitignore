@@ -26,6 +26,8 @@ go.work.sum
 
 # config file
 *.yml
+!docker-compose.yml
+!config/config.example.yml
 
 # asset
 /asset
