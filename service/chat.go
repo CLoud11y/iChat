@@ -8,6 +8,7 @@ import (
 	"iChat/models"
 	"iChat/utils"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,29 +16,136 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	websocketSendQueueSize = 256
+	websocketWriteTimeout  = 10 * time.Second
+)
+
+type websocketOutbound struct {
+	messageType int
+	data        []byte
+	closeAfter  bool
+}
+
+type websocketSession struct {
+	outbound chan websocketOutbound
+	cancel   context.CancelFunc
+}
+
+var websocketSessions = struct {
+	sync.RWMutex
+	items map[uint]*websocketSession
+}{items: make(map[uint]*websocketSession)}
+
 func Chat(c *gin.Context) {
-	// 获取WebSocket连接
 	ws, err := getWebsocket(c)
 	if err != nil {
-		panic(err)
+		return
 	}
-	defer func() {
-		if err := ws.Close(); err != nil {
-			panic(err)
-		}
-	}()
+	defer ws.Close()
+
 	senderId := c.GetUint("uid")
-	database.Umanager.UpdateWs(senderId, ws)
 	ctx, canceller := context.WithCancel(context.Background())
-	go recvProc(ctx, canceller, senderId, ws)
+	defer canceller()
+
+	session := &websocketSession{
+		outbound: make(chan websocketOutbound, websocketSendQueueSize),
+		cancel:   canceller,
+	}
+	registerWebsocketSession(senderId, session)
+
+	go websocketWriteProc(ctx, canceller, ws, session.outbound)
+	go recvProc(ctx, canceller, senderId, session.outbound)
 	go sendProc(ctx, canceller, senderId, ws)
-	go heatbeatProc(ctx, canceller, ws)
+	go heatbeatProc(ctx, canceller, session.outbound)
 	<-ctx.Done()
-	database.Umanager.Offline(senderId)
+	if unregisterWebsocketSession(senderId, session) {
+		database.Umanager.Offline(senderId)
+	}
+}
+
+func registerWebsocketSession(uid uint, session *websocketSession) {
+	websocketSessions.Lock()
+	oldSession := websocketSessions.items[uid]
+	websocketSessions.items[uid] = session
+	websocketSessions.Unlock()
+
+	if oldSession != nil {
+		oldSession.cancel()
+	}
+}
+
+func unregisterWebsocketSession(uid uint, session *websocketSession) bool {
+	websocketSessions.Lock()
+	defer websocketSessions.Unlock()
+	if websocketSessions.items[uid] == session {
+		delete(websocketSessions.items, uid)
+		return true
+	}
+	return false
+}
+
+func disconnectWebsocket(uid uint, data []byte) bool {
+	websocketSessions.RLock()
+	session := websocketSessions.items[uid]
+	websocketSessions.RUnlock()
+	if session == nil {
+		return false
+	}
+
+	select {
+	case session.outbound <- websocketOutbound{
+		messageType: websocket.TextMessage,
+		data:        data,
+		closeAfter:  true,
+	}:
+		return true
+	default:
+		session.cancel()
+		return false
+	}
+}
+
+func websocketWriteProc(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	ws *websocket.Conn,
+	outbound <-chan websocketOutbound,
+) {
+	defer func() {
+		cancel()
+		fmt.Println("websocketWriteProc closed")
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case message := <-outbound:
+			if err := ws.SetWriteDeadline(time.Now().Add(websocketWriteTimeout)); err != nil {
+				return
+			}
+			if err := ws.WriteMessage(message.messageType, message.data); err != nil {
+				return
+			}
+			if message.closeAfter {
+				return
+			}
+		}
+	}
+}
+
+func enqueueWebsocketMessage(ctx context.Context, outbound chan<- websocketOutbound, data []byte) bool {
+	select {
+	case outbound <- websocketOutbound{messageType: websocket.TextMessage, data: data}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // 心跳检测goroutine
-func heatbeatProc(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn) {
+func heatbeatProc(ctx context.Context, cancel context.CancelFunc, outbound chan<- websocketOutbound) {
 	defer func() {
 		cancel()
 		fmt.Println("heatbeatProc closed")
@@ -50,8 +158,7 @@ func heatbeatProc(ctx context.Context, cancel context.CancelFunc, ws *websocket.
 			return
 		case <-ticker.C:
 			b, _ := json.Marshal(models.CtrlMsg{Type: "ping", Data: nil})
-			err := ws.WriteMessage(websocket.TextMessage, b)
-			if err != nil {
+			if !enqueueWebsocketMessage(ctx, outbound, b) {
 				return
 			}
 		}
@@ -59,7 +166,7 @@ func heatbeatProc(ctx context.Context, cancel context.CancelFunc, ws *websocket.
 }
 
 // 接收goroutine如果挂了 发送goroutine也挂掉
-func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws *websocket.Conn) {
+func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, outbound chan<- websocketOutbound) {
 	defer func() {
 		cancel()
 		fmt.Println("recvProc closed")
@@ -67,7 +174,6 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 	subChan, err := database.Mmanager.Subscribe(senderId)
 	if err != nil {
 		fmt.Println("Mmanager.Subscribe failed: ", err)
-		// ws.WriteMessage() // TODO告诉客户端错误
 		return
 	}
 	groupChan, err := database.Mmanager.SubscribeGroups(senderId)
@@ -89,9 +195,8 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 				continue
 			}
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "simple"})
-			err = ws.WriteMessage(websocket.TextMessage, b)
-			if err != nil {
-				panic(err)
+			if !enqueueWebsocketMessage(ctx, outbound, b) {
+				return
 			}
 		case msg = <-groupChan:
 			fmt.Println("receive group msg", msg.Payload)
@@ -102,9 +207,8 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 				continue
 			}
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "group"})
-			err = ws.WriteMessage(websocket.TextMessage, b)
-			if err != nil {
-				panic(err)
+			if !enqueueWebsocketMessage(ctx, outbound, b) {
+				return
 			}
 		}
 	}

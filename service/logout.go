@@ -9,7 +9,6 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 )
 
 func LogoutUser(c *gin.Context) {
@@ -27,10 +26,7 @@ func LogoutUser(c *gin.Context) {
 	}
 
 	uid, _ := strconv.ParseUint(fmt.Sprintf("%.0f", claims["user_id"]), 10, 32)
-	ws := database.Umanager.GetOnlineUserWs(uint(uid))
-	if ws != nil {
-		b, _ := json.Marshal(models.CtrlMsg{Type: "offline"})
-		ws.WriteMessage(websocket.TextMessage, b)
-	}
+	b, _ := json.Marshal(models.CtrlMsg{Type: "offline"})
+	disconnectWebsocket(uint(uid), b)
 	database.Umanager.Offline(uint(uid))
 }
