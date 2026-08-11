@@ -1,0 +1,20 @@
+APP:
+  name: iChat
+  version: 0.1
+MYSQL:
+  host: 127.0.0.1
+  user: root
+  password: 
+  dbname: iChat
+  port: 3306
+JWT:
+  tokenHourLifeSpan: 1
+  key: change-me
+REDIS:
+  addr: 127.0.0.1:6379
+  password: 
+  db: 0
+  poolSize: 30
+  minIdleConn: 5
+LOG:
+  path: /logfiles/
