@@ -3,14 +3,15 @@ package router
 import (
 	"iChat/middlewares"
 	"iChat/service"
+	"iChat/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
 func Router() *gin.Engine {
-	r := gin.Default()
+	r := gin.New()
 	// 日志中间件 跨域中间件
-	r.Use(middlewares.Logger2File(), middlewares.Cors())
+	r.Use(gin.RecoveryWithWriter(utils.Logger().Out), middlewares.Logger2File(), middlewares.Cors())
 
 	public := r.Group("/")
 	{

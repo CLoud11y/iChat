@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"iChat/database"
 	"iChat/models"
 	"iChat/utils"
@@ -14,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -38,13 +38,14 @@ var websocketSessions = struct {
 }{items: make(map[uint]*websocketSession)}
 
 func Chat(c *gin.Context) {
+	senderId := c.GetUint("uid")
 	ws, err := getWebsocket(c)
 	if err != nil {
+		utils.Logger().WithError(err).WithField("user_id", senderId).Warn("websocket upgrade failed")
 		return
 	}
 	defer ws.Close()
 
-	senderId := c.GetUint("uid")
 	ctx, canceller := context.WithCancel(context.Background())
 	defer canceller()
 
@@ -54,7 +55,10 @@ func Chat(c *gin.Context) {
 	}
 	registerWebsocketSession(senderId, session)
 
-	go websocketWriteProc(ctx, canceller, ws, session.outbound)
+	utils.Logger().WithField("user_id", senderId).Info("websocket connected")
+	defer utils.Logger().WithField("user_id", senderId).Info("websocket disconnected")
+
+	go websocketWriteProc(ctx, canceller, senderId, ws, session.outbound)
 	go recvProc(ctx, canceller, senderId, session.outbound)
 	go sendProc(ctx, canceller, senderId, ws)
 	go heatbeatProc(ctx, canceller, session.outbound)
@@ -109,12 +113,12 @@ func disconnectWebsocket(uid uint, data []byte) bool {
 func websocketWriteProc(
 	ctx context.Context,
 	cancel context.CancelFunc,
+	userID uint,
 	ws *websocket.Conn,
 	outbound <-chan websocketOutbound,
 ) {
 	defer func() {
 		cancel()
-		fmt.Println("websocketWriteProc closed")
 	}()
 
 	for {
@@ -123,9 +127,11 @@ func websocketWriteProc(
 			return
 		case message := <-outbound:
 			if err := ws.SetWriteDeadline(time.Now().Add(websocketWriteTimeout)); err != nil {
+				utils.Logger().WithError(err).WithField("user_id", userID).Warn("set websocket write deadline failed")
 				return
 			}
 			if err := ws.WriteMessage(message.messageType, message.data); err != nil {
+				utils.Logger().WithError(err).WithField("user_id", userID).Warn("write websocket message failed")
 				return
 			}
 			if message.closeAfter {
@@ -148,7 +154,6 @@ func enqueueWebsocketMessage(ctx context.Context, outbound chan<- websocketOutbo
 func heatbeatProc(ctx context.Context, cancel context.CancelFunc, outbound chan<- websocketOutbound) {
 	defer func() {
 		cancel()
-		fmt.Println("heatbeatProc closed")
 	}()
 	ticker := time.NewTicker(time.Second * 30)
 	defer ticker.Stop()
@@ -169,16 +174,15 @@ func heatbeatProc(ctx context.Context, cancel context.CancelFunc, outbound chan<
 func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, outbound chan<- websocketOutbound) {
 	defer func() {
 		cancel()
-		fmt.Println("recvProc closed")
 	}()
 	subChan, err := database.Mmanager.Subscribe(senderId)
 	if err != nil {
-		fmt.Println("Mmanager.Subscribe failed: ", err)
+		utils.Logger().WithError(err).WithField("user_id", senderId).Error("subscribe to private messages failed")
 		return
 	}
 	groupChan, err := database.Mmanager.SubscribeGroups(senderId)
 	if err != nil {
-		fmt.Println("Mmanager.SubscribeGroups failed: ", err)
+		utils.Logger().WithError(err).WithField("user_id", senderId).Error("subscribe to group messages failed")
 	}
 	var msg *redis.Message
 	for {
@@ -186,12 +190,11 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, out
 		case <-ctx.Done():
 			return
 		case msg = <-subChan:
-			fmt.Println("receive msg: ", msg.Payload)
 			// TODO: 将msg解绑至message结构体 获取信息后再展示
 			jsonMsg := &models.Message{}
 			err = json.Unmarshal(utils.String2Bytes(msg.Payload), jsonMsg)
 			if err != nil {
-				fmt.Println("json unmarshal msg failed: ", err)
+				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("decode private message failed")
 				continue
 			}
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "simple"})
@@ -199,11 +202,10 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, out
 				return
 			}
 		case msg = <-groupChan:
-			fmt.Println("receive group msg", msg.Payload)
 			jsonMsg := &models.Message{}
 			err = json.Unmarshal(utils.String2Bytes(msg.Payload), jsonMsg)
 			if err != nil {
-				fmt.Println("json unmarshal msg failed: ", err)
+				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("decode group message failed")
 				continue
 			}
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "group"})
@@ -218,34 +220,33 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, out
 func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws *websocket.Conn) {
 	defer func() {
 		cancel()
-		fmt.Println("sendProc closed")
 	}()
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("sender channel closed")
 			return
 		default:
 			_, p, err := ws.ReadMessage()
 			// websocket 发生错误 结束此sendProc
 			if err != nil {
-				fmt.Println("ws read msg err: ", err)
-				utils.Logger().Error("ws read msg err: ", err)
+				entry := utils.Logger().WithError(err).WithField("user_id", senderId)
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+					entry.Warn("read websocket message failed")
+				} else {
+					entry.Debug("websocket closed by client")
+				}
 				return
 			}
-			fmt.Println("p:", string(p))
 			msg := &models.CtrlMsg{}
 			err = json.Unmarshal(p, msg)
 			if err != nil {
-				fmt.Println("json unmarshal msg failed: ", err)
-				utils.Logger().Error("json unmarshal msg failed: ", err)
+				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("decode websocket control message failed")
 				continue
 			}
 			// 处理待发送消息
 			err = handleCtrlMsg(msg)
 			if err != nil {
-				fmt.Println("handleCtrlMsg failed: ", err)
-				utils.Logger().Error("handleCtrlMsg failed: ", err)
+				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("handle websocket control message failed")
 				continue
 			}
 		}
@@ -255,11 +256,9 @@ func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 func handleCtrlMsg(msg *models.CtrlMsg) error {
 	switch msg.Type {
 	case "ping":
-		fmt.Println("rcv ping msg: ", msg)
 	case "pong":
-		fmt.Println("rcv pong msg: ", msg)
 	default:
-		fmt.Println("not support ctrlmsg type: ", msg.Type)
+		utils.Logger().WithField("message_type", msg.Type).Warn("unsupported websocket control message")
 	}
 	return nil
 }
@@ -280,13 +279,18 @@ func getWebsocket(c *gin.Context) (*websocket.Conn, error) {
 func SendMsg(c *gin.Context) {
 	msgInfo := &models.MsgInfo{}
 	if err := c.ShouldBind(msgInfo); err != nil {
-		fmt.Println("msg info binding err", err)
+		utils.Logger().WithError(err).Warn("bind send message request failed")
+		utils.RespFail(c.Writer, "invalid send message request")
+		return
 	}
 	msg := msgInfo.Conv2Msg()
-	fmt.Println("msgInfo: ", msgInfo)
-	fmt.Println("msg: ", msg)
 	err := database.Mmanager.PublishAndSave(msg)
 	if err != nil {
+		utils.Logger().WithError(err).WithFields(logrus.Fields{
+			"message_id":  msg.Id,
+			"sender_id":   msg.SenderId,
+			"receiver_id": msg.ReceiverId,
+		}).Error("publish and save message failed")
 		utils.RespFail(c.Writer, "publishAndSave msg failed: "+err.Error())
 		return
 	}

@@ -14,15 +14,15 @@ import (
 func LogoutUser(c *gin.Context) {
 	token, err := utils.ExtractToken(c)
 	if err != nil {
-		utils.Logger().Warn("LogoutUser extractToken error: ", err)
+		utils.Logger().WithError(err).Warn("extract logout token failed")
 	}
 	claims, err := utils.TokenValid(c)
 	if err != nil {
-		utils.Logger().Warn("LogoutUser tokenValid error: ", err)
+		utils.Logger().WithError(err).Warn("validate logout token failed")
 	}
 	err = utils.BanToken(token, claims)
 	if err != nil {
-		utils.Logger().Error("LogoutUser BanToken error: ", err)
+		utils.Logger().WithError(err).Error("ban logout token failed")
 	}
 
 	uid, _ := strconv.ParseUint(fmt.Sprintf("%.0f", claims["user_id"]), 10, 32)

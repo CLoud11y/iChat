@@ -22,18 +22,30 @@ func Logger2File() gin.HandlerFunc {
 		// 请求方法
 		reqMethod := c.Request.Method
 		// 请求路由
-		reqUri := c.Request.RequestURI
+		// Query parameters may contain JWTs or other secrets.
+		reqPath := c.Request.URL.Path
 		// 状态码
 		statusCode := c.Writer.Status()
 		// 请求IP
 		clientIP := c.ClientIP()
 		//日志格式
-		logger.WithFields(logrus.Fields{
+		entry := logger.WithFields(logrus.Fields{
 			"status_code":  statusCode,
 			"latency_time": latencyTime,
 			"client_ip":    clientIP,
 			"req_method":   reqMethod,
-			"req_uri":      reqUri,
-		}).Info()
+			"req_path":     reqPath,
+		})
+		if len(c.Errors) > 0 {
+			entry = entry.WithField("errors", c.Errors.String())
+		}
+		switch {
+		case statusCode >= 500:
+			entry.Error("http request completed")
+		case statusCode >= 400:
+			entry.Warn("http request completed")
+		default:
+			entry.Info("http request completed")
+		}
 	}
 }

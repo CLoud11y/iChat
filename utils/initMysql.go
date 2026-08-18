@@ -5,6 +5,7 @@ import (
 	"iChat/config"
 	"iChat/models"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -21,8 +22,6 @@ func init() {
 		mysqlConf.Port,
 		mysqlConf.DbName,
 	)
-	fmt.Println("DSN:", dsn)
-
 	MysqlConf := mysql.New(mysql.Config{DSN: dsn})
 	GormConf := &gorm.Config{}
 
@@ -35,4 +34,9 @@ func init() {
 	db.AutoMigrate(&models.Group{})
 	db.AutoMigrate(&models.Message{})
 	DB = db
+	Logger().WithFields(logrus.Fields{
+		"host":     mysqlConf.Host,
+		"port":     mysqlConf.Port,
+		"database": mysqlConf.DbName,
+	}).Info("mysql connection initialized")
 }

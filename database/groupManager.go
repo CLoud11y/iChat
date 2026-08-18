@@ -1,7 +1,6 @@
 package database
 
 import (
-	"fmt"
 	"iChat/models"
 	"iChat/utils"
 
@@ -39,7 +38,6 @@ func (gm *groupManager) CreateGroup(name string, ownerId uint, desc string) erro
 		Desc:    desc,
 		MaxUser: MAX_GROUP_USER,
 	}
-	fmt.Println(group)
 	var err error
 	tx := gm.db.Begin()
 	defer func() {

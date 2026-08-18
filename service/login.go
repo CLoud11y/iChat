@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"iChat/database"
 	"iChat/models"
 	"iChat/utils"
@@ -24,7 +23,7 @@ func LoginUser(c *gin.Context) {
 	info := &LoginInfo{}
 	// 将注册信息绑定至结构体
 	if err := c.ShouldBind(info); err != nil {
-		fmt.Println("login info binding err", err)
+		utils.Logger().WithError(err).Warn("bind login request failed")
 		utils.RespFail(c.Writer, "invalid login request")
 		return
 	}

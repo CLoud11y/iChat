@@ -1,50 +1,55 @@
 package utils
 
 import (
-	"fmt"
 	"iChat/config"
 	"os"
-	"path"
+	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	applicationLogger *logrus.Logger
+	loggerOnce        sync.Once
+)
+
+// Logger returns the process-wide logger. Keeping one logger avoids opening a
+// new file descriptor for every log entry.
 func Logger() *logrus.Logger {
-	now := time.Now()
-	logFilePath := ""
-	if dir, err := os.Getwd(); err == nil {
-		logFilePath = dir + config.Conf.LOG.Path
-	}
-	if err := os.MkdirAll(logFilePath, 0777); err != nil {
-		fmt.Println(err.Error())
-	}
-	logFileName := now.Format("2006-01-02") + ".log"
-	//日志文件
-	fileName := path.Join(logFilePath, logFileName)
-	if _, err := os.Stat(fileName); err != nil {
-		if _, err := os.Create(fileName); err != nil {
-			fmt.Println(err.Error())
-		}
-	}
-	//写入文件
-	src, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
-	if err != nil {
-		fmt.Println("err", err)
-	}
+	loggerOnce.Do(initLogger)
+	return applicationLogger
+}
 
-	//实例化
+func initLogger() {
 	logger := logrus.New()
-
-	//设置输出
-	logger.Out = src
-
-	//设置日志级别
 	logger.SetLevel(logrus.DebugLevel)
-
-	//设置日志格式
 	logger.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:   true,
 		TimestampFormat: "2006-01-02 15:04:05",
 	})
-	return logger
+	applicationLogger = logger
+
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		logger.WithError(err).Error("get working directory for log file failed")
+		return
+	}
+	if projectRoot := config.FindProjectRoot(workingDirectory); projectRoot != "" {
+		workingDirectory = projectRoot
+	}
+	logDirectory := filepath.Join(workingDirectory, strings.TrimLeft(config.Conf.LOG.Path, `/\`))
+	if err := os.MkdirAll(logDirectory, 0755); err != nil {
+		logger.WithError(err).Error("create log directory failed")
+		return
+	}
+	fileName := filepath.Join(logDirectory, time.Now().Format("2006-01-02")+".log")
+	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		logger.WithError(err).Error("open log file failed")
+		return
+	}
+	logger.Out = file
 }

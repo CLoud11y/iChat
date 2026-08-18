@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"fmt"
 	"iChat/database"
 	"iChat/models"
 	"iChat/utils"
@@ -30,7 +29,9 @@ func GetMessageList(c *gin.Context) {
 	userId := c.GetUint("uid")
 	info := ReqMsgInfo{}
 	if err := c.ShouldBind(&info); err != nil {
-		fmt.Println("info binding err", err)
+		utils.Logger().WithError(err).Warn("bind message list request failed")
+		utils.RespFail(c.Writer, "invalid message list request")
+		return
 	}
 	// 消息类型
 	msgType := models.PrivateType

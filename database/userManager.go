@@ -2,7 +2,6 @@ package database
 
 import (
 	"errors"
-	"fmt"
 	"iChat/models"
 	"iChat/utils"
 	"sync"
@@ -81,7 +80,6 @@ func (um *userManager) UpdateWs(uid uint, ws *websocket.Conn) {
 func (um *userManager) GetOnlineUserWs(uid uint) *websocket.Conn {
 	um.locker.RLock()
 	defer um.locker.RUnlock()
-	fmt.Println(uid, um.onlineMap)
 	if user, ok := um.onlineMap[uid]; ok {
 		return user.Ws
 	}

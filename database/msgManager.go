@@ -66,9 +66,7 @@ func (mm *msgManager) LoadMsgs(uIdA, uIdB, msgType uint, earliestMsg models.Mess
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(1)
 	if n == 0 {
-		fmt.Println(2)
 		migrated, migrateErr := mm.migrateLegacyMsgs(uIdA, uIdB, msgType)
 		if migrateErr != nil {
 			return nil, migrateErr
@@ -80,7 +78,6 @@ func (mm *msgManager) LoadMsgs(uIdA, uIdB, msgType uint, earliestMsg models.Mess
 			return nil, err
 		}
 	}
-	fmt.Println(3)
 	start := int64(0)
 	if earliestMsg.Type != models.InvalidType {
 		member, encodeErr := encodeCachedMessage(&earliestMsg)
@@ -224,7 +221,7 @@ func (mm *msgManager) PublishMsg(msg *models.Message) error {
 	case models.PrivateType:
 		receiverChannel = getPrivateChannel(msg.ReceiverId)
 	default:
-		fmt.Println("unknown msg type")
+		return fmt.Errorf("unknown message type: %d", msg.Type)
 	}
 	_, err = mm.rds.Publish(context.Background(), receiverChannel, p).Result()
 	return err
@@ -309,7 +306,7 @@ func getMessageKey(prefix string, msg *models.Message) string {
 			key += receiver + "." + sender
 		}
 	default:
-		utils.Logger().Panicln("unknown msg type", msg.Type)
+		utils.Logger().WithField("message_type", msg.Type).Panic("unknown message type")
 	}
 	return key
 }

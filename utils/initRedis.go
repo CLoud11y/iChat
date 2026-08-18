@@ -2,10 +2,10 @@ package utils
 
 import (
 	"context"
-	"fmt"
 	"iChat/config"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/sirupsen/logrus"
 )
 
 var RDS *redis.Client
@@ -20,10 +20,13 @@ func init() {
 		MinIdleConns: config.Conf.REDIS.MinIdleConn,
 	})
 	ctx := context.Background()
-	result, err := RDS.Ping(ctx).Result()
+	_, err := RDS.Ping(ctx).Result()
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println("redis init success: ", result)
+	Logger().WithFields(logrus.Fields{
+		"address":  config.Conf.REDIS.Addr,
+		"database": config.Conf.REDIS.DB,
+	}).Info("redis connection initialized")
 }

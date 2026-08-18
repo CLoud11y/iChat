@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"iChat/database"
 	"iChat/utils"
 
@@ -22,8 +21,6 @@ func RegisterUser(c *gin.Context) {
 		utils.RespFail(c.Writer, err.Error())
 		return
 	}
-	fmt.Println(c.Request.Body)
-	fmt.Println(info)
 	// 检查密码是否一致
 	if info.Password != info.Password2 {
 		utils.RespFail(c.Writer, "two passwords don't match")

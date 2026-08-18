@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 )
 
@@ -24,9 +23,12 @@ func resp(w http.ResponseWriter, code int, data interface{}, msg string) {
 	}
 	ret, err := json.Marshal(h)
 	if err != nil {
-		fmt.Println(err)
+		Logger().WithError(err).Error("marshal response failed")
+		return
 	}
-	w.Write(ret)
+	if _, err := w.Write(ret); err != nil {
+		Logger().WithError(err).Warn("write response failed")
+	}
 }
 
 func respList(w http.ResponseWriter, code int, data interface{}, total interface{}) {
@@ -39,9 +41,12 @@ func respList(w http.ResponseWriter, code int, data interface{}, total interface
 	}
 	ret, err := json.Marshal(h)
 	if err != nil {
-		fmt.Println(err)
+		Logger().WithError(err).Error("marshal list response failed")
+		return
 	}
-	w.Write(ret)
+	if _, err := w.Write(ret); err != nil {
+		Logger().WithError(err).Warn("write list response failed")
+	}
 }
 
 func RespFail(w http.ResponseWriter, msg string) {

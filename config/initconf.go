@@ -65,7 +65,7 @@ func configureConfigFile() {
 	viper.AddConfigPath(".")
 
 	if workingDirectory, err := os.Getwd(); err == nil {
-		if projectRoot := findProjectRoot(workingDirectory); projectRoot != "" {
+		if projectRoot := FindProjectRoot(workingDirectory); projectRoot != "" {
 			viper.AddConfigPath(filepath.Join(projectRoot, "config"))
 		}
 	}
@@ -75,7 +75,7 @@ func configureConfigFile() {
 	}
 }
 
-func findProjectRoot(start string) string {
+func FindProjectRoot(start string) string {
 	directory, err := filepath.Abs(start)
 	if err != nil {
 		return ""

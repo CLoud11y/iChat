@@ -3,14 +3,12 @@ package scheduledtasks
 import (
 	"iChat/database"
 	"iChat/utils"
-
-	"github.com/sirupsen/logrus"
 )
 
 func SyncMsg() {
 	defer func() {
 		if r := recover(); r != nil {
-			utils.Logger().WithFields(logrus.Fields{"msg": "SyncMsg() failed", "err": r}).Error()
+			utils.Logger().WithField("panic", r).Error("sync messages failed")
 		}
 	}()
 	msgs, size, err := database.Mmanager.GetAllDirtyMsgs()
@@ -29,5 +27,5 @@ func SyncMsg() {
 	if err != nil {
 		panic(err)
 	}
-	utils.Logger().WithFields(logrus.Fields{"msg": "SyncMsg() success", "size": size}).Info()
+	utils.Logger().WithField("size", size).Info("sync messages completed")
 }

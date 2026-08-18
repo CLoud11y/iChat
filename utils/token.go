@@ -28,7 +28,6 @@ func TokenValid(c *gin.Context) (jwt.MapClaims, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("token: ", tokenString)
 	// 检查token是否在黑名单中
 	if err = RDS.Get(context.Background(), tokenString).Err(); err == nil {
 		// 在黑名单中
