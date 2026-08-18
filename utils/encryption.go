@@ -2,6 +2,7 @@ package utils
 
 import (
 	"crypto/md5"
+	"crypto/subtle"
 	"encoding/hex"
 	"strings"
 	"unsafe"
@@ -14,6 +15,14 @@ func Encrypt(str string) string {
 	h.Write([]byte(str))
 	md5_str := hex.EncodeToString(h.Sum(nil))
 	return md5_str
+}
+
+// VerifyPassword compares a plaintext password with the MD5 value used by
+// existing accounts.
+func VerifyPassword(password, encryptedPassword string) bool {
+	actual := []byte(Encrypt(password))
+	expected := []byte(encryptedPassword)
+	return len(actual) == len(expected) && subtle.ConstantTimeCompare(actual, expected) == 1
 }
 
 func String2Bytes(s string) []byte {

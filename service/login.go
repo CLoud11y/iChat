@@ -25,11 +25,17 @@ func LoginUser(c *gin.Context) {
 	// 将注册信息绑定至结构体
 	if err := c.ShouldBind(info); err != nil {
 		fmt.Println("login info binding err", err)
+		utils.RespFail(c.Writer, "invalid login request")
+		return
 	}
 	user, err := database.Umanager.GetUserByPhone(info.PhoneNum)
 	// 用户不存在或发生其他错误
 	if err != nil {
-		utils.RespFail(c.Writer, err.Error())
+		utils.RespFail(c.Writer, "account or password is incorrect")
+		return
+	}
+	if !utils.VerifyPassword(info.Password, user.Password) {
+		utils.RespFail(c.Writer, "account or password is incorrect")
 		return
 	}
 	// 生成token

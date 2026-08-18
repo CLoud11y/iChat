@@ -24,6 +24,19 @@ func Test_b2s(t *testing.T) {
 	}
 }
 
+func TestVerifyPassword(t *testing.T) {
+	encrypted := Encrypt("correct-password")
+	if !VerifyPassword("correct-password", encrypted) {
+		t.Fatal("VerifyPassword rejected the correct password")
+	}
+	if VerifyPassword("wrong-password", encrypted) {
+		t.Fatal("VerifyPassword accepted an incorrect password")
+	}
+	if VerifyPassword("correct-password", "invalid-hash") {
+		t.Fatal("VerifyPassword accepted an invalid hash")
+	}
+}
+
 func Benchmark_s2b(b *testing.B) {
 	s := "hello world hello world hello world hello world"
 	for i := 0; i < b.N; i++ {
