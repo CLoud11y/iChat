@@ -18,3 +18,5 @@ REDIS:
   minIdleConn: 5
 LOG:
   path: /logfiles/
+  level: info
+  accessEnabled: true

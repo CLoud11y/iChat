@@ -1,6 +1,7 @@
 package router
 
 import (
+	"iChat/config"
 	"iChat/middlewares"
 	"iChat/service"
 	"iChat/utils"
@@ -11,7 +12,11 @@ import (
 func Router() *gin.Engine {
 	r := gin.New()
 	// 日志中间件 跨域中间件
-	r.Use(gin.RecoveryWithWriter(utils.Logger().Out), middlewares.Logger2File(), middlewares.Cors())
+	r.Use(gin.RecoveryWithWriter(utils.Logger().Out))
+	if config.Conf.LOG.AccessEnabled {
+		r.Use(middlewares.Logger2File())
+	}
+	r.Use(middlewares.Cors())
 
 	public := r.Group("/")
 	{

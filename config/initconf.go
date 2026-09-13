@@ -34,12 +34,16 @@ type Config struct {
 		MinIdleConn int    `mapstructure:"minIdleConn"`
 	} `mapstructure:"REDIS"`
 	LOG struct {
-		Path string `mapstructure:"path"`
+		Path          string `mapstructure:"path"`
+		Level         string `mapstructure:"level"`
+		AccessEnabled bool   `mapstructure:"accessEnabled"`
 	} `mapstructure:"LOG"`
 }
 
 func init() {
 	configureConfigFile()
+	viper.SetDefault("LOG.level", "info")
+	viper.SetDefault("LOG.accessEnabled", true)
 	viper.SetEnvPrefix("ICHAT")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()

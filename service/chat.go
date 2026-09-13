@@ -197,6 +197,11 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, out
 				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("decode private message failed")
 				continue
 			}
+			utils.Logger().WithFields(logrus.Fields{
+				"message_id":  jsonMsg.Id,
+				"sender_id":   jsonMsg.SenderId,
+				"receiver_id": jsonMsg.ReceiverId,
+			}).Debug("private message received")
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "simple"})
 			if !enqueueWebsocketMessage(ctx, outbound, b) {
 				return
@@ -208,6 +213,11 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, out
 				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("decode group message failed")
 				continue
 			}
+			utils.Logger().WithFields(logrus.Fields{
+				"message_id": jsonMsg.Id,
+				"sender_id":  jsonMsg.SenderId,
+				"group_id":   jsonMsg.ReceiverId,
+			}).Debug("group message received")
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "group"})
 			if !enqueueWebsocketMessage(ctx, outbound, b) {
 				return
@@ -294,5 +304,10 @@ func SendMsg(c *gin.Context) {
 		utils.RespFail(c.Writer, "publishAndSave msg failed: "+err.Error())
 		return
 	}
+	utils.Logger().WithFields(logrus.Fields{
+		"message_id":  msg.Id,
+		"sender_id":   msg.SenderId,
+		"receiver_id": msg.ReceiverId,
+	}).Debug("message published and queued for persistence")
 	utils.RespOK(c.Writer, "ok", "ok")
 }

@@ -25,7 +25,11 @@ func Logger() *logrus.Logger {
 
 func initLogger() {
 	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
+	level, levelErr := logrus.ParseLevel(config.Conf.LOG.Level)
+	if levelErr != nil {
+		level = logrus.InfoLevel
+	}
+	logger.SetLevel(level)
 	logger.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp:   true,
 		TimestampFormat: "2006-01-02 15:04:05",
@@ -52,4 +56,7 @@ func initLogger() {
 		return
 	}
 	logger.Out = file
+	if levelErr != nil {
+		logger.WithError(levelErr).WithField("configured_level", config.Conf.LOG.Level).Warn("invalid log level; using info")
+	}
 }

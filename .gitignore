@@ -34,3 +34,7 @@ go.work.sum
 
 # log file
 /logfiles
+
+# Local load-test artifacts
+/.gocache/
+/loadtest-results/
