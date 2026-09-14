@@ -12,7 +12,21 @@ P0.2 的环境隔离验收需要本机 Docker 引擎已启动、Docker Compose �
 go test -tags=integration ./tests/integration/... -count=1 -v -timeout=12m
 ```
 
-这条命令自动创建、等待就绪并清理测试资源，不需要先手动执行 `docker compose up`。当前只运行基础设施隔离验收，旧业务集成测试仍等待 P0.3 的 fixture 改造。
+这条命令自动创建、等待就绪并清理测试资源，不需要先手动执行 `docker compose up`。
+
+P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
+
+```powershell
+go test -tags=integration ./database ./scheduledTasks -count=1 -v -timeout=15m
+```
+
+4 个数据库查询 benchmark 使用独立 fixture，准备、预检和清理不计入查询耗时。可以先固定迭代次数检查可运行性，避免自动校准多次创建 Docker 环境：
+
+```powershell
+go test -tags=integration ./database -run '^$' -bench . -benchtime=1x -count=1 -timeout=15m
+```
+
+`1x` 仅验证 benchmark 能执行并通过结果断言，不是稳定的性能基线。每个测试/benchmark 调用都有自己的 MySQL/Redis 环境，整套测试需要几分钟；不同包可以独立运行。包内旧测试仍需临时绑定全局 manager，所以不使用 `t.Parallel()`。
 
 ## 每轮资源
 
@@ -47,4 +61,8 @@ Compose 项目名用于区分不同环境的资源，相关行为见 [Docker 项
 
 - 单元测试：非法 runId、开发 Compose 误传、既有项目碰撞、归属不符、inspect 异常、清理错误传播、重复 Close、启动失败及端口校验。
 - 真实集成测试：同时存在的两套 MySQL/Redis 使用同名表/key 保存不同内容；删除第一套后，第二套数据仍完整；继承的开发配置不能覆盖本轮设置。
-- 尚未包含：旧消息业务 fixture、RabbitMQ vhost、MQ 故障恢复、生产环境验收。这些按开发规范后续小点推进。
+- 旧业务 fixture：每次创建 5 个用户、3 个群、明确的好友/成员关系；用户和群 ID 来自实际插入结果，消息 ID 包含本轮 runId 和递增编号。schema 校验后才迁移和写 fixture，全局 manager 在用例结束后恢复。
+- 消息断言：双向会话的全部分页、同毫秒顺序、真实内容和媒体类型；队列中的原始消息集合；删除已存在的缓存 key 后从 MySQL 回源，且另一会话缓存和已存消息不受影响。
+- 关系断言：精确好友/群/群成员 ID 集合、双向好友、无关系用户的空结果，防止两种查询同样返回错误结果却被判为通过。
+- SyncMsg 断言：同步前数据库为空且队列有 3 条消息，同步后逐字段检查 3 条私聊/群聊及文本/图片/音频记录，队列为空；再次执行空队列同步不改变数据。日志只写临时目录，不依赖日志判断成功。
+- 尚未包含：旧 worker 故障重投幂等、错误返回、并发确认、RabbitMQ vhost、MQ 故障恢复、生产环境验收。空队列再次执行成功不代表 DB 提交后重投幂等已经实现；这些按开发规范后续小点推进。

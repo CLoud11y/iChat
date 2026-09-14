@@ -4,152 +4,269 @@ package database
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"iChat/models"
-	"strconv"
+	"iChat/tests/testenv"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 )
 
+type legacyFixture struct {
+	*testenv.LegacyFixture
+	messages  *msgManager
+	groups    *groupManager
+	relations *relationManager
+}
+
+func newLegacyFixture(tb testing.TB) *legacyFixture {
+	tb.Helper()
+	f := testenv.NewLegacyFixture(tb)
+	fixture := &legacyFixture{f, NewMessageManager(f.DB, f.Redis), NewGroupManager(f.DB), NewRelationManager(f.DB)}
+	// GetGroupsByUid still reaches the global relation manager. Restore it
+	// before connection cleanup; do not run these legacy tests in parallel.
+	previous := Rmanager
+	Rmanager = fixture.relations
+	tb.Cleanup(func() { Rmanager = previous })
+	return fixture
+}
+
 func TestSaveAndLoadMsg(t *testing.T) {
-	t.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	round := 10
-	uIdA, uIdB := uint(1), uint(2)
-	var err error
-	// save
-	for i := 0; i < round; i++ {
-		msg1 := &models.Message{
-			SenderId:   uIdA,
-			ReceiverId: uIdB,
-			Type:       models.PrivateType,
-			Content:    strconv.Itoa(i),
-			TimeStamp:  time.Now().UnixMilli(),
-			Identifier: uint(i),
-		}
-		msg2 := &models.Message{
-			SenderId:   uIdB,
-			ReceiverId: uIdA,
-			Type:       models.PrivateType,
-			Content:    strconv.Itoa(i),
-			TimeStamp:  time.Now().UnixMilli(),
-			Identifier: uint(i),
-		}
-		err = Mmanager.SaveMsg(msg1)
-		if err != nil {
+	f := newLegacyFixture(t)
+	var sent []models.Message
+	for i := 0; i < 20; i++ {
+		sender, receiver := f.Users[i%2].ID, f.Users[(i+1)%2].ID
+		msg := f.Message(sender, receiver, models.PrivateType, uint(i%3), fmt.Sprintf("消息-%02d", i))
+		if err := f.messages.SaveMsg(&msg); err != nil {
 			t.Fatal(err)
 		}
-		err = Mmanager.SaveMsg(msg2)
-		if err != nil {
-			t.Fatal(err)
-		}
+		sent = append(sent, msg)
 	}
-	// load
-	strMsgs, err := Mmanager.LoadMsgs(uIdA, uIdB, models.PrivateType, models.Message{Type: models.InvalidType}, round)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	raw, err := f.Redis.LRange(ctx, getDirtyMsgsKey(), 0, -1).Result()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, v := range strMsgs {
-		t.Log(i, v)
-	}
-	// delete test msgs
-	_, err = Mmanager.rds.Del(context.Background(), getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: models.PrivateType})).Result()
-	if err != nil {
-		t.Fatal(err)
+	assertMessages(t, decodeMessages(t, raw), sent)
+	// Fetch every page, including the final empty page, in both directions.
+	for _, reverse := range []bool{false, true} {
+		a, b := f.Users[0].ID, f.Users[1].ID
+		if reverse {
+			a, b = b, a
+		}
+		cursor := models.Message{Type: models.InvalidType}
+		for offset := 0; ; {
+			raw, err := f.messages.LoadMsgs(a, b, models.PrivateType, cursor, 7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var want []models.Message
+			for i := len(sent) - 1 - offset; i >= 0 && len(want) < 7; i-- {
+				want = append(want, sent[i])
+			}
+			page := decodeMessages(t, raw)
+			assertMessages(t, page, want)
+			if len(page) == 0 {
+				break
+			}
+			offset += len(page)
+			cursor = page[len(page)-1]
+		}
 	}
 }
 
 func TestDeleteMsg(t *testing.T) {
-	t.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	uIdA, uIdB := uint(18), uint(9)
-	_, err := Mmanager.rds.Del(context.Background(), getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: models.PrivateType})).Result()
+	f := newLegacyFixture(t)
+	removed := f.Message(f.Users[0].ID, f.Users[1].ID, models.PrivateType, models.TextMedia, "evicted")
+	retained := f.Message(f.Users[0].ID, f.Users[2].ID, models.PrivateType, models.PictureMedia, "/fixture/image.png")
+	for _, msg := range []models.Message{removed, retained} {
+		if err := f.messages.SaveMsg(&msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, _, err := f.messages.GetAllDirtyMsgs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	strMsgs, err := Mmanager.rds.ZRange(context.Background(), getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: models.PrivateType}), 0, -1).Result()
-	if err != nil || len(strMsgs) != 0 {
-		t.Fatal("delete msg failed: ", err)
+	if err := f.messages.SaveMsgs2DB(raw); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func BenchmarkGetGroups(b *testing.B) {
-	b.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := Gmanager.GetGroupsByUid(9)
-		if err != nil {
-			b.Fatal(err)
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	count, err := f.Redis.Del(ctx, getKey(&removed)).Result()
+	if err != nil || count != 1 {
+		t.Fatalf("must delete exactly one existing cache key: count=%d err=%v", count, err)
 	}
-}
-
-func BenchmarkGetGroups2(b *testing.B) {
-	b.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := Gmanager.GetGroupsByUid2(9)
+	if exists, err := f.Redis.Exists(ctx, getKey(&removed)).Result(); err != nil || exists != 0 {
+		t.Fatalf("evicted cache still exists: exists=%d err=%v", exists, err)
+	}
+	if exists, err := f.Redis.Exists(ctx, getKey(&retained)).Result(); err != nil || exists != 1 {
+		t.Fatalf("another conversation's cache was changed: exists=%d err=%v", exists, err)
+	}
+	for _, want := range []models.Message{removed, retained} {
+		raw, err := f.messages.LoadMsgs(want.SenderId, want.ReceiverId, want.Type, models.Message{Type: models.InvalidType}, 10)
 		if err != nil {
-			b.Fatal(err)
+			t.Fatal(err)
 		}
+		assertMessages(t, decodeMessages(t, raw), []models.Message{want})
+	}
+	var persisted int64
+	if err := f.DB.Model(&models.Message{}).Count(&persisted).Error; err != nil || persisted != 2 {
+		t.Fatalf("cache eviction changed stored messages: count=%d err=%v", persisted, err)
 	}
 }
 
 func TestGetGroups2(t *testing.T) {
-	t.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	g, err := Gmanager.GetGroupsByUid2(9)
-	if err != nil {
-		t.Fatal(err)
+	f := newLegacyFixture(t)
+	for _, query := range []func(uint) ([]models.Group, error){f.groups.GetGroupsByUid, f.groups.GetGroupsByUid2} {
+		groups, err := query(f.Users[0].ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertIDs(t, groupIDs(groups), f.Groups[0].ID, f.Groups[1].ID)
+		groups, err = query(f.Users[4].ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertIDs(t, groupIDs(groups))
 	}
-	t.Log(g)
 }
 
 func TestSearchFriends(t *testing.T) {
-	t.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	friends, err := Rmanager.SearchFriends(9)
-	if err != nil {
-		t.Fatal(err)
-	}
-	friends2, err := Rmanager.SearchFriends2(9)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(friends) != len(friends2) {
-		t.Fatal("search friends failed", friends, friends2)
-	}
-	for i, v := range friends {
-		if v.ID != friends2[i].ID {
-			t.Fatal("search friends failed")
-		}
-	}
-}
-
-func BenchmarkSearchFriends(b *testing.B) {
-	b.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := Rmanager.SearchFriends(9)
+	f := newLegacyFixture(t)
+	for _, query := range []func(uint) ([]models.User, error){f.relations.SearchFriends, f.relations.SearchFriends2} {
+		friends, err := query(f.Users[0].ID)
 		if err != nil {
-			b.Fatal(err)
+			t.Fatal(err)
 		}
-	}
-}
-
-func BenchmarkSearchFriends2(b *testing.B) {
-	b.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := Rmanager.SearchFriends2(9)
+		assertIDs(t, userIDs(friends), f.Users[1].ID)
+		friends, err = query(f.Users[1].ID)
 		if err != nil {
-			b.Fatal(err)
+			t.Fatal(err)
 		}
+		assertIDs(t, userIDs(friends), f.Users[0].ID)
+		friends, err = query(f.Users[4].ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertIDs(t, userIDs(friends))
 	}
 }
 
 func TestGetGroupUsers(t *testing.T) {
-	t.Skip("P0: legacy integration test disabled until isolated fixtures replace fixed IDs")
-	users, err := Gmanager.GetGroupUsers(2)
-	if err != nil {
-		t.Fatal(err)
+	f := newLegacyFixture(t)
+	for _, test := range []struct {
+		group uint
+		users []uint
+	}{
+		{f.Groups[0].ID, []uint{f.Users[0].ID, f.Users[1].ID}},
+		{f.Groups[1].ID, []uint{f.Users[0].ID, f.Users[2].ID}},
+		{f.Groups[2].ID, []uint{f.Users[3].ID}},
+	} {
+		users, err := f.groups.GetGroupUsers(test.group)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertIDs(t, userIDs(users), test.users...)
 	}
-	for _, v := range users {
-		t.Log(v.Name)
+}
+
+func BenchmarkGetGroups(b *testing.B)  { benchmarkGroups(b, false) }
+func BenchmarkGetGroups2(b *testing.B) { benchmarkGroups(b, true) }
+func benchmarkGroups(b *testing.B, joined bool) {
+	b.StopTimer()
+	f := newLegacyFixture(b)
+	query := f.groups.GetGroupsByUid
+	if joined {
+		query = f.groups.GetGroupsByUid2
+	}
+	groups, err := query(f.Users[0].ID)
+	if err != nil {
+		b.Fatal(err)
+	}
+	assertIDs(b, groupIDs(groups), f.Groups[0].ID, f.Groups[1].ID)
+	b.ResetTimer()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		groups, err = query(f.Users[0].ID)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	assertIDs(b, groupIDs(groups), f.Groups[0].ID, f.Groups[1].ID)
+}
+
+func BenchmarkSearchFriends(b *testing.B)  { benchmarkFriends(b, false) }
+func BenchmarkSearchFriends2(b *testing.B) { benchmarkFriends(b, true) }
+func benchmarkFriends(b *testing.B, joined bool) {
+	b.StopTimer()
+	f := newLegacyFixture(b)
+	query := f.relations.SearchFriends
+	if joined {
+		query = f.relations.SearchFriends2
+	}
+	friends, err := query(f.Users[0].ID)
+	if err != nil {
+		b.Fatal(err)
+	}
+	assertIDs(b, userIDs(friends), f.Users[1].ID)
+	b.ResetTimer()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		friends, err = query(f.Users[0].ID)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	assertIDs(b, userIDs(friends), f.Users[1].ID)
+}
+
+func decodeMessages(tb testing.TB, raw []string) []models.Message {
+	tb.Helper()
+	var messages []models.Message
+	for _, item := range raw {
+		var msg models.Message
+		if err := json.Unmarshal([]byte(item), &msg); err != nil {
+			tb.Fatal(err)
+		}
+		messages = append(messages, msg)
+	}
+	return messages
+}
+
+func assertMessages(tb testing.TB, got, want []models.Message) {
+	tb.Helper()
+	if !reflect.DeepEqual(got, want) {
+		tb.Fatalf("messages = %#v, want %#v", got, want)
+	}
+}
+
+func userIDs(users []models.User) []uint {
+	var ids []uint
+	for _, user := range users {
+		ids = append(ids, user.ID)
+	}
+	return ids
+}
+
+func groupIDs(groups []models.Group) []uint {
+	var ids []uint
+	for _, group := range groups {
+		ids = append(ids, group.ID)
+	}
+	return ids
+}
+
+func assertIDs(tb testing.TB, got []uint, want ...uint) {
+	tb.Helper()
+	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+	if !reflect.DeepEqual(got, want) {
+		tb.Fatalf("IDs = %v, want %v", got, want)
 	}
 }
