@@ -3,7 +3,6 @@ package database
 import (
 	"errors"
 	"iChat/models"
-	"iChat/utils"
 
 	"gorm.io/gorm"
 )
@@ -14,9 +13,9 @@ type relationManager struct {
 	db *gorm.DB
 }
 
-func init() {
-	Rmanager = &relationManager{
-		db: utils.DB,
+func NewRelationManager(db *gorm.DB) *relationManager {
+	return &relationManager{
+		db: db,
 	}
 }
 

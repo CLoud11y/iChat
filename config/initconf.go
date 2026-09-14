@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,8 +41,10 @@ type Config struct {
 	} `mapstructure:"LOG"`
 }
 
-func init() {
-	configureConfigFile()
+// Load reads configuration explicitly; importing this package performs no I/O.
+func Load() (Config, error) {
+	viper := viper.New()
+	configureConfigFile(viper)
 	viper.SetDefault("LOG.level", "info")
 	viper.SetDefault("LOG.accessEnabled", true)
 	viper.SetEnvPrefix("ICHAT")
@@ -49,15 +52,17 @@ func init() {
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		panic("Error reading config file (copy config/config.example.yml to config/config.yml): " + err.Error())
+		return Config{}, fmt.Errorf("read config (copy config/config.example.yml to config/config.yml): %w", err)
 	}
 
-	if err := viper.Unmarshal(&Conf); err != nil {
-		panic("Unable to decode into struct: " + err.Error())
+	var conf Config
+	if err := viper.Unmarshal(&conf); err != nil {
+		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
+	return conf, nil
 }
 
-func configureConfigFile() {
+func configureConfigFile(viper *viper.Viper) {
 	if configFile := os.Getenv("ICHAT_CONFIG_FILE"); configFile != "" {
 		viper.SetConfigFile(configFile)
 		return

@@ -5,16 +5,15 @@ import (
 	"iChat/config"
 	"iChat/models"
 
-	"github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
 var DB *gorm.DB
 
-func init() {
+func OpenMySQL(conf config.Config) (*gorm.DB, error) {
 	// 初始化数据库连接
-	mysqlConf := &config.Conf.MYSQL
+	mysqlConf := &conf.MYSQL
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		mysqlConf.User,
 		mysqlConf.Password,
@@ -27,16 +26,23 @@ func init() {
 
 	db, err := gorm.Open(MysqlConf, GormConf)
 	if err != nil {
-		panic(err)
+		// GORM closes the pool on dialector initialization errors, but an
+		// automatic Ping failure can also return a DB with an open pool.
+		if db != nil {
+			if sqlDB, poolErr := db.DB(); poolErr == nil {
+				_ = sqlDB.Close()
+			}
+		}
+		return nil, fmt.Errorf("open mysql: %w", err)
 	}
-	db.AutoMigrate(&models.User{})
-	db.AutoMigrate(&models.Relation{})
-	db.AutoMigrate(&models.Group{})
-	db.AutoMigrate(&models.Message{})
-	DB = db
-	Logger().WithFields(logrus.Fields{
-		"host":     mysqlConf.Host,
-		"port":     mysqlConf.Port,
-		"database": mysqlConf.DbName,
-	}).Info("mysql connection initialized")
+	return db, nil
+}
+
+// MigrateLegacy preserves the existing startup migration until P0 separates
+// migration into its own command. Connection construction never changes schema.
+func MigrateLegacy(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("migrate legacy: mysql is not initialized")
+	}
+	return db.AutoMigrate(&models.User{}, &models.Relation{}, &models.Group{}, &models.Message{})
 }

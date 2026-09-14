@@ -2,7 +2,6 @@ package database
 
 import (
 	"iChat/models"
-	"iChat/utils"
 
 	"gorm.io/gorm"
 )
@@ -15,9 +14,9 @@ type groupManager struct {
 	db *gorm.DB
 }
 
-func init() {
-	Gmanager = &groupManager{
-		db: utils.DB,
+func NewGroupManager(db *gorm.DB) *groupManager {
+	return &groupManager{
+		db: db,
 	}
 }
 

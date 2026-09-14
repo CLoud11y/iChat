@@ -3,7 +3,6 @@ package database
 import (
 	"errors"
 	"iChat/models"
-	"iChat/utils"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -19,9 +18,9 @@ type userManager struct {
 	onlineMap map[uint]*models.User
 }
 
-func init() {
-	Umanager = &userManager{
-		db:        utils.DB,
+func NewUserManager(db *gorm.DB) *userManager {
+	return &userManager{
+		db:        db,
 		onlineMap: make(map[uint]*models.User),
 	}
 }

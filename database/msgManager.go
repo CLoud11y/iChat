@@ -19,10 +19,10 @@ type msgManager struct {
 	db  *gorm.DB
 }
 
-func init() {
-	Mmanager = &msgManager{
-		rds: utils.RDS,
-		db:  utils.DB,
+func NewMessageManager(db *gorm.DB, rds *redis.Client) *msgManager {
+	return &msgManager{
+		rds: rds,
+		db:  db,
 	}
 }
 

@@ -2,31 +2,27 @@ package utils
 
 import (
 	"context"
+	"fmt"
 	"iChat/config"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/sirupsen/logrus"
 )
 
 var RDS *redis.Client
 
-func init() {
+func OpenRedis(ctx context.Context, conf config.Config) (*redis.Client, error) {
 	// 初始化redis
-	RDS = redis.NewClient(&redis.Options{
-		Addr:         config.Conf.REDIS.Addr,
-		Password:     config.Conf.REDIS.Password,
-		PoolSize:     config.Conf.REDIS.PoolSize,
-		DB:           config.Conf.REDIS.DB,
-		MinIdleConns: config.Conf.REDIS.MinIdleConn,
+	rds := redis.NewClient(&redis.Options{
+		Addr:         conf.REDIS.Addr,
+		Password:     conf.REDIS.Password,
+		PoolSize:     conf.REDIS.PoolSize,
+		DB:           conf.REDIS.DB,
+		MinIdleConns: conf.REDIS.MinIdleConn,
 	})
-	ctx := context.Background()
-	_, err := RDS.Ping(ctx).Result()
+	_, err := rds.Ping(ctx).Result()
 	if err != nil {
-		panic(err)
+		_ = rds.Close()
+		return nil, fmt.Errorf("open redis: %w", err)
 	}
-
-	Logger().WithFields(logrus.Fields{
-		"address":  config.Conf.REDIS.Addr,
-		"database": config.Conf.REDIS.DB,
-	}).Info("redis connection initialized")
+	return rds, nil
 }
