@@ -44,6 +44,8 @@ go test ./...
    cp config/config.example.yml config/config.yml
    ```
 
+   在本地 `.env` 中填写非空的 `MYSQL_ROOT_PASSWORD` 和 `REDIS_PASSWORD`，并将对应密码填入 `config/config.yml`。Compose 不提供默认密码，缺失或为空时会拒绝启动。
+
 2. 启动 MySQL 和 Redis，并等待两项服务变为 `healthy`：
 
    ```bash

@@ -3,7 +3,7 @@ services:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-pswd4mysqlroot}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-iChat}
     command:
       - --character-set-server=utf8mb4
@@ -23,7 +23,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-pswd4redisroot}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass $${REDIS_PASSWORD}"]
     ports:
       - '${REDIS_PORT:-6379}:6379'
