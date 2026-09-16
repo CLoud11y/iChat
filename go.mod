@@ -1,6 +1,6 @@
 module iChat
 
-go 1.21.3
+go 1.27.1
 
 require (
 	github.com/gin-contrib/cors v1.7.2

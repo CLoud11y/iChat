@@ -1,5 +1,7 @@
 # 独立测试环境
 
+当前验证工具链为 **Go 1.27.1**。运行前按 [README 工具链说明](../README.md#go-工具链) 设置当前终端的 `GOTOOLCHAIN=go1.27.1`，并用 `go version` 核对实际版本。
+
 默认单元测试不启动外部服务：
 
 ```powershell
