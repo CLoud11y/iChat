@@ -16,6 +16,14 @@ go test -tags=integration ./tests/integration/... -count=1 -v -timeout=12m
 
 这条命令自动创建、等待就绪并清理测试资源，不需要先手动执行 `docker compose up`。
 
+P0.5 的迁移命令验收同样使用独立环境：
+
+```powershell
+go test -tags=integration ./cmd/migrate -count=1 -v -timeout=8m
+```
+
+覆盖实际命令入口的退出码：连接失败、DDL 失败、首次创建四张旧表、重复迁移保留用户及消息；Redis 配置不可用时迁移仍成功。默认单元测试另行覆盖配置缺失/损坏后的非零退出，不连接数据库。迁移测试不读取开发配置，不对开发数据库执行迁移。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell

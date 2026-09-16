@@ -38,8 +38,9 @@ func OpenMySQL(conf config.Config) (*gorm.DB, error) {
 	return db, nil
 }
 
-// MigrateLegacy preserves the existing startup migration until P0 separates
-// migration into its own command. Connection construction never changes schema.
+// MigrateLegacy applies the transitional schema for cmd/migrate and isolated
+// test fixtures. Business startup and connection construction never migrate.
+// Versioned migrations for the reliability schema are introduced in P2.
 func MigrateLegacy(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("migrate legacy: mysql is not initialized")

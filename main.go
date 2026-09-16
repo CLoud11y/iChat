@@ -39,11 +39,6 @@ func run() error {
 		return err
 	}
 	defer rds.Close()
-	if err := utils.MigrateLegacy(db); err != nil {
-		return fmt.Errorf("migrate legacy schema: %w", err)
-	}
-	// Transitional wiring for existing handlers; new repositories will receive
-	// dependencies directly as the later P0/P2 steps are implemented.
 	config.Conf = conf
 	utils.DB, utils.RDS = db, rds
 	database.Umanager = database.NewUserManager(db)

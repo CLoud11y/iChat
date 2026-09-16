@@ -18,6 +18,8 @@
 ~~~powershell
 docker compose up -d
 docker compose ps
+go run ./cmd/migrate
+# 迁移成功后再启动服务。
 $env:GIN_MODE = "release"
 $env:ICHAT_LOG_LEVEL = "info"
 $env:ICHAT_LOG_ACCESSENABLED = "false"

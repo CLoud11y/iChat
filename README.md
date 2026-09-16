@@ -51,7 +51,15 @@ go test ./...
    docker compose ps
    ```
 
-3. 启动 Go 服务：
+3. 显式执行数据库迁移，成功后再启动 Go 服务：
+
+   ```bash
+   go run ./cmd/migrate
+   ```
+
+   迁移命令沿用应用配置（支持 `ICHAT_CONFIG_FILE` 和 `ICHAT_MYSQL_*` 环境变量），只连接 MySQL；不需要 Redis。成功输出 `legacy schema migration completed` 并以 0 退出；配置、连接或迁移失败输出错误并非零退出，此时应先排查错误，再启动服务。
+
+   当前命令使用旧模型的 `AutoMigrate` 创建或更新 `user`、`relation`、`group`、`message` 四张表；可对当前 schema 重复执行，后续可靠性 schema 将在 P2 引入版本化迁移。MySQL DDL 失败可能保留已执行的变更，该命令不承诺整批回滚。业务服务启动不再自动建表或修改 schema。
 
    ```bash
    go run .

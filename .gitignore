@@ -39,3 +39,8 @@ go.work.sum
 # Local load-test artifacts
 /.gocache/
 /loadtest-results/
+
+# IDE specific files
+.vscode/
+.serena/
+.agents/
