@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"iChat/database"
 	"iChat/models"
 	"iChat/utils"
@@ -19,19 +20,25 @@ type LoginResp struct {
 	UserInfo  models.User `json:"userInfo"`
 }
 
-func LoginUser(tokens *utils.TokenService) gin.HandlerFunc {
+func LoginUser(users AccountUsers, tokens *utils.TokenService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		info := &LoginInfo{}
 		// 将注册信息绑定至结构体
 		if err := c.ShouldBind(info); err != nil {
-			utils.Logger().WithError(err).Warn("bind login request failed")
 			utils.RespFail(c.Writer, "invalid login request")
 			return
 		}
-		user, err := database.Umanager.GetUserByPhone(info.PhoneNum)
-		// 用户不存在或发生其他错误
-		if err != nil {
+		if users == nil {
+			accountStorageUnavailable(c)
+			return
+		}
+		user, err := users.GetUserByPhone(c.Request.Context(), info.PhoneNum)
+		if errors.Is(err, database.ErrUserNotFound) {
 			utils.RespFail(c.Writer, "account or password is incorrect")
+			return
+		}
+		if err != nil || user == nil || user.ID == 0 {
+			accountStorageUnavailable(c)
 			return
 		}
 		if !utils.VerifyPassword(info.Password, user.Password) {
@@ -44,7 +51,7 @@ func LoginUser(tokens *utils.TokenService) gin.HandlerFunc {
 			utils.RespondAuthError(c, err)
 			return
 		}
-		database.Umanager.Online(user)
+		users.Online(user)
 		utils.RespOK(c.Writer, LoginResp{token, "0", *user}, "ok")
 	}
 }

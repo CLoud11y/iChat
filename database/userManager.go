@@ -1,10 +1,13 @@
 package database
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"iChat/models"
 	"sync"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
@@ -25,17 +28,21 @@ func NewUserManager(db *gorm.DB) *userManager {
 	}
 }
 
-func (um *userManager) Signup(phone, name, password string) (*models.User, error) {
+func (um *userManager) Signup(ctx context.Context, phone, name, password string) (*models.User, error) {
+	if um == nil || um.db == nil || um.db.Config == nil {
+		return nil, ErrStorageUnavailable
+	}
+	db := um.db.WithContext(ctx)
 	// 检查用户名是否已存在
 	tempUser := &models.User{}
-	err := um.db.Where("phone = ?", phone).First(tempUser).Error
+	err := db.Where("phone = ?", phone).First(tempUser).Error
 	// 用户已存在
 	if err == nil {
-		return nil, errors.New("phone is already registered")
+		return nil, ErrPhoneRegistered
 	}
 	// 发生未知错误
-	if err != gorm.ErrRecordNotFound {
-		return nil, err
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, userStorageError("check registered phone", err)
 	}
 	// 正常注册流程
 	tempUser.Name = name
@@ -43,17 +50,32 @@ func (um *userManager) Signup(phone, name, password string) (*models.User, error
 	tempUser.Phone = phone
 	// 默认将标识号设置为phone
 	tempUser.Identifier = phone
-	err = um.db.Save(&tempUser).Error
+	err = db.Create(tempUser).Error
 	if err != nil {
-		return nil, err
+		// The unique constraint is authoritative if concurrent signups both
+		// observe an absent phone before either insert commits.
+		var duplicate *mysqlDriver.MySQLError
+		if errors.Is(err, gorm.ErrDuplicatedKey) || (errors.As(err, &duplicate) && duplicate.Number == 1062) {
+			return nil, ErrPhoneRegistered
+		}
+		return nil, userStorageError("create user", err)
 	}
 	return tempUser, nil
 }
 
-func (um *userManager) GetUserByPhone(phone string) (*models.User, error) {
+func (um *userManager) GetUserByPhone(ctx context.Context, phone string) (*models.User, error) {
+	if um == nil || um.db == nil || um.db.Config == nil {
+		return nil, ErrStorageUnavailable
+	}
 	tempUser := &models.User{}
-	err := um.db.Where("phone = ?", phone).First(tempUser).Error
-	return tempUser, err
+	err := um.db.WithContext(ctx).Where("phone = ?", phone).First(tempUser).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("%w: %w", ErrUserNotFound, err)
+	}
+	if err != nil {
+		return nil, userStorageError("find user by phone", err)
+	}
+	return tempUser, nil
 }
 
 func (um *userManager) Online(user *models.User) {
@@ -63,6 +85,9 @@ func (um *userManager) Online(user *models.User) {
 }
 
 func (um *userManager) Offline(uid uint) {
+	if um == nil {
+		return
+	}
 	um.locker.Lock()
 	defer um.locker.Unlock()
 	delete(um.onlineMap, uid)

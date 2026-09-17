@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"iChat/models"
 
@@ -62,7 +63,7 @@ func (rm *relationManager) AddFriendByPhone(userId uint, targetPhone string) err
 	if targetPhone == "" {
 		return errors.New("目标电话为空")
 	}
-	targetUser, err := Umanager.GetUserByPhone(targetPhone)
+	targetUser, err := Umanager.GetUserByPhone(context.Background(), targetPhone)
 	if err != nil {
 		return err
 	}

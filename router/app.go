@@ -2,7 +2,6 @@ package router
 
 import (
 	"iChat/config"
-	"iChat/database"
 	"iChat/middlewares"
 	"iChat/service"
 	"iChat/utils"
@@ -10,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Router(conf config.Config, tokens *utils.TokenService) *gin.Engine {
+func Router(conf config.Config, tokens *utils.TokenService, users service.AccountUsers) *gin.Engine {
 	r := gin.New()
 	// 日志中间件 跨域中间件
 	r.Use(gin.RecoveryWithWriter(utils.Logger().Out))
@@ -22,10 +21,10 @@ func Router(conf config.Config, tokens *utils.TokenService) *gin.Engine {
 	public := r.Group("/")
 	{
 		public.POST("/getSystemInfo", service.GetSystemInfo)
-		public.POST("/user/register", service.RegisterUser)
-		public.POST("/user/login", service.LoginUser(tokens))
+		public.POST("/user/register", service.RegisterUser(users))
+		public.POST("/user/login", service.LoginUser(users, tokens))
 		var offline func(uint)
-		if users := database.Umanager; users != nil {
+		if users != nil {
 			offline = users.Offline
 		}
 		public.POST("/user/logout", service.LogoutUser(tokens, offline))

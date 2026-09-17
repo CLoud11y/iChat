@@ -34,6 +34,14 @@ go test -race -tags=integration ./tests/integration -run '^TestAuthRedisIntegrat
 
 该用例验证不存在的黑名单 key、封禁后的拒绝、正数且有界的 TTL、请求取消及客户端关闭；在本轮 Redis 中创建仅允许 GET/PING 的 ACL 用户，验证认证读取成功后 SET 被真实 Redis 拒绝时不会报告注销成功。测试结束关闭客户端并按归属清理本轮资源。
 
+P0.6.3a 的账号接口默认测试使用注入的用户仓储，覆盖仓储/DB 缺失、查询写入错误、请求取消、业务失败以及登录成功后才标记在线。真实 MySQL 验收沿用独立 fixture：
+
+```powershell
+go test -race -tags=integration ./service -run '^TestAccountMySQLIntegration$' -count=1 -v -timeout=8m
+```
+
+该用例验证注册存储字段、密码校验和签发 token；8 路并发注册同一手机号只有一个成功；在本轮测试表上临时添加 CHECK 约束制造真实写入失败，随后移除；验证请求取消不写入、连接池关闭后注册/登录返回 503。schema 已由 fixture 核验，测试不改变开发数据库。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell

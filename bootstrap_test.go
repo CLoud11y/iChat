@@ -7,6 +7,7 @@ import (
 	"errors"
 	"iChat/config"
 	"iChat/database"
+	"iChat/service"
 	"iChat/utils"
 	"net"
 	"reflect"
@@ -175,8 +176,8 @@ func TestBootstrapLifecycle(t *testing.T) {
 					}
 					return stop, nil
 				},
-				serve: func(got config.Config, client *redis.Client) error {
-					if got != conf || client != rds {
+				serve: func(got config.Config, client *redis.Client, users service.AccountUsers) error {
+					if got != conf || client != rds || users != database.Umanager {
 						t.Fatal("HTTP factory did not receive supplied dependencies")
 					}
 					events = append(events, "http")
