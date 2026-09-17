@@ -19,30 +19,32 @@ type LoginResp struct {
 	UserInfo  models.User `json:"userInfo"`
 }
 
-func LoginUser(c *gin.Context) {
-	info := &LoginInfo{}
-	// 将注册信息绑定至结构体
-	if err := c.ShouldBind(info); err != nil {
-		utils.Logger().WithError(err).Warn("bind login request failed")
-		utils.RespFail(c.Writer, "invalid login request")
-		return
+func LoginUser(tokens *utils.TokenService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		info := &LoginInfo{}
+		// 将注册信息绑定至结构体
+		if err := c.ShouldBind(info); err != nil {
+			utils.Logger().WithError(err).Warn("bind login request failed")
+			utils.RespFail(c.Writer, "invalid login request")
+			return
+		}
+		user, err := database.Umanager.GetUserByPhone(info.PhoneNum)
+		// 用户不存在或发生其他错误
+		if err != nil {
+			utils.RespFail(c.Writer, "account or password is incorrect")
+			return
+		}
+		if !utils.VerifyPassword(info.Password, user.Password) {
+			utils.RespFail(c.Writer, "account or password is incorrect")
+			return
+		}
+		// 生成token
+		token, err := tokens.GenerateToken(user.ID)
+		if err != nil {
+			utils.RespondAuthError(c, err)
+			return
+		}
+		database.Umanager.Online(user)
+		utils.RespOK(c.Writer, LoginResp{token, "0", *user}, "ok")
 	}
-	user, err := database.Umanager.GetUserByPhone(info.PhoneNum)
-	// 用户不存在或发生其他错误
-	if err != nil {
-		utils.RespFail(c.Writer, "account or password is incorrect")
-		return
-	}
-	if !utils.VerifyPassword(info.Password, user.Password) {
-		utils.RespFail(c.Writer, "account or password is incorrect")
-		return
-	}
-	// 生成token
-	token, err := utils.GenerateToken(user.ID)
-	if err != nil {
-		utils.RespFail(c.Writer, err.Error())
-		return
-	}
-	database.Umanager.Online(user)
-	utils.RespOK(c.Writer, LoginResp{token, "0", *user}, "ok")
 }

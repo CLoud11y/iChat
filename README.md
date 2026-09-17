@@ -78,3 +78,11 @@ go test ./...
 数据库数据保存在 `mysql_data` 和 `redis_data` 命名卷中。若确实要同时删除数据，可使用 `docker compose down -v`。
 
 端口和密码可在 `.env` 中修改；修改密码或端口后，也要同步修改 `config/config.yml`。应用配置还支持以 `ICHAT_` 开头的环境变量覆盖，例如 `ICHAT_MYSQL_HOST`、`ICHAT_MYSQL_PASSWORD` 和 `ICHAT_REDIS_ADDR`。
+
+## 鉴权与注销
+
+`JWT.key` 必须非空，`JWT.tokenHourLifeSpan` 必须为可表示的正整数小时数；配置无效时服务启动报错。签发和校验使用 HS256，用户 ID 必须是正整数，token 必须有有效的过期时间。
+
+受保护接口和 `/user/logout` 使用同一个鉴权服务。token 缺失、无效、过期或已封禁时返回 HTTP 401；Redis 黑名单读写失败或鉴权依赖缺失时返回 HTTP 503。错误响应保留 `code/msg/data`，`data.reasonCode` 分别为 `UNAUTHENTICATED` 或 `DEPENDENCY_UNAVAILABLE`，不向客户端暴露底层 Redis 错误。
+
+注销只有在黑名单写入成功后才发送 WebSocket 下线通知、更新本地在线状态并返回 HTTP 200、`code: 0`。收到 503 不能视为注销成功；写入结果可能不确定。已封禁 token 再次访问受保护接口或注销接口返回 401。黑名单 TTL 对齐 token 剩余有效期，继续使用原有 key 格式。

@@ -2,6 +2,7 @@ package router
 
 import (
 	"iChat/config"
+	"iChat/database"
 	"iChat/middlewares"
 	"iChat/service"
 	"iChat/utils"
@@ -9,11 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Router() *gin.Engine {
+func Router(conf config.Config, tokens *utils.TokenService) *gin.Engine {
 	r := gin.New()
 	// 日志中间件 跨域中间件
 	r.Use(gin.RecoveryWithWriter(utils.Logger().Out))
-	if config.Conf.LOG.AccessEnabled {
+	if conf.LOG.AccessEnabled {
 		r.Use(middlewares.Logger2File())
 	}
 	r.Use(middlewares.Cors())
@@ -22,12 +23,16 @@ func Router() *gin.Engine {
 	{
 		public.POST("/getSystemInfo", service.GetSystemInfo)
 		public.POST("/user/register", service.RegisterUser)
-		public.POST("/user/login", service.LoginUser)
-		public.POST("/user/logout", service.LogoutUser)
+		public.POST("/user/login", service.LoginUser(tokens))
+		var offline func(uint)
+		if users := database.Umanager; users != nil {
+			offline = users.Offline
+		}
+		public.POST("/user/logout", service.LogoutUser(tokens, offline))
 	}
 	protected := r.Group("/auth")
 	// 在此路由组中使用中间件校验token
-	protected.Use(middlewares.JwtAuth)
+	protected.Use(middlewares.JwtAuth(tokens))
 	{
 		protected.GET("/getws", service.Chat)
 		protected.POST("/getContacts", service.GetContacts)

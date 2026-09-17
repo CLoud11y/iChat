@@ -175,7 +175,10 @@ func TestBootstrapLifecycle(t *testing.T) {
 					}
 					return stop, nil
 				},
-				serve: func() error {
+				serve: func(got config.Config, client *redis.Client) error {
+					if got != conf || client != rds {
+						t.Fatal("HTTP factory did not receive supplied dependencies")
+					}
 					events = append(events, "http")
 					checkBound()
 					if tc.name == "http" || tc.name == "http_and_close" {

@@ -1,28 +1,24 @@
 package middlewares
 
 import (
-	"fmt"
 	"iChat/utils"
-	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
-func JwtAuth(c *gin.Context) {
-	claims, err := utils.TokenValid(c)
-	if err != nil {
-		c.String(http.StatusUnauthorized, err.Error())
-		c.AbortWithStatus(http.StatusUnauthorized)
-		return
+func JwtAuth(tokens *utils.TokenService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, err := utils.ExtractToken(c)
+		if err != nil {
+			utils.RespondAuthError(c, err)
+			return
+		}
+		identity, err := tokens.ValidateToken(c.Request.Context(), token)
+		if err != nil {
+			utils.RespondAuthError(c, err)
+			return
+		}
+		c.Set("uid", identity.UserID)
+		c.Next()
 	}
-	// 将user_id转换为浮点数字符串，然后再转换为 uint32
-	uid, err := strconv.ParseUint(fmt.Sprintf("%.0f", claims["user_id"]), 10, 32)
-	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
-		c.AbortWithStatus(http.StatusInternalServerError)
-		return
-	}
-	c.Set("uid", uint(uid))
-	c.Next()
 }

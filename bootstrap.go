@@ -23,7 +23,7 @@ type startupDependencies struct {
 	openMySQL   func(config.Config) (*gorm.DB, error)
 	openRedis   func(context.Context, config.Config) (*redis.Client, error)
 	startWorker func() (func(), error)
-	serve       func() error
+	serve       func(config.Config, *redis.Client) error
 }
 
 func defaultStartupDependencies() startupDependencies {
@@ -34,7 +34,13 @@ func defaultStartupDependencies() startupDependencies {
 		startWorker: func() (func(), error) {
 			return startLegacyCron("@every 60s", scheduledtasks.SyncMsg)
 		},
-		serve: func() error { return router.Router().Run() },
+		serve: func(conf config.Config, rds *redis.Client) error {
+			tokens, err := utils.NewTokenService(conf, utils.NewRedisTokenBlacklist(rds))
+			if err != nil {
+				return err
+			}
+			return router.Router(conf, tokens).Run()
+		},
 	}
 }
 
@@ -94,7 +100,7 @@ func bootstrap(deps startupDependencies) (err error) {
 	if stop == nil {
 		return errors.New("start legacy worker: missing stop function")
 	}
-	if err := deps.serve(); err != nil {
+	if err := deps.serve(conf, rds); err != nil {
 		return fmt.Errorf("serve http: %w", err)
 	}
 	return nil

@@ -26,6 +26,14 @@ go test -tags=integration ./cmd/migrate -count=1 -v -timeout=8m
 
 覆盖实际命令入口的退出码：连接失败、DDL 失败、首次创建四张旧表、重复迁移保留用户及消息；Redis 配置不可用时迁移仍成功。默认单元测试另行覆盖配置缺失/损坏后的非零退出，不连接数据库。迁移测试不读取开发配置，不对开发数据库执行迁移。
 
+P0.6.2 的鉴权/注销单元测试覆盖 JWT 校验、黑名单错误分类、HTTP 401/503、请求取消及“写入成功后才下线”的顺序；不启动外部服务。真实 Redis 验收使用独立测试环境：
+
+```powershell
+go test -race -tags=integration ./tests/integration -run '^TestAuthRedisIntegration$' -count=1 -v -timeout=8m
+```
+
+该用例验证不存在的黑名单 key、封禁后的拒绝、正数且有界的 TTL、请求取消及客户端关闭；在本轮 Redis 中创建仅允许 GET/PING 的 ACL 用户，验证认证读取成功后 SET 被真实 Redis 拒绝时不会报告注销成功。测试结束关闭客户端并按归属清理本轮资源。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell
