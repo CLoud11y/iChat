@@ -24,7 +24,7 @@ func TestSyncMsg(t *testing.T) {
 		f.Message(f.Users[0].ID, f.Groups[0].ID, models.GroupType, models.AudioMedia, "/fixture/audio.ogg"),
 	}
 	for i := range messages {
-		if err := store.SaveMsg(&messages[i]); err != nil {
+		if err := store.SaveMsg(context.Background(), &messages[i]); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -49,7 +49,7 @@ func TestSyncMsg(t *testing.T) {
 	}
 
 	pending := f.Message(f.Users[0].ID, f.Users[1].ID, models.PrivateType, models.TextMedia, "pending")
-	if err := store.SaveMsg(&pending); err != nil {
+	if err := store.SaveMsg(context.Background(), &pending); err != nil {
 		t.Fatal(err)
 	}
 	canceled, cancel := context.WithCancel(context.Background())

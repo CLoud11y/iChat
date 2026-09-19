@@ -285,29 +285,3 @@ func getWebsocket(c *gin.Context) (*websocket.Conn, error) {
 	}
 	return wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 }
-
-func SendMsg(c *gin.Context) {
-	msgInfo := &models.MsgInfo{}
-	if err := c.ShouldBind(msgInfo); err != nil {
-		utils.Logger().WithError(err).Warn("bind send message request failed")
-		utils.RespFail(c.Writer, "invalid send message request")
-		return
-	}
-	msg := msgInfo.Conv2Msg()
-	err := database.Mmanager.PublishAndSave(msg)
-	if err != nil {
-		utils.Logger().WithError(err).WithFields(logrus.Fields{
-			"message_id":  msg.Id,
-			"sender_id":   msg.SenderId,
-			"receiver_id": msg.ReceiverId,
-		}).Error("publish and save message failed")
-		utils.RespFail(c.Writer, "publishAndSave msg failed: "+err.Error())
-		return
-	}
-	utils.Logger().WithFields(logrus.Fields{
-		"message_id":  msg.Id,
-		"sender_id":   msg.SenderId,
-		"receiver_id": msg.ReceiverId,
-	}).Debug("message published and queued for persistence")
-	utils.RespOK(c.Writer, "ok", "ok")
-}

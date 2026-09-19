@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"iChat/database"
 	"iChat/models"
 	"iChat/utils"
@@ -25,45 +26,63 @@ type RespMsgInfo struct {
 	FromUser    models.FromUserInfo `json:"fromUser"`
 }
 
-func GetMessageList(c *gin.Context) {
-	userId := c.GetUint("uid")
-	info := ReqMsgInfo{}
-	if err := c.ShouldBind(&info); err != nil {
-		utils.Logger().WithError(err).Warn("bind message list request failed")
-		utils.RespFail(c.Writer, "invalid message list request")
-		return
-	}
-	// 消息类型
-	msgType := models.PrivateType
-	if info.IsGroup == 1 {
-		msgType = models.GroupType
-	}
-	earliestMsg := *info.EarliestMsg.Conv2Msg()
-	if info.EarliestMsg.Type == "" {
-		earliestMsg.Type = models.InvalidType
-	}
-	strMsgs, err := database.Mmanager.LoadMsgs(userId, info.TocontactId, uint(msgType), earliestMsg, info.Limit)
-	if err != nil {
-		utils.RespFail(c.Writer, err.Error())
-		return
-	}
-	msgs := make([]RespMsgInfo, len(strMsgs))
-	for i, strMsg := range strMsgs {
-		msg := models.Message{}
-		json.Unmarshal([]byte(strMsg), &msg)
-		respMsg := RespMsgInfo{
-			Id:          msg.Id,
-			Status:      "succeed",
-			Type:        "text",
-			SendTime:    msg.TimeStamp,
-			Content:     msg.Content,
-			TocontactId: msg.ReceiverId,
-			FromUser: models.FromUserInfo{
-				Id: msg.SenderId,
-			},
+func GetMessageList(store MessageStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userId := c.GetUint("uid")
+		info := ReqMsgInfo{}
+		if err := c.ShouldBind(&info); err != nil {
+			utils.RespFail(c.Writer, "invalid message list request")
+			return
 		}
-		// 由于前端显示需要 这里逆序
-		msgs[len(strMsgs)-i-1] = respMsg
+		if userId == 0 || info.TocontactId == 0 || info.Limit < 1 || info.Limit > database.MaxMessagePageSize || (info.IsGroup != 0 && info.IsGroup != 1) {
+			utils.RespFail(c.Writer, "invalid message list request")
+			return
+		}
+		if store == nil {
+			storageUnavailable(c)
+			return
+		}
+		// 消息类型
+		msgType := models.PrivateType
+		if info.IsGroup == 1 {
+			msgType = models.GroupType
+		}
+		earliestMsg := *info.EarliestMsg.Conv2Msg()
+		if info.EarliestMsg.Type == "" {
+			earliestMsg.Type = models.InvalidType
+		}
+		strMsgs, err := store.LoadMsgs(c.Request.Context(), userId, info.TocontactId, uint(msgType), earliestMsg, info.Limit)
+		if err != nil {
+			if errors.Is(err, database.ErrMessageCursorNotFound) {
+				utils.RespFail(c.Writer, "message cursor not found")
+			} else if errors.Is(err, database.ErrInvalidMessage) {
+				utils.RespFail(c.Writer, "invalid message list request")
+			} else {
+				storageUnavailable(c)
+			}
+			return
+		}
+		msgs := make([]RespMsgInfo, len(strMsgs))
+		for i, strMsg := range strMsgs {
+			msg := models.Message{}
+			if err := json.Unmarshal([]byte(strMsg), &msg); err != nil {
+				storageUnavailable(c)
+				return
+			}
+			respMsg := RespMsgInfo{
+				Id:          msg.Id,
+				Status:      "succeed",
+				Type:        "text",
+				SendTime:    msg.TimeStamp,
+				Content:     msg.Content,
+				TocontactId: msg.ReceiverId,
+				FromUser: models.FromUserInfo{
+					Id: msg.SenderId,
+				},
+			}
+			// 由于前端显示需要 这里逆序
+			msgs[len(strMsgs)-i-1] = respMsg
+		}
+		utils.RespOKList(c.Writer, msgs, len(strMsgs))
 	}
-	utils.RespOKList(c.Writer, msgs, len(strMsgs))
 }

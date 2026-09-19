@@ -34,7 +34,7 @@ func TestSaveAndLoadMsg(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		sender, receiver := f.Users[i%2].ID, f.Users[(i+1)%2].ID
 		msg := f.Message(sender, receiver, models.PrivateType, uint(i%3), fmt.Sprintf("消息-%02d", i))
-		if err := f.messages.SaveMsg(&msg); err != nil {
+		if err := f.messages.SaveMsg(context.Background(), &msg); err != nil {
 			t.Fatal(err)
 		}
 		sent = append(sent, msg)
@@ -54,7 +54,7 @@ func TestSaveAndLoadMsg(t *testing.T) {
 		}
 		cursor := models.Message{Type: models.InvalidType}
 		for offset := 0; ; {
-			raw, err := f.messages.LoadMsgs(a, b, models.PrivateType, cursor, 7)
+			raw, err := f.messages.LoadMsgs(context.Background(), a, b, models.PrivateType, cursor, 7)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -78,7 +78,7 @@ func TestDeleteMsg(t *testing.T) {
 	removed := f.Message(f.Users[0].ID, f.Users[1].ID, models.PrivateType, models.TextMedia, "evicted")
 	retained := f.Message(f.Users[0].ID, f.Users[2].ID, models.PrivateType, models.PictureMedia, "/fixture/image.png")
 	for _, msg := range []models.Message{removed, retained} {
-		if err := f.messages.SaveMsg(&msg); err != nil {
+		if err := f.messages.SaveMsg(context.Background(), &msg); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -102,7 +102,7 @@ func TestDeleteMsg(t *testing.T) {
 		t.Fatalf("another conversation's cache was changed: exists=%d err=%v", exists, err)
 	}
 	for _, want := range []models.Message{removed, retained} {
-		raw, err := f.messages.LoadMsgs(want.SenderId, want.ReceiverId, want.Type, models.Message{Type: models.InvalidType}, 10)
+		raw, err := f.messages.LoadMsgs(context.Background(), want.SenderId, want.ReceiverId, want.Type, models.Message{Type: models.InvalidType}, 10)
 		if err != nil {
 			t.Fatal(err)
 		}

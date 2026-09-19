@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Router(conf config.Config, tokens *utils.TokenService, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites) *gin.Engine {
+func Router(conf config.Config, tokens *utils.TokenService, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore) *gin.Engine {
 	r := gin.New()
 	// 日志中间件 跨域中间件
 	r.Use(gin.RecoveryWithWriter(utils.Logger().Out))
@@ -36,11 +36,11 @@ func Router(conf config.Config, tokens *utils.TokenService, users service.Accoun
 		protected.GET("/getws", service.Chat)
 		protected.POST("/getContacts", service.GetContacts(contacts))
 		protected.POST("/files/index", service.GetFileList)
-		protected.POST("/sendMessage", service.SendMsg)
+		protected.POST("/sendMessage", service.SendMsg(messages))
 
 		protected.GET("/test", service.Test)
 		protected.GET("/chat", service.Chat)
-		protected.POST("/getMessageList", service.GetMessageList)
+		protected.POST("/getMessageList", service.GetMessageList(messages))
 		contact := protected.Group("/contact")
 		{
 			contact.POST("/addFriend", service.AddFriend(writes.Friends))

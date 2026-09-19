@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iChat/models"
 	"iChat/utils"
@@ -81,21 +82,34 @@ func (mm *msgManager) RemDirtyMsgs(ctx context.Context, size int) error {
 	return nil
 }
 
-func (mm *msgManager) LoadMsgs(uIdA, uIdB, msgType uint, earliestMsg models.Message, cnt int) ([]string, error) {
+func (mm *msgManager) LoadMsgs(ctx context.Context, uIdA, uIdB, msgType uint, earliestMsg models.Message, cnt int) ([]string, error) {
+	if uIdA == 0 || uIdB == 0 || (msgType != models.PrivateType && msgType != models.GroupType) || cnt < 1 || cnt > MaxMessagePageSize {
+		return nil, ErrInvalidMessage
+	}
+	if mm == nil || mm.rds == nil {
+		return nil, ErrStorageUnavailable
+	}
+	rows, err := mm.loadMsgs(ctx, uIdA, uIdB, msgType, earliestMsg, cnt)
+	if err != nil && !errors.Is(err, ErrMessageCursorNotFound) {
+		return nil, storageError("load message history", err)
+	}
+	return rows, err
+}
+
+func (mm *msgManager) loadMsgs(ctx context.Context, uIdA, uIdB, msgType uint, earliestMsg models.Message, cnt int) ([]string, error) {
 	key := getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: msgType})
-	ctx := context.Background()
 	// 检查key是否存在 若不存在则去数据库获取数据并存入redis
-	n, err := mm.rds.Exists(context.Background(), key).Result()
+	n, err := mm.rds.Exists(ctx, key).Result()
 	if err != nil {
 		return nil, err
 	}
 	if n == 0 {
-		migrated, migrateErr := mm.migrateLegacyMsgs(uIdA, uIdB, msgType)
+		migrated, migrateErr := mm.migrateLegacyMsgs(ctx, uIdA, uIdB, msgType)
 		if migrateErr != nil {
 			return nil, migrateErr
 		}
 		if !migrated {
-			err = mm.syncMsgsFromDB2Rds(uIdA, uIdB, msgType)
+			err = mm.syncMsgsFromDB2Rds(ctx, uIdA, uIdB, msgType)
 		}
 		if err != nil {
 			return nil, err
@@ -108,6 +122,9 @@ func (mm *msgManager) LoadMsgs(uIdA, uIdB, msgType uint, earliestMsg models.Mess
 			return nil, encodeErr
 		}
 		start, err = mm.rds.ZRevRank(ctx, key, member).Result()
+		if errors.Is(err, redis.Nil) {
+			return nil, ErrMessageCursorNotFound
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -121,8 +138,13 @@ func (mm *msgManager) LoadMsgs(uIdA, uIdB, msgType uint, earliestMsg models.Mess
 }
 
 // 保存消息到redis 同时标记为脏数据
-func (mm *msgManager) SaveMsg(msg *models.Message) error {
-	ctx := context.Background()
+func (mm *msgManager) SaveMsg(ctx context.Context, msg *models.Message) error {
+	if !validMessage(msg) {
+		return ErrInvalidMessage
+	}
+	if mm == nil || mm.rds == nil {
+		return ErrStorageUnavailable
+	}
 	key := getKey(msg)
 	member, err := encodeCachedMessage(msg)
 	if err != nil {
@@ -133,30 +155,35 @@ func (mm *msgManager) SaveMsg(msg *models.Message) error {
 		Member: member,
 	}).Result()
 	if err != nil {
-		return err
+		return storageError("cache message", err)
 	}
 	// 记录脏数据
-	mm.rds.RPush(ctx, getDirtyMsgsKey(), msg)
-	return err
+	if err := mm.rds.RPush(ctx, getDirtyMsgsKey(), msg).Err(); err != nil {
+		return storageError("enqueue dirty message", err)
+	}
+	return nil
 }
 
-func (mm *msgManager) syncMsgsFromDB2Rds(uIdA, uIdB, msgType uint) error {
+func (mm *msgManager) syncMsgsFromDB2Rds(ctx context.Context, uIdA, uIdB, msgType uint) error {
+	if mm == nil || mm.db == nil || mm.db.Config == nil {
+		return ErrStorageUnavailable
+	}
 	// 从数据库获取
 	var messages []models.Message
 	var err error
 	switch msgType {
 	case models.GroupType:
-		err = mm.db.Where("receiver_id =? AND type =?", uIdB, msgType).Find(&messages).Error
+		err = mm.db.WithContext(ctx).Where("receiver_id =? AND type =?", uIdB, msgType).Find(&messages).Error
 		if err != nil {
 			return err
 		}
 	case models.PrivateType:
-		err = mm.db.Where("sender_id =? AND receiver_id =? AND type =?", uIdA, uIdB, msgType).Find(&messages).Error
+		err = mm.db.WithContext(ctx).Where("sender_id =? AND receiver_id =? AND type =?", uIdA, uIdB, msgType).Find(&messages).Error
 		if err != nil {
 			return err
 		}
 		var tempMsgs []models.Message
-		err = mm.db.Where("sender_id =? AND receiver_id =? AND type =?", uIdB, uIdA, msgType).Find(&tempMsgs).Error
+		err = mm.db.WithContext(ctx).Where("sender_id =? AND receiver_id =? AND type =?", uIdB, uIdA, msgType).Find(&tempMsgs).Error
 		if err != nil {
 			return err
 		}
@@ -164,12 +191,12 @@ func (mm *msgManager) syncMsgsFromDB2Rds(uIdA, uIdB, msgType uint) error {
 	}
 
 	// 存入redis
-	return mm.saveMsgs(messages)
+	return mm.saveMsgs(ctx, messages)
 }
 
-func (mm *msgManager) migrateLegacyMsgs(uIdA, uIdB, msgType uint) (bool, error) {
+func (mm *msgManager) migrateLegacyMsgs(ctx context.Context, uIdA, uIdB, msgType uint) (bool, error) {
 	legacyKey := getLegacyKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: msgType})
-	cachedMessages, err := mm.rds.ZRange(context.Background(), legacyKey, 0, -1).Result()
+	cachedMessages, err := mm.rds.ZRange(ctx, legacyKey, 0, -1).Result()
 	if err != nil {
 		return false, err
 	}
@@ -183,16 +210,18 @@ func (mm *msgManager) migrateLegacyMsgs(uIdA, uIdB, msgType uint) (bool, error) 
 			return false, err
 		}
 	}
-	if err := mm.saveMsgs(messages); err != nil {
+	if err := mm.saveMsgs(ctx, messages); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 // 批量保存消息到redis 不标记为脏数据
-func (mm *msgManager) saveMsgs(msgs []models.Message) error {
-	ctx := context.Background()
+func (mm *msgManager) saveMsgs(ctx context.Context, msgs []models.Message) error {
 	for _, msg := range msgs {
+		if !validMessage(&msg) {
+			return fmt.Errorf("invalid cached message")
+		}
 		key := getKey(&msg)
 		member, err := encodeCachedMessage(&msg)
 		if err != nil {
@@ -214,25 +243,31 @@ func getDirtyMsgsKey() string {
 }
 
 // 先存还是先publish呢？？？
-func (mm *msgManager) PublishAndSave(msg *models.Message) error {
+func (mm *msgManager) PublishAndSave(ctx context.Context, msg *models.Message) error {
 	// save
-	err := mm.SaveMsg(msg)
+	err := mm.SaveMsg(ctx, msg)
 	if err != nil {
 		return err
 	}
 	// publish 若失败需要删掉redis中存的内容
-	err = mm.PublishMsg(msg)
+	err = mm.PublishMsg(ctx, msg)
 	if err != nil {
 		member, encodeErr := encodeCachedMessage(msg)
 		if encodeErr == nil {
-			mm.rds.ZRem(context.Background(), getKey(msg), member)
+			mm.rds.ZRem(ctx, getKey(msg), member)
 		}
 		return err
 	}
 	return nil
 }
 
-func (mm *msgManager) PublishMsg(msg *models.Message) error {
+func (mm *msgManager) PublishMsg(ctx context.Context, msg *models.Message) error {
+	if !validMessage(msg) {
+		return ErrInvalidMessage
+	}
+	if mm == nil || mm.rds == nil {
+		return ErrStorageUnavailable
+	}
 	p, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -246,8 +281,14 @@ func (mm *msgManager) PublishMsg(msg *models.Message) error {
 	default:
 		return fmt.Errorf("unknown message type: %d", msg.Type)
 	}
-	_, err = mm.rds.Publish(context.Background(), receiverChannel, p).Result()
-	return err
+	if err := mm.rds.Publish(ctx, receiverChannel, p).Err(); err != nil {
+		return storageError("publish message", err)
+	}
+	return nil
+}
+
+func validMessage(msg *models.Message) bool {
+	return msg != nil && msg.SenderId != 0 && msg.ReceiverId != 0 && (msg.Type == models.PrivateType || msg.Type == models.GroupType)
 }
 
 func getGroupChannel(groupId uint) string {

@@ -66,6 +66,14 @@ go test -race -tags=integration ./scheduledTasks -run '^TestSyncMsg$' -count=1 -
 
 除原有成功落库和空队列外，覆盖 Redis 客户端关闭、取消请求、真实 MySQL 写入失败后队列保留，以及通过 Redis hook 注入 LRANGE/LTRIM 错误。LTRIM 失败用例断言数据库已提交而队列仍保留，不执行重复消费，不宣称已经实现重投幂等。
 
+P0.6.3c.2 的 HTTP 消息默认测试覆盖仓储缺失/失败、请求取消、参数/游标错误、身份绑定、分页参数传递、历史顺序/空数组及解码失败不返回部分历史。真实验收：
+
+```powershell
+go test -race -tags=integration ./service -run '^TestMessageHTTPIntegration$' -count=1 -v -timeout=8m
+```
+
+验证真实入队内容中的发送者为鉴权用户、Redis 缓存命中、MySQL 回源、旧格式缓存迁移、缺失 DB 时只允许命中缓存、取消请求、MySQL 查询失败、分页游标不存在和损坏的历史 JSON。在本轮 Redis 将脏队列设为字符串，制造 ZADD 成功但 RPUSH 真正返回 WRONGTYPE，断言 HTTP 503 且未执行 PUBLISH；另通过 hook 注入 PUBLISH 失败并核对消息已留在队列。关闭 Redis 客户端后两个 HTTP 接口均返回 503。上述验证不代表接受链路的原子性或重投幂等已经实现。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell

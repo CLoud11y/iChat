@@ -24,7 +24,7 @@ type startupDependencies struct {
 	openMySQL   func(config.Config) (*gorm.DB, error)
 	openRedis   func(context.Context, config.Config) (*redis.Client, error)
 	startWorker func(scheduledtasks.MessageStore) (func(), error)
-	serve       func(config.Config, *redis.Client, service.AccountUsers, service.ContactQueries, service.ContactWrites) error
+	serve       func(config.Config, *redis.Client, service.AccountUsers, service.ContactQueries, service.ContactWrites, service.MessageStore) error
 }
 
 func defaultStartupDependencies() startupDependencies {
@@ -44,12 +44,12 @@ func defaultStartupDependencies() startupDependencies {
 				}
 			})
 		},
-		serve: func(conf config.Config, rds *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites) error {
+		serve: func(conf config.Config, rds *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore) error {
 			tokens, err := utils.NewTokenService(conf, utils.NewRedisTokenBlacklist(rds))
 			if err != nil {
 				return err
 			}
-			return router.Router(conf, tokens, users, contacts, writes).Run()
+			return router.Router(conf, tokens, users, contacts, writes, messages).Run()
 		},
 	}
 }
@@ -111,7 +111,7 @@ func bootstrap(deps startupDependencies) (err error) {
 		return errors.New("start legacy worker: missing stop function")
 	}
 	contacts := service.ContactQueries{Friends: database.Rmanager, Groups: database.Gmanager}
-	if err := deps.serve(conf, rds, database.Umanager, contacts, service.ContactWrites{Friends: database.Rmanager, Groups: database.Gmanager}); err != nil {
+	if err := deps.serve(conf, rds, database.Umanager, contacts, service.ContactWrites{Friends: database.Rmanager, Groups: database.Gmanager}, database.Mmanager); err != nil {
 		return fmt.Errorf("serve http: %w", err)
 	}
 	return nil
