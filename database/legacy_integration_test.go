@@ -82,11 +82,11 @@ func TestDeleteMsg(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	raw, _, err := f.messages.GetAllDirtyMsgs()
+	raw, _, err := f.messages.GetAllDirtyMsgs(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.messages.SaveMsgs2DB(raw); err != nil {
+	if err := f.messages.SaveMsgs2DB(context.Background(), raw); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

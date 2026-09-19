@@ -1,31 +1,41 @@
 package scheduledtasks
 
 import (
+	"context"
+	"fmt"
 	"iChat/database"
-	"iChat/utils"
 )
 
-func SyncMsg() {
-	defer func() {
-		if r := recover(); r != nil {
-			utils.Logger().WithField("panic", r).Error("sync messages failed")
-		}
-	}()
-	msgs, size, err := database.Mmanager.GetAllDirtyMsgs()
+type MessageStore interface {
+	GetAllDirtyMsgs(context.Context) ([]string, int, error)
+	SaveMsgs2DB(context.Context, []string) error
+	RemDirtyMsgs(context.Context, int) error
+}
+
+// Database failure must never advance the queue. Acknowledgement failure is
+// still unsafe to retry until P1 adds idempotent persistence and precise ACKs.
+func SyncMsg(ctx context.Context, store MessageStore) error {
+	if store == nil {
+		return database.ErrStorageUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	msgs, size, err := store.GetAllDirtyMsgs(ctx)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("read dirty messages: %w", err)
+	}
+	if size < 0 || size != len(msgs) {
+		return fmt.Errorf("dirty message batch size mismatch: count=%d length=%d", size, len(msgs))
 	}
 	if size == 0 {
-		return
+		return nil
 	}
-	err = database.Mmanager.SaveMsgs2DB(msgs)
-	if err != nil {
-		panic(err)
+	if err := store.SaveMsgs2DB(ctx, msgs); err != nil {
+		return fmt.Errorf("persist dirty messages: %w", err)
 	}
-	// todo: 清理失败怎么办？可能造成多次插入mysql 主键冲突插入失败
-	err = database.Mmanager.RemDirtyMsgs(size)
-	if err != nil {
-		panic(err)
+	if err := store.RemDirtyMsgs(ctx, size); err != nil {
+		return fmt.Errorf("acknowledge dirty messages: %w", err)
 	}
-	utils.Logger().WithField("size", size).Info("sync messages completed")
+	return nil
 }

@@ -23,7 +23,7 @@ type startupDependencies struct {
 	loadConfig  func() (config.Config, error)
 	openMySQL   func(config.Config) (*gorm.DB, error)
 	openRedis   func(context.Context, config.Config) (*redis.Client, error)
-	startWorker func() (func(), error)
+	startWorker func(scheduledtasks.MessageStore) (func(), error)
 	serve       func(config.Config, *redis.Client, service.AccountUsers, service.ContactQueries, service.ContactWrites) error
 }
 
@@ -32,8 +32,17 @@ func defaultStartupDependencies() startupDependencies {
 		loadConfig: config.Load,
 		openMySQL:  utils.OpenMySQL,
 		openRedis:  utils.OpenRedis,
-		startWorker: func() (func(), error) {
-			return startLegacyCron("@every 60s", scheduledtasks.SyncMsg)
+		startWorker: func(store scheduledtasks.MessageStore) (func(), error) {
+			return startLegacyCron("@every 60s", func() {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						utils.Logger().WithField("panic", recovered).Error("sync messages panicked")
+					}
+				}()
+				if err := scheduledtasks.SyncMsg(context.Background(), store); err != nil {
+					utils.Logger().WithError(err).Error("sync messages failed")
+				}
+			})
 		},
 		serve: func(conf config.Config, rds *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites) error {
 			tokens, err := utils.NewTokenService(conf, utils.NewRedisTokenBlacklist(rds))
@@ -90,7 +99,7 @@ func bootstrap(deps startupDependencies) (err error) {
 	}()
 	restore := bindLegacyDependencies(conf, db, rds)
 	defer restore()
-	stop, err := deps.startWorker()
+	stop, err := deps.startWorker(database.Mmanager)
 	// Also stop a partially started worker if its factory supplies a stop handle.
 	if stop != nil {
 		defer stop()

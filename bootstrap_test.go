@@ -7,6 +7,7 @@ import (
 	"errors"
 	"iChat/config"
 	"iChat/database"
+	scheduledtasks "iChat/scheduledTasks"
 	"iChat/service"
 	"iChat/utils"
 	"net"
@@ -158,7 +159,10 @@ func TestBootstrapLifecycle(t *testing.T) {
 					t.Cleanup(func() { _ = rds.Close() })
 					return rds, nil
 				},
-				startWorker: func() (func(), error) {
+				startWorker: func(store scheduledtasks.MessageStore) (func(), error) {
+					if store != database.Mmanager {
+						t.Fatal("worker did not receive supplied message store")
+					}
 					events = append(events, "worker")
 					checkBound()
 					if tc.name == "worker" {

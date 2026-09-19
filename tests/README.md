@@ -58,6 +58,14 @@ go test -race -tags=integration ./service -run '^TestContactWritesMySQLIntegrati
 
 该用例验证双向好友、建群与创建者成员关系、入群、重复关系和非群主删除；在本轮关系表上设置临时 CHECK 约束，验证创建者成员写入失败会回滚群记录，反向好友写入失败不会留下单向关系。另验证取消请求不写入、不删群，群表不可用时删群返回 503，连接池关闭后四个写入接口均返回 503。约束及表名修改只限本轮隔离 schema。
 
+P0.6.3c.1 的旧 worker 默认测试注入仓储，验证读取→落库→确认顺序、错误原因保留、空队列、批次计数异常和取消请求。读取失败不落库，落库失败不确认，确认失败返回错误；不依赖全局消息 manager 或日志文件。独立集成验收：
+
+```powershell
+go test -race -tags=integration ./scheduledTasks -run '^TestSyncMsg$' -count=1 -v -timeout=8m
+```
+
+除原有成功落库和空队列外，覆盖 Redis 客户端关闭、取消请求、真实 MySQL 写入失败后队列保留，以及通过 Redis hook 注入 LRANGE/LTRIM 错误。LTRIM 失败用例断言数据库已提交而队列仍保留，不执行重复消费，不宣称已经实现重投幂等。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell
@@ -70,7 +78,7 @@ go test -tags=integration ./database ./scheduledTasks -count=1 -v -timeout=15m
 go test -tags=integration ./database -run '^$' -bench . -benchtime=1x -count=1 -timeout=15m
 ```
 
-`1x` 仅验证 benchmark 能执行并通过结果断言，不是稳定的性能基线。每个测试/benchmark 调用都有自己的 MySQL/Redis 环境，整套测试需要几分钟；不同包可以独立运行。数据库查询 fixture 已不需要绑定全局关系 manager；旧 worker 及验证全局依赖隔离的用例仍会临时修改全局变量，所以不使用 `t.Parallel()`。
+`1x` 仅验证 benchmark 能执行并通过结果断言，不是稳定的性能基线。每个测试/benchmark 调用都有自己的 MySQL/Redis 环境，整套测试需要几分钟；不同包可以独立运行。数据库查询和旧 worker fixture 已不需要绑定全局 manager；部分验证全局依赖隔离的单元测试仍会临时修改全局变量，所以不使用 `t.Parallel()`。
 
 ## 每轮资源
 
@@ -108,5 +116,5 @@ Compose 项目名用于区分不同环境的资源，相关行为见 [Docker 项
 - 旧业务 fixture：每次创建 5 个用户、3 个群、明确的好友/成员关系；用户和群 ID 来自实际插入结果，消息 ID 包含本轮 runId 和递增编号。schema 校验后才迁移和写 fixture，全局 manager 在用例结束后恢复。
 - 消息断言：双向会话的全部分页、同毫秒顺序、真实内容和媒体类型；队列中的原始消息集合；删除已存在的缓存 key 后从 MySQL 回源，且另一会话缓存和已存消息不受影响。
 - 关系断言：精确好友/群/群成员 ID 集合、双向好友、无关系用户的空结果，防止两种查询同样返回错误结果却被判为通过。
-- SyncMsg 断言：同步前数据库为空且队列有 3 条消息，同步后逐字段检查 3 条私聊/群聊及文本/图片/音频记录，队列为空；再次执行空队列同步不改变数据。日志只写临时目录，不依赖日志判断成功。
+- SyncMsg 断言：同步前数据库为空且队列有 3 条消息，同步后逐字段检查 3 条私聊/群聊及文本/图片/音频记录，队列为空；再次执行空队列同步不改变数据。直接断言任务返回值和数据库/队列状态，不依赖日志判断成功。
 - 尚未包含：旧 worker 故障重投幂等、错误返回、并发确认、RabbitMQ vhost、MQ 故障恢复、生产环境验收。空队列再次执行成功不代表 DB 提交后重投幂等已经实现；这些按开发规范后续小点推进。

@@ -26,36 +26,59 @@ func NewMessageManager(db *gorm.DB, rds *redis.Client) *msgManager {
 	}
 }
 
-func (mm *msgManager) GetAllDirtyMsgs() ([]string, int, error) {
+func (mm *msgManager) GetAllDirtyMsgs(ctx context.Context) ([]string, int, error) {
+	if mm == nil || mm.rds == nil {
+		return nil, 0, ErrStorageUnavailable
+	}
 	key := getDirtyMsgsKey()
-	ctx := context.Background()
-	size := mm.rds.LLen(ctx, key).Val()
+	size, err := mm.rds.LLen(ctx, key).Result()
+	if err != nil {
+		return nil, 0, storageError("read dirty queue length", err)
+	}
 	if size == 0 {
 		return nil, 0, nil
 	}
-	msgs, err := mm.rds.LRange(ctx, key, 0, size).Result()
+	msgs, err := mm.rds.LRange(ctx, key, 0, size-1).Result()
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, storageError("read dirty queue", err)
 	}
-	return msgs, int(size), nil
+	return msgs, len(msgs), nil
 }
 
-func (mm *msgManager) SaveMsgs2DB(msgs []string) error {
+func (mm *msgManager) SaveMsgs2DB(ctx context.Context, msgs []string) error {
+	if mm == nil || mm.db == nil || mm.db.Config == nil {
+		return ErrStorageUnavailable
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
 	// 先解析消息 []string -> []models.Message
 	messages := make([]models.Message, len(msgs))
 	var err error
 	for i, msg := range msgs {
 		err = json.Unmarshal([]byte(msg), &messages[i])
 		if err != nil {
-			return err
+			return fmt.Errorf("decode dirty message %d: %w", i, err)
 		}
 	}
 	// 存入数据库
-	return mm.db.CreateInBatches(messages, 128).Error
+	if err := mm.db.WithContext(ctx).CreateInBatches(messages, 128).Error; err != nil {
+		return storageError("persist dirty messages", err)
+	}
+	return nil
 }
 
-func (mm *msgManager) RemDirtyMsgs(size int) error {
-	return mm.rds.LTrim(context.Background(), getDirtyMsgsKey(), int64(size), -1).Err()
+func (mm *msgManager) RemDirtyMsgs(ctx context.Context, size int) error {
+	if mm == nil || mm.rds == nil {
+		return ErrStorageUnavailable
+	}
+	if size <= 0 {
+		return fmt.Errorf("dirty message acknowledgement count must be positive")
+	}
+	if err := mm.rds.LTrim(ctx, getDirtyMsgsKey(), int64(size), -1).Err(); err != nil {
+		return storageError("acknowledge dirty messages", err)
+	}
+	return nil
 }
 
 func (mm *msgManager) LoadMsgs(uIdA, uIdB, msgType uint, earliestMsg models.Message, cnt int) ([]string, error) {
