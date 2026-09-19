@@ -42,6 +42,14 @@ go test -race -tags=integration ./service -run '^TestAccountMySQLIntegration$' -
 
 该用例验证注册存储字段、密码校验和签发 token；8 路并发注册同一手机号只有一个成功；在本轮测试表上临时添加 CHECK 约束制造真实写入失败，随后移除；验证请求取消不写入、连接池关闭后注册/登录返回 503。schema 已由 fixture 核验，测试不改变开发数据库。
 
+P0.6.3b.1 的联系人、好友、群列表和群成员查询默认测试覆盖仓储缺失、查询失败、请求 context 传递、空结果和成功响应；联系人查询的第二阶段失败必须返回 503，不能返回部分好友数据。真实 MySQL 验收：
+
+```powershell
+go test -race -tags=integration ./service -run '^TestContactQueriesMySQLIntegration$' -count=1 -v -timeout=8m
+```
+
+该用例在全局关系/群 manager 为空时验证注入仓储正常工作，核对四个接口的数据和空数组；验证七种仓储查询保留请求取消原因；临时重命名本轮 fixture 的群表，使好友查询成功而群查询失败，核对 503，恢复表名后重新查询成功；关闭连接池后四个接口均返回 503。变更仅限本轮隔离 schema，结束时清理环境。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell
@@ -54,7 +62,7 @@ go test -tags=integration ./database ./scheduledTasks -count=1 -v -timeout=15m
 go test -tags=integration ./database -run '^$' -bench . -benchtime=1x -count=1 -timeout=15m
 ```
 
-`1x` 仅验证 benchmark 能执行并通过结果断言，不是稳定的性能基线。每个测试/benchmark 调用都有自己的 MySQL/Redis 环境，整套测试需要几分钟；不同包可以独立运行。包内旧测试仍需临时绑定全局 manager，所以不使用 `t.Parallel()`。
+`1x` 仅验证 benchmark 能执行并通过结果断言，不是稳定的性能基线。每个测试/benchmark 调用都有自己的 MySQL/Redis 环境，整套测试需要几分钟；不同包可以独立运行。数据库查询 fixture 已不需要绑定全局关系 manager；旧 worker 及验证全局依赖隔离的用例仍会临时修改全局变量，所以不使用 `t.Parallel()`。
 
 ## 每轮资源
 

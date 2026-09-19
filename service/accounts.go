@@ -17,7 +17,7 @@ type AccountUsers interface {
 	Offline(uint)
 }
 
-func accountStorageUnavailable(c *gin.Context) {
+func storageUnavailable(c *gin.Context) {
 	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 		"code": -1, "msg": "storage dependency unavailable",
 		"data": gin.H{"reasonCode": "DEPENDENCY_UNAVAILABLE"},

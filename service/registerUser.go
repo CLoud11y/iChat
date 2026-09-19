@@ -30,7 +30,7 @@ func RegisterUser(users AccountUsers) gin.HandlerFunc {
 		}
 		// 注册
 		if users == nil {
-			accountStorageUnavailable(c)
+			storageUnavailable(c)
 			return
 		}
 		user, err := users.Signup(c.Request.Context(), info.PhoneNum, info.UserName, utils.Encrypt(info.Password))
@@ -39,7 +39,7 @@ func RegisterUser(users AccountUsers) gin.HandlerFunc {
 			return
 		}
 		if err != nil || user == nil || user.ID == 0 {
-			accountStorageUnavailable(c)
+			storageUnavailable(c)
 			return
 		}
 		utils.RespOK(c.Writer, struct{}{}, "ok")

@@ -25,11 +25,6 @@ func newLegacyFixture(tb testing.TB) *legacyFixture {
 	tb.Helper()
 	f := testenv.NewLegacyFixture(tb)
 	fixture := &legacyFixture{f, NewMessageManager(f.DB, f.Redis), NewGroupManager(f.DB), NewRelationManager(f.DB)}
-	// GetGroupsByUid still reaches the global relation manager. Restore it
-	// before connection cleanup; do not run these legacy tests in parallel.
-	previous := Rmanager
-	Rmanager = fixture.relations
-	tb.Cleanup(func() { Rmanager = previous })
 	return fixture
 }
 
@@ -121,13 +116,13 @@ func TestDeleteMsg(t *testing.T) {
 
 func TestGetGroups2(t *testing.T) {
 	f := newLegacyFixture(t)
-	for _, query := range []func(uint) ([]models.Group, error){f.groups.GetGroupsByUid, f.groups.GetGroupsByUid2} {
-		groups, err := query(f.Users[0].ID)
+	for _, query := range []func(context.Context, uint) ([]models.Group, error){f.groups.GetGroupsByUid, f.groups.GetGroupsByUid2} {
+		groups, err := query(context.Background(), f.Users[0].ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertIDs(t, groupIDs(groups), f.Groups[0].ID, f.Groups[1].ID)
-		groups, err = query(f.Users[4].ID)
+		groups, err = query(context.Background(), f.Users[4].ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -137,18 +132,18 @@ func TestGetGroups2(t *testing.T) {
 
 func TestSearchFriends(t *testing.T) {
 	f := newLegacyFixture(t)
-	for _, query := range []func(uint) ([]models.User, error){f.relations.SearchFriends, f.relations.SearchFriends2} {
-		friends, err := query(f.Users[0].ID)
+	for _, query := range []func(context.Context, uint) ([]models.User, error){f.relations.SearchFriends, f.relations.SearchFriends2} {
+		friends, err := query(context.Background(), f.Users[0].ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertIDs(t, userIDs(friends), f.Users[1].ID)
-		friends, err = query(f.Users[1].ID)
+		friends, err = query(context.Background(), f.Users[1].ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertIDs(t, userIDs(friends), f.Users[0].ID)
-		friends, err = query(f.Users[4].ID)
+		friends, err = query(context.Background(), f.Users[4].ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,7 +161,7 @@ func TestGetGroupUsers(t *testing.T) {
 		{f.Groups[1].ID, []uint{f.Users[0].ID, f.Users[2].ID}},
 		{f.Groups[2].ID, []uint{f.Users[3].ID}},
 	} {
-		users, err := f.groups.GetGroupUsers(test.group)
+		users, err := f.groups.GetGroupUsers(context.Background(), test.group)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -183,7 +178,7 @@ func benchmarkGroups(b *testing.B, joined bool) {
 	if joined {
 		query = f.groups.GetGroupsByUid2
 	}
-	groups, err := query(f.Users[0].ID)
+	groups, err := query(context.Background(), f.Users[0].ID)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -191,7 +186,7 @@ func benchmarkGroups(b *testing.B, joined bool) {
 	b.ResetTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		groups, err = query(f.Users[0].ID)
+		groups, err = query(context.Background(), f.Users[0].ID)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -209,7 +204,7 @@ func benchmarkFriends(b *testing.B, joined bool) {
 	if joined {
 		query = f.relations.SearchFriends2
 	}
-	friends, err := query(f.Users[0].ID)
+	friends, err := query(context.Background(), f.Users[0].ID)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -217,7 +212,7 @@ func benchmarkFriends(b *testing.B, joined bool) {
 	b.ResetTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		friends, err = query(f.Users[0].ID)
+		friends, err = query(context.Background(), f.Users[0].ID)
 		if err != nil {
 			b.Fatal(err)
 		}

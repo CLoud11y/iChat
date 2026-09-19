@@ -42,7 +42,7 @@ func (um *userManager) Signup(ctx context.Context, phone, name, password string)
 	}
 	// 发生未知错误
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, userStorageError("check registered phone", err)
+		return nil, storageError("check registered phone", err)
 	}
 	// 正常注册流程
 	tempUser.Name = name
@@ -58,7 +58,7 @@ func (um *userManager) Signup(ctx context.Context, phone, name, password string)
 		if errors.Is(err, gorm.ErrDuplicatedKey) || (errors.As(err, &duplicate) && duplicate.Number == 1062) {
 			return nil, ErrPhoneRegistered
 		}
-		return nil, userStorageError("create user", err)
+		return nil, storageError("create user", err)
 	}
 	return tempUser, nil
 }
@@ -73,7 +73,7 @@ func (um *userManager) GetUserByPhone(ctx context.Context, phone string) (*model
 		return nil, fmt.Errorf("%w: %w", ErrUserNotFound, err)
 	}
 	if err != nil {
-		return nil, userStorageError("find user by phone", err)
+		return nil, storageError("find user by phone", err)
 	}
 	return tempUser, nil
 }

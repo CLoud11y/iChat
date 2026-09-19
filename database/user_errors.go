@@ -11,6 +11,6 @@ var (
 	ErrPhoneRegistered    = errors.New("phone is already registered")
 )
 
-func userStorageError(operation string, err error) error {
+func storageError(operation string, err error) error {
 	return fmt.Errorf("%w: %s: %w", ErrStorageUnavailable, operation, err)
 }

@@ -29,31 +29,38 @@ func (rm *relationManager) AddGroupRelation(userId uint, groupId uint) error {
 	return rm.db.Create(&relation).Error
 }
 
-func (rm *relationManager) SearchFriends(userId uint) ([]models.User, error) {
+func (rm *relationManager) SearchFriends(ctx context.Context, userId uint) ([]models.User, error) {
+	if rm == nil || rm.db == nil || rm.db.Config == nil {
+		return nil, ErrStorageUnavailable
+	}
+	db := rm.db.WithContext(ctx)
 	relations := make([]models.Relation, 0)
 	objIds := make([]uint, 0)
-	err := rm.db.Where("owner_id = ? and type = ?", userId, models.FriendRelation).Find(&relations).Error
+	err := db.Where("owner_id = ? and type = ?", userId, models.FriendRelation).Find(&relations).Error
 	if err != nil {
-		return nil, err
+		return nil, storageError("find friend relations", err)
 	}
 	for _, v := range relations {
 		objIds = append(objIds, v.TargetId)
 	}
 	users := make([]models.User, 0)
-	err = rm.db.Where("id in ?", objIds).Find(&users).Error
+	err = db.Where("id in ?", objIds).Find(&users).Error
 	if err != nil {
-		return nil, err
+		return nil, storageError("find friends", err)
 	}
 	return users, nil
 }
 
 // 多表联查优化性能
-func (rm *relationManager) SearchFriends2(userId uint) ([]models.User, error) {
+func (rm *relationManager) SearchFriends2(ctx context.Context, userId uint) ([]models.User, error) {
+	if rm == nil || rm.db == nil || rm.db.Config == nil {
+		return nil, ErrStorageUnavailable
+	}
 	users := make([]models.User, 0)
-	err := rm.db.InnerJoins("Join relation ON relation.target_id = user.id AND relation.owner_id = ? AND relation.type = ?",
+	err := rm.db.WithContext(ctx).InnerJoins("Join relation ON relation.target_id = user.id AND relation.owner_id = ? AND relation.type = ?",
 		userId, models.FriendRelation).Find(&users).Error
 	if err != nil {
-		return nil, err
+		return nil, storageError("find friends", err)
 	}
 	return users, nil
 }

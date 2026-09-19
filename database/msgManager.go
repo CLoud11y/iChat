@@ -242,7 +242,7 @@ func (mm *msgManager) Subscribe(uid uint) (<-chan *redis.Message, error) {
 }
 
 func (mm *msgManager) SubscribeGroups(uid uint) (<-chan *redis.Message, error) {
-	groupIds, err := Gmanager.GetGroupIds(uid)
+	groupIds, err := Gmanager.GetGroupIds(context.Background(), uid)
 	if err != nil {
 		return nil, err
 	}

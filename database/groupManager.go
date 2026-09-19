@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"iChat/models"
 
 	"gorm.io/gorm"
@@ -65,31 +66,37 @@ func (gm *groupManager) DeleteGroup(ownerId uint, groupId uint) error {
 }
 
 // 查询用户加入的全部群聊信息
-func (gm *groupManager) GetGroupsByUid(userId uint) ([]models.Group, error) {
-	objIds, err := gm.GetGroupIds(userId)
+func (gm *groupManager) GetGroupsByUid(ctx context.Context, userId uint) ([]models.Group, error) {
+	objIds, err := gm.GetGroupIds(ctx, userId)
 	if err != nil {
 		return nil, err
 	}
-	return gm.GetGroupsById(objIds)
+	return gm.GetGroupsById(ctx, objIds)
 }
 
 // 多表联查提高性能
-func (gm *groupManager) GetGroupsByUid2(userId uint) ([]models.Group, error) {
+func (gm *groupManager) GetGroupsByUid2(ctx context.Context, userId uint) ([]models.Group, error) {
+	if gm == nil || gm.db == nil || gm.db.Config == nil {
+		return nil, ErrStorageUnavailable
+	}
 	groups := []models.Group{}
-	err := gm.db.InnerJoins("JOIN relation ON group.id = relation.target_id AND relation.owner_id = ? AND relation.type = ?",
+	err := gm.db.WithContext(ctx).InnerJoins("JOIN relation ON group.id = relation.target_id AND relation.owner_id = ? AND relation.type = ?",
 		userId, models.GroupRelation).Find(&groups).Error
 	if err != nil {
-		return nil, err
+		return nil, storageError("find groups by user", err)
 	}
 	return groups, nil
 }
 
 // 查询用户加入的群聊id
-func (gm *groupManager) GetGroupIds(userId uint) ([]uint, error) {
+func (gm *groupManager) GetGroupIds(ctx context.Context, userId uint) ([]uint, error) {
+	if gm == nil || gm.db == nil || gm.db.Config == nil {
+		return nil, ErrStorageUnavailable
+	}
 	relations := make([]models.Relation, 0)
-	err := Rmanager.db.Where("owner_id = ? and type = ?", userId, models.GroupRelation).Find(&relations).Error
+	err := gm.db.WithContext(ctx).Where("owner_id = ? and type = ?", userId, models.GroupRelation).Find(&relations).Error
 	if err != nil {
-		return nil, err
+		return nil, storageError("find group relations", err)
 	}
 	objIds := make([]uint, 0)
 	for _, relation := range relations {
@@ -99,21 +106,27 @@ func (gm *groupManager) GetGroupIds(userId uint) ([]uint, error) {
 }
 
 // 通过·群聊id·查询群聊信息
-func (gm *groupManager) GetGroupsById(groupIds []uint) ([]models.Group, error) {
+func (gm *groupManager) GetGroupsById(ctx context.Context, groupIds []uint) ([]models.Group, error) {
+	if gm == nil || gm.db == nil || gm.db.Config == nil {
+		return nil, ErrStorageUnavailable
+	}
 	groups := []models.Group{}
-	err := gm.db.Find(&groups, "id IN (?)", groupIds).Error
+	err := gm.db.WithContext(ctx).Find(&groups, "id IN (?)", groupIds).Error
 	if err != nil {
-		return nil, err
+		return nil, storageError("find groups by ID", err)
 	}
 	return groups, nil
 }
 
-func (gm *groupManager) GetGroupUsers(groupId uint) ([]models.User, error) {
+func (gm *groupManager) GetGroupUsers(ctx context.Context, groupId uint) ([]models.User, error) {
+	if gm == nil || gm.db == nil || gm.db.Config == nil {
+		return nil, ErrStorageUnavailable
+	}
 	users := []models.User{}
-	err := gm.db.InnerJoins("JOIN relation ON user.id = relation.owner_id AND relation.target_id = ? AND relation.type = ?",
+	err := gm.db.WithContext(ctx).InnerJoins("JOIN relation ON user.id = relation.owner_id AND relation.target_id = ? AND relation.type = ?",
 		groupId, models.GroupRelation).Find(&users).Error
 	if err != nil {
-		return nil, err
+		return nil, storageError("find group users", err)
 	}
 	return users, nil
 }

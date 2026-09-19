@@ -89,4 +89,6 @@ go test ./...
 
 注册和登录使用显式传入的用户仓储。仓储缺失、MySQL 查询/写入失败或请求取消时返回 HTTP 503、`data.reasonCode: DEPENDENCY_UNAVAILABLE`，不把存储故障当成密码错误，也不返回 SQL 原始错误。账号不存在、密码不正确、重复手机号及注册密码不一致继续使用原有 HTTP 200、`code: -1` 的业务失败响应。登录只有在用户查询、密码校验和 token 签发均成功后才标记在线。
 
-当前业务进程启动仍要求 MySQL/Redis 可用；账号接口的故障响应不代表已实现数据库离线启动或后台恢复，其他业务接口将继续分步改造。
+联系人列表 `/auth/getContacts`，以及 `/auth/contact/` 下的 `searchFriends`、`loadGroups`、`loadGroupUsers` 使用显式传入的查询仓储。缺失仓储、查询失败或请求取消时返回 HTTP 503、`data.reasonCode: DEPENDENCY_UNAVAILABLE`；联系人列表只有在好友和群两部分都查询成功后才返回成功，避免把查询失败误认为没有群聊。正常空结果仍返回空数组。
+
+当前业务进程启动仍要求 MySQL/Redis 可用；上述接口的故障响应不代表已实现数据库离线启动或后台恢复。添加好友、建群/入群/删群等写入接口及消息链路将继续分步改造。

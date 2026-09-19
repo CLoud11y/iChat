@@ -29,7 +29,7 @@ func LoginUser(users AccountUsers, tokens *utils.TokenService) gin.HandlerFunc {
 			return
 		}
 		if users == nil {
-			accountStorageUnavailable(c)
+			storageUnavailable(c)
 			return
 		}
 		user, err := users.GetUserByPhone(c.Request.Context(), info.PhoneNum)
@@ -38,7 +38,7 @@ func LoginUser(users AccountUsers, tokens *utils.TokenService) gin.HandlerFunc {
 			return
 		}
 		if err != nil || user == nil || user.ID == 0 {
-			accountStorageUnavailable(c)
+			storageUnavailable(c)
 			return
 		}
 		if !utils.VerifyPassword(info.Password, user.Password) {

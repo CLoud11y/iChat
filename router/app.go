@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Router(conf config.Config, tokens *utils.TokenService, users service.AccountUsers) *gin.Engine {
+func Router(conf config.Config, tokens *utils.TokenService, users service.AccountUsers, contacts service.ContactQueries) *gin.Engine {
 	r := gin.New()
 	// 日志中间件 跨域中间件
 	r.Use(gin.RecoveryWithWriter(utils.Logger().Out))
@@ -34,7 +34,7 @@ func Router(conf config.Config, tokens *utils.TokenService, users service.Accoun
 	protected.Use(middlewares.JwtAuth(tokens))
 	{
 		protected.GET("/getws", service.Chat)
-		protected.POST("/getContacts", service.GetContacts)
+		protected.POST("/getContacts", service.GetContacts(contacts))
 		protected.POST("/files/index", service.GetFileList)
 		protected.POST("/sendMessage", service.SendMsg)
 
@@ -44,12 +44,12 @@ func Router(conf config.Config, tokens *utils.TokenService, users service.Accoun
 		contact := protected.Group("/contact")
 		{
 			contact.POST("/addFriend", service.AddFriend)
-			contact.POST("/searchFriends", service.SearchFriends)
+			contact.POST("/searchFriends", service.SearchFriends(contacts.Friends))
 			contact.POST("/createGroup", service.CreateGroup)
 			contact.POST("/deleteGroup", service.DeleteGroup)
 			contact.POST("/joinGroup", service.JoinGroup)
-			contact.POST("/loadGroups", service.LoadGroups)
-			contact.POST("/loadGroupUsers", service.LoadGroupUsers)
+			contact.POST("/loadGroups", service.LoadGroups(contacts.Groups))
+			contact.POST("/loadGroupUsers", service.LoadGroupUsers(contacts.Groups))
 		}
 	}
 	return r
