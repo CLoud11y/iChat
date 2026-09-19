@@ -50,6 +50,14 @@ go test -race -tags=integration ./service -run '^TestContactQueriesMySQLIntegrat
 
 该用例在全局关系/群 manager 为空时验证注入仓储正常工作，核对四个接口的数据和空数组；验证七种仓储查询保留请求取消原因；临时重命名本轮 fixture 的群表，使好友查询成功而群查询失败，核对 503，恢复表名后重新查询成功；关闭连接池后四个接口均返回 503。变更仅限本轮隔离 schema，结束时清理环境。
 
+P0.6.3b.2 的写入默认测试覆盖四个接口的依赖缺失、写入错误、请求取消、绑定错误及身份/context 传递；群 ID 校验和已知业务错误不会泄露底层信息。无网络事务测试验证建群开始失败、第二次写入失败、提交失败及 panic 回滚/传播。真实 MySQL 验收：
+
+```powershell
+go test -race -tags=integration ./service -run '^TestContactWritesMySQLIntegration$' -count=1 -v -timeout=8m
+```
+
+该用例验证双向好友、建群与创建者成员关系、入群、重复关系和非群主删除；在本轮关系表上设置临时 CHECK 约束，验证创建者成员写入失败会回滚群记录，反向好友写入失败不会留下单向关系。另验证取消请求不写入、不删群，群表不可用时删群返回 503，连接池关闭后四个写入接口均返回 503。约束及表名修改只限本轮隔离 schema。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell

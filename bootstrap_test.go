@@ -176,8 +176,8 @@ func TestBootstrapLifecycle(t *testing.T) {
 					}
 					return stop, nil
 				},
-				serve: func(got config.Config, client *redis.Client, users service.AccountUsers, contacts service.ContactQueries) error {
-					if got != conf || client != rds || users != database.Umanager || contacts.Friends != database.Rmanager || contacts.Groups != database.Gmanager {
+				serve: func(got config.Config, client *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites) error {
+					if got != conf || client != rds || users != database.Umanager || contacts.Friends != database.Rmanager || contacts.Groups != database.Gmanager || writes.Friends != database.Rmanager || writes.Groups != database.Gmanager {
 						t.Fatal("HTTP factory did not receive supplied dependencies")
 					}
 					events = append(events, "http")

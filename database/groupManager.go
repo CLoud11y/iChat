@@ -21,16 +21,17 @@ func NewGroupManager(db *gorm.DB) *groupManager {
 	}
 }
 
-func (gm *groupManager) JoinGroup(userId uint, groupId uint) error {
-	//
-	err := Rmanager.AddGroupRelation(userId, groupId)
-	if err != nil {
-		return err
+func (gm *groupManager) JoinGroup(ctx context.Context, userId uint, groupId uint) error {
+	if gm == nil || gm.db == nil || gm.db.Config == nil {
+		return ErrStorageUnavailable
 	}
-	return nil
+	return NewRelationManager(gm.db).AddGroupRelation(ctx, userId, groupId)
 }
 
-func (gm *groupManager) CreateGroup(name string, ownerId uint, desc string) error {
+func (gm *groupManager) CreateGroup(ctx context.Context, name string, ownerId uint, desc string) error {
+	if gm == nil || gm.db == nil || gm.db.Config == nil {
+		return ErrStorageUnavailable
+	}
 	// TODO: 限制用户创建的群聊数量
 	group := models.Group{
 		Name:    name,
@@ -38,30 +39,30 @@ func (gm *groupManager) CreateGroup(name string, ownerId uint, desc string) erro
 		Desc:    desc,
 		MaxUser: MAX_GROUP_USER,
 	}
-	var err error
-	tx := gm.db.Begin()
-	defer func() {
-		if res := recover(); res != nil {
-			tx.Rollback()
+	err := gm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&group).Error; err != nil {
+			return err
 		}
-	}()
-	if err = tx.Create(&group).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	// 将创建者加入群聊
-	err = Rmanager.AddGroupRelation(ownerId, group.ID)
-	// 若失败 撤销创建的群聊
+		// The group and its owner membership must commit together.
+		return tx.Create(&models.Relation{OwnerId: ownerId, TargetId: group.ID, Type: models.GroupRelation}).Error
+	})
 	if err != nil {
-		tx.Rollback()
-		return err
+		return storageError("create group", err)
 	}
-	tx.Commit()
 	return nil
 }
 
-func (gm *groupManager) DeleteGroup(ownerId uint, groupId uint) error {
-	gm.db.Delete(&models.Group{}, "owner_id =? AND id =?", ownerId, groupId)
+func (gm *groupManager) DeleteGroup(ctx context.Context, ownerId uint, groupId uint) error {
+	if gm == nil || gm.db == nil || gm.db.Config == nil {
+		return ErrStorageUnavailable
+	}
+	result := gm.db.WithContext(ctx).Delete(&models.Group{}, "owner_id =? AND id =?", ownerId, groupId)
+	if result.Error != nil {
+		return storageError("delete group", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrGroupNotOwned
+	}
 	return nil
 }
 

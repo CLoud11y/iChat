@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"errors"
 	"iChat/models"
 
 	"gorm.io/gorm"
@@ -20,13 +19,19 @@ func NewRelationManager(db *gorm.DB) *relationManager {
 	}
 }
 
-func (rm *relationManager) AddGroupRelation(userId uint, groupId uint) error {
+func (rm *relationManager) AddGroupRelation(ctx context.Context, userId uint, groupId uint) error {
+	if rm == nil || rm.db == nil || rm.db.Config == nil {
+		return ErrStorageUnavailable
+	}
 	relation := models.Relation{
 		OwnerId:  userId,
 		TargetId: groupId,
 		Type:     models.GroupRelation,
 	}
-	return rm.db.Create(&relation).Error
+	if err := rm.db.WithContext(ctx).Create(&relation).Error; err != nil {
+		return relationWriteError("add group relation", err)
+	}
+	return nil
 }
 
 func (rm *relationManager) SearchFriends(ctx context.Context, userId uint) ([]models.User, error) {
@@ -66,16 +71,19 @@ func (rm *relationManager) SearchFriends2(ctx context.Context, userId uint) ([]m
 }
 
 // 添加好友
-func (rm *relationManager) AddFriendByPhone(userId uint, targetPhone string) error {
+func (rm *relationManager) AddFriendByPhone(ctx context.Context, userId uint, targetPhone string) error {
 	if targetPhone == "" {
-		return errors.New("目标电话为空")
+		return ErrEmptyFriendPhone
 	}
-	targetUser, err := Umanager.GetUserByPhone(context.Background(), targetPhone)
+	if rm == nil || rm.db == nil || rm.db.Config == nil {
+		return ErrStorageUnavailable
+	}
+	targetUser, err := NewUserManager(rm.db).GetUserByPhone(ctx, targetPhone)
 	if err != nil {
 		return err
 	}
 	if targetUser.ID == userId {
-		return errors.New("不可添加自己为好友")
+		return ErrSelfFriend
 	}
 	// 添加两条记录 好友是双向的 互相可以调整黑名单
 	relations := make([]models.Relation, 2)
@@ -89,5 +97,11 @@ func (rm *relationManager) AddFriendByPhone(userId uint, targetPhone string) err
 		TargetId: userId,
 		Type:     models.FriendRelation,
 	}
-	return rm.db.CreateInBatches(&relations, 2).Error
+	err = rm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return tx.CreateInBatches(&relations, 2).Error
+	})
+	if err != nil {
+		return relationWriteError("add friend relations", err)
+	}
+	return nil
 }

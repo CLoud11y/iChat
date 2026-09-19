@@ -1,7 +1,6 @@
 package service
 
 import (
-	"iChat/database"
 	"iChat/utils"
 	"strconv"
 
@@ -78,20 +77,20 @@ type FriendInfo struct {
 	Phone string `json:"targetPhone"`
 }
 
-func AddFriend(c *gin.Context) {
-	userId := c.GetUint("uid")
-	friend := FriendInfo{}
-	if err := c.ShouldBind(&friend); err != nil {
-		utils.Logger().WithError(err).Warn("bind add friend request failed")
-		utils.RespFail(c.Writer, "invalid add friend request")
-		return
+func AddFriend(friends FriendWrites) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userId := c.GetUint("uid")
+		friend := FriendInfo{}
+		if err := c.ShouldBind(&friend); err != nil {
+			utils.RespFail(c.Writer, "invalid add friend request")
+			return
+		}
+		if friends == nil {
+			storageUnavailable(c)
+			return
+		}
+		contactWriteResult(c, friends.AddFriendByPhone(c.Request.Context(), userId, friend.Phone))
 	}
-	err := database.Rmanager.AddFriendByPhone(userId, friend.Phone)
-	if err != nil {
-		utils.RespFail(c.Writer, err.Error())
-		return
-	}
-	utils.RespOK(c.Writer, struct{}{}, "ok")
 }
 
 func SearchFriends(friends FriendQueries) gin.HandlerFunc {
@@ -115,68 +114,66 @@ type CreateGroupInfo struct {
 	Desc string `json:"desc"`
 }
 
-func CreateGroup(c *gin.Context) {
-	userId := c.GetUint("uid")
-	group := CreateGroupInfo{}
-	if err := c.ShouldBind(&group); err != nil {
-		utils.Logger().WithError(err).Warn("bind create group request failed")
-		utils.RespFail(c.Writer, "invalid create group request")
-		return
+func CreateGroup(groups GroupWrites) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userId := c.GetUint("uid")
+		group := CreateGroupInfo{}
+		if err := c.ShouldBind(&group); err != nil {
+			utils.RespFail(c.Writer, "invalid create group request")
+			return
+		}
+		if groups == nil {
+			storageUnavailable(c)
+			return
+		}
+		contactWriteResult(c, groups.CreateGroup(c.Request.Context(), group.Name, userId, group.Desc))
 	}
-	err := database.Gmanager.CreateGroup(group.Name, userId, group.Desc)
-	if err != nil {
-		utils.RespFail(c.Writer, err.Error())
-		return
-	}
-	utils.RespOK(c.Writer, struct{}{}, "ok")
 }
 
 type GroupIdInfo struct {
 	GroupId string `json:"groupId"`
 }
 
-func DeleteGroup(c *gin.Context) {
-	userId := c.GetUint("uid")
-	group := GroupIdInfo{}
-	if err := c.ShouldBind(&group); err != nil {
-		utils.Logger().WithError(err).Warn("bind delete group request failed")
-		utils.RespFail(c.Writer, "invalid delete group request")
-		return
+func DeleteGroup(groups GroupWrites) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userId := c.GetUint("uid")
+		group := GroupIdInfo{}
+		if err := c.ShouldBind(&group); err != nil {
+			utils.RespFail(c.Writer, "invalid delete group request")
+			return
+		}
+		groupId, err := strconv.ParseUint(group.GroupId, 10, strconv.IntSize)
+		if err != nil || groupId == 0 {
+			utils.RespFail(c.Writer, "invalid group id")
+			return
+		}
+		if groups == nil {
+			storageUnavailable(c)
+			return
+		}
+		contactWriteResult(c, groups.DeleteGroup(c.Request.Context(), userId, uint(groupId)))
 	}
-	groupId, err := strconv.Atoi(group.GroupId)
-	if err != nil {
-		utils.Logger().WithError(err).Warn("parse delete group id failed")
-		utils.RespFail(c.Writer, "invalid group id")
-		return
-	}
-	err = database.Gmanager.DeleteGroup(userId, uint(groupId))
-	if err != nil {
-		utils.RespFail(c.Writer, err.Error())
-		return
-	}
-	utils.RespOK(c.Writer, struct{}{}, "ok")
 }
 
-func JoinGroup(c *gin.Context) {
-	userId := c.GetUint("uid")
-	group := GroupIdInfo{}
-	if err := c.ShouldBind(&group); err != nil {
-		utils.Logger().WithError(err).Warn("bind join group request failed")
-		utils.RespFail(c.Writer, err.Error())
-		return
+func JoinGroup(groups GroupWrites) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userId := c.GetUint("uid")
+		group := GroupIdInfo{}
+		if err := c.ShouldBind(&group); err != nil {
+			utils.RespFail(c.Writer, "invalid join group request")
+			return
+		}
+		groupId, err := strconv.ParseUint(group.GroupId, 10, strconv.IntSize)
+		if err != nil || groupId == 0 {
+			utils.RespFail(c.Writer, "invalid group id")
+			return
+		}
+		if groups == nil {
+			storageUnavailable(c)
+			return
+		}
+		contactWriteResult(c, groups.JoinGroup(c.Request.Context(), userId, uint(groupId)))
 	}
-	groupId, err := strconv.Atoi(group.GroupId)
-	if err != nil {
-		utils.Logger().WithError(err).Warn("parse join group id failed")
-		utils.RespFail(c.Writer, "invalid group id")
-		return
-	}
-	err = database.Gmanager.JoinGroup(userId, uint(groupId))
-	if err != nil {
-		utils.RespFail(c.Writer, err.Error())
-		return
-	}
-	utils.RespOK(c.Writer, struct{}{}, "ok")
 }
 
 func LoadGroups(groups GroupQueries) gin.HandlerFunc {
