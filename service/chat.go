@@ -59,7 +59,11 @@ func Chat(c *gin.Context) {
 	defer utils.Logger().WithField("user_id", senderId).Info("websocket disconnected")
 
 	go websocketWriteProc(ctx, canceller, senderId, ws, session.outbound)
-	go recvProc(ctx, canceller, senderId, session.outbound)
+	go func() {
+		if err := recvProc(ctx, canceller, database.Mmanager, senderId, session.outbound); err != nil {
+			utils.Logger().WithError(err).WithField("user_id", senderId).Error("receive websocket messages failed")
+		}
+	}()
 	go sendProc(ctx, canceller, senderId, ws)
 	go heatbeatProc(ctx, canceller, session.outbound)
 	<-ctx.Done()
@@ -171,25 +175,52 @@ func heatbeatProc(ctx context.Context, cancel context.CancelFunc, outbound chan<
 }
 
 // 接收goroutine如果挂了 发送goroutine也挂掉
-func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, outbound chan<- websocketOutbound) {
+type MessageSubscriptions interface {
+	Subscribe(context.Context, uint) (database.Subscription, error)
+	SubscribeGroups(context.Context, uint) (database.Subscription, error)
+}
+
+func recvProc(ctx context.Context, cancel context.CancelFunc, subscriptions MessageSubscriptions, senderId uint, outbound chan<- websocketOutbound) error {
 	defer func() {
 		cancel()
 	}()
-	subChan, err := database.Mmanager.Subscribe(senderId)
-	if err != nil {
-		utils.Logger().WithError(err).WithField("user_id", senderId).Error("subscribe to private messages failed")
-		return
+	if subscriptions == nil {
+		return database.ErrStorageUnavailable
 	}
-	groupChan, err := database.Mmanager.SubscribeGroups(senderId)
+	private, err := subscriptions.Subscribe(ctx, senderId)
+	if private != nil {
+		defer private.Close()
+	}
 	if err != nil {
-		utils.Logger().WithError(err).WithField("user_id", senderId).Error("subscribe to group messages failed")
+		return err
+	}
+	if private == nil {
+		return database.ErrStorageUnavailable
+	}
+	groups, err := subscriptions.SubscribeGroups(ctx, senderId)
+	if groups != nil {
+		defer groups.Close()
+	}
+	if err != nil {
+		return err
+	}
+	if groups == nil {
+		return database.ErrStorageUnavailable
+	}
+	subChan, groupChan := private.Channel(), groups.Channel()
+	if subChan == nil {
+		return database.ErrStorageUnavailable
 	}
 	var msg *redis.Message
+	var ok bool
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case msg = <-subChan:
+			return nil
+		case msg, ok = <-subChan:
+			if !ok || msg == nil {
+				return nil
+			}
 			// TODO: 将msg解绑至message结构体 获取信息后再展示
 			jsonMsg := &models.Message{}
 			err = json.Unmarshal(utils.String2Bytes(msg.Payload), jsonMsg)
@@ -204,9 +235,12 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, out
 			}).Debug("private message received")
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "simple"})
 			if !enqueueWebsocketMessage(ctx, outbound, b) {
-				return
+				return nil
 			}
-		case msg = <-groupChan:
+		case msg, ok = <-groupChan:
+			if !ok || msg == nil {
+				return nil
+			}
 			jsonMsg := &models.Message{}
 			err = json.Unmarshal(utils.String2Bytes(msg.Payload), jsonMsg)
 			if err != nil {
@@ -220,7 +254,7 @@ func recvProc(ctx context.Context, cancel context.CancelFunc, senderId uint, out
 			}).Debug("group message received")
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "group"})
 			if !enqueueWebsocketMessage(ctx, outbound, b) {
-				return
+				return nil
 			}
 		}
 	}

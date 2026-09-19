@@ -74,6 +74,14 @@ go test -race -tags=integration ./service -run '^TestMessageHTTPIntegration$' -c
 
 验证真实入队内容中的发送者为鉴权用户、Redis 缓存命中、MySQL 回源、旧格式缓存迁移、缺失 DB 时只允许命中缓存、取消请求、MySQL 查询失败、分页游标不存在和损坏的历史 JSON。在本轮 Redis 将脏队列设为字符串，制造 ZADD 成功但 RPUSH 真正返回 WRONGTYPE，断言 HTTP 503 且未执行 PUBLISH；另通过 hook 注入 PUBLISH 失败并核对消息已留在队列。关闭 Redis 客户端后两个 HTTP 接口均返回 503。上述验证不代表接受链路的原子性或重投幂等已经实现。
 
+P0.6.3c.3a 的订阅单元测试覆盖缺失依赖、连接/握手失败、取消阻塞的握手、并发重复关闭空句柄；接收循环测试覆盖部分初始化失败的资源释放、关闭通道、nil 消息和 context 取消。真实订阅验收：
+
+```powershell
+go test -race -tags=integration ./database -run '^TestSubscriptionsIntegration$' -count=1 -v -timeout=8m
+```
+
+在全局群 manager 为 nil 时建立私聊及两个群订阅，核对 Redis NUMSUB 和实际消息内容；取消后与手动 Close 后等待消息通道关闭、NUMSUB 回到零；另覆盖无群空句柄及错误 Redis 密码的握手失败。此用例不覆盖完整 WebSocket 握手和会话替换。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell

@@ -100,3 +100,5 @@ go test ./...
 `/auth/sendMessage` 与 `/auth/getMessageList` 使用注入的消息仓储，context 贯穿 Redis 和 MySQL 回源。发送者取自鉴权 UID，忽略请求体 `fromUser.id`；目标 ID 必须非零，`is_group` 为 0 或 1，发送类型支持 `text`、`picture`、`audio`。历史 `limit` 必须为 1–100；无效参数或不存在的分页游标返回 HTTP 200、`code: -1`。仓储缺失、Redis 故障、MySQL 回源失败或历史 JSON 解码失败返回 HTTP 503、`data.reasonCode: DEPENDENCY_UNAVAILABLE`，不回传底层错误或部分历史。
 
 历史缓存命中仅依赖 Redis，缓存未命中时才需要 MySQL。发送仍采用旧缓存→入队→发布流程，成功响应尚不代表 MySQL 已持久化；入队失败会停止发布，但可能已经写入缓存，发布失败也可能已经入队。503 不能视为消息从未被接受，完整接受语义、重试幂等和群历史权限仍待后续阶段实现。
+
+Redis 私聊/群消息订阅现在返回可关闭的句柄，确认订阅后才交给接收循环使用。context 取消、接收循环退出或群订阅初始化失败时会释放已建立的订阅；无群用户使用空句柄，不发送空的 SUBSCRIBE。群列表使用消息仓储自身的 DB。WebSocket 握手前的依赖检查、handler 整体注入及所有 goroutine 的退出等待仍待下一小点完成。

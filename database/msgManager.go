@@ -299,25 +299,6 @@ func getPrivateChannel(userId uint) string {
 	return "private_" + strconv.FormatUint(uint64(userId), 10)
 }
 
-func (mm *msgManager) Subscribe(uid uint) (<-chan *redis.Message, error) {
-	channel := getPrivateChannel(uid)
-	sub := mm.rds.Subscribe(context.Background(), channel)
-	return sub.Channel(), nil
-}
-
-func (mm *msgManager) SubscribeGroups(uid uint) (<-chan *redis.Message, error) {
-	groupIds, err := Gmanager.GetGroupIds(context.Background(), uid)
-	if err != nil {
-		return nil, err
-	}
-	channels := make([]string, len(groupIds))
-	for i, id := range groupIds {
-		channels[i] = getGroupChannel(id)
-	}
-	sub := mm.rds.Subscribe(context.Background(), channels...)
-	return sub.Channel(), nil
-}
-
 // getScore 仅使用毫秒时间戳。当前时间戳小于 2^53，可由 float64 精确表示。
 // 同一毫秒内的消息通过 ZSET member 的固定宽度前缀按 identifier 排序。
 func getScore(msg *models.Message) float64 {
