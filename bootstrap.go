@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"iChat/config"
 	"iChat/database"
+	"iChat/health"
 	"iChat/router"
 	scheduledtasks "iChat/scheduledTasks"
 	"iChat/service"
 	"iChat/utils"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/robfig/cron/v3"
@@ -24,7 +26,7 @@ type startupDependencies struct {
 	openMySQL   func(config.Config) (*gorm.DB, error)
 	openRedis   func(context.Context, config.Config) (*redis.Client, error)
 	startWorker func(scheduledtasks.MessageStore) (func(), error)
-	serve       func(config.Config, *redis.Client, service.AccountUsers, service.ContactQueries, service.ContactWrites, service.MessageStore, service.MessageSubscriptions) error
+	serve       func(config.Config, *redis.Client, service.AccountUsers, service.ContactQueries, service.ContactWrites, service.MessageStore, service.MessageSubscriptions, router.StorageHealth) error
 }
 
 func defaultStartupDependencies() startupDependencies {
@@ -44,12 +46,12 @@ func defaultStartupDependencies() startupDependencies {
 				}
 			})
 		},
-		serve: func(conf config.Config, rds *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore, subscriptions service.MessageSubscriptions) error {
+		serve: func(conf config.Config, rds *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore, subscriptions service.MessageSubscriptions, storage router.StorageHealth) error {
 			tokens, err := utils.NewTokenService(conf, utils.NewRedisTokenBlacklist(rds))
 			if err != nil {
 				return err
 			}
-			return router.Router(conf, tokens, users, contacts, writes, messages, subscriptions).Run()
+			return router.Router(conf, tokens, users, contacts, writes, messages, subscriptions, storage).Run()
 		},
 	}
 }
@@ -110,8 +112,10 @@ func bootstrap(deps startupDependencies) (err error) {
 	if stop == nil {
 		return errors.New("start legacy worker: missing stop function")
 	}
+	storage := health.StartStorage(pool.PingContext, 5*time.Second, 2*time.Second)
+	defer storage.Stop()
 	contacts := service.ContactQueries{Friends: database.Rmanager, Groups: database.Gmanager}
-	if err := deps.serve(conf, rds, database.Umanager, contacts, service.ContactWrites{Friends: database.Rmanager, Groups: database.Gmanager}, database.Mmanager, database.Mmanager); err != nil {
+	if err := deps.serve(conf, rds, database.Umanager, contacts, service.ContactWrites{Friends: database.Rmanager, Groups: database.Gmanager}, database.Mmanager, database.Mmanager, storage); err != nil {
 		return fmt.Errorf("serve http: %w", err)
 	}
 	return nil

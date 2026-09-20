@@ -7,6 +7,7 @@ import (
 	"errors"
 	"iChat/config"
 	"iChat/database"
+	"iChat/router"
 	scheduledtasks "iChat/scheduledTasks"
 	"iChat/service"
 	"iChat/utils"
@@ -75,7 +76,7 @@ func TestBootstrapMySQLOffline(t *testing.T) {
 		started = true
 		return func() { stopped = true }, nil
 	}
-	deps.serve = func(_ config.Config, _ *redis.Client, users service.AccountUsers, _ service.ContactQueries, _ service.ContactWrites, _ service.MessageStore, _ service.MessageSubscriptions) error {
+	deps.serve = func(_ config.Config, _ *redis.Client, users service.AccountUsers, _ service.ContactQueries, _ service.ContactWrites, _ service.MessageStore, _ service.MessageSubscriptions, _ router.StorageHealth) error {
 		served = true
 		r := gin.New()
 		r.POST("/login", service.LoginUser(users, nil))
@@ -216,6 +217,9 @@ func TestBootstrapLifecycle(t *testing.T) {
 						return nil
 					}})
 					t.Cleanup(func() { _ = pool.Close() })
+					// The event log counts physical connection closes. Keep one
+					// connection while the health probe and assertions share the pool.
+					pool.SetMaxOpenConns(1)
 					if err := pool.Ping(); err != nil {
 						t.Fatal(err)
 					}
@@ -263,7 +267,10 @@ func TestBootstrapLifecycle(t *testing.T) {
 					}
 					return stop, nil
 				},
-				serve: func(got config.Config, client *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore, subscriptions service.MessageSubscriptions) error {
+				serve: func(got config.Config, client *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore, subscriptions service.MessageSubscriptions, storage router.StorageHealth) error {
+					if storage == nil {
+						t.Fatal("HTTP factory did not receive storage health")
+					}
 					if got != conf || client != rds || users != database.Umanager || contacts.Friends != database.Rmanager || contacts.Groups != database.Gmanager || writes.Friends != database.Rmanager || writes.Groups != database.Gmanager || messages != database.Mmanager || subscriptions != database.Mmanager {
 						t.Fatal("HTTP factory did not receive supplied dependencies")
 					}

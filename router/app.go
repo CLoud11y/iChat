@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Router(conf config.Config, tokens *utils.TokenService, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore, subscriptions service.MessageSubscriptions) *gin.Engine {
+func Router(conf config.Config, tokens *utils.TokenService, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore, subscriptions service.MessageSubscriptions, storage StorageHealth) *gin.Engine {
 	r := gin.New()
 	// 日志中间件 跨域中间件
 	r.Use(gin.RecoveryWithWriter(utils.Logger().Out))
@@ -17,6 +17,7 @@ func Router(conf config.Config, tokens *utils.TokenService, users service.Accoun
 		r.Use(middlewares.Logger2File())
 	}
 	r.Use(middlewares.Cors())
+	registerHealth(r, storage)
 
 	var offline func(uint)
 	if users != nil {
