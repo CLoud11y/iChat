@@ -59,8 +59,8 @@ func (mm *msgManager) SaveMsgs2DB(ctx context.Context, msgs []string) error {
 			return fmt.Errorf("dirty message %d: %w: missing ID", i, ErrInvalidMessage)
 		}
 	}
-	// Commit the whole supplied batch or leave it unacknowledged. Isolation and
-	// partial-prefix advancement are introduced separately in P1.3.2.
+	// Direct callers require whole-batch success. The worker uses ProcessDirtyMsgs
+	// for per-record isolation and durable prefix progress.
 	err := mm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for i := range messages {
 			if err := persistLegacyMessage(tx, &messages[i]); err != nil {

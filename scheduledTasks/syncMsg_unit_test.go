@@ -9,14 +9,17 @@ import (
 )
 
 type syncStore struct {
-	ctx   context.Context
-	msgs  []string
-	size  int
-	stage string
-	cause error
-	calls []string
-	saved []string
-	acked []string
+	ctx            context.Context
+	msgs           []string
+	size           int
+	stage          string
+	cause          error
+	calls          []string
+	saved          []string
+	acked          []string
+	completed      int
+	ackErr         error
+	resultOverride *int
 }
 
 func (s *syncStore) call(ctx context.Context, stage string) error {
@@ -32,13 +35,41 @@ func (s *syncStore) call(ctx context.Context, stage string) error {
 func (s *syncStore) GetAllDirtyMsgs(ctx context.Context) ([]string, int, error) {
 	return s.msgs, s.size, s.call(ctx, "read")
 }
-func (s *syncStore) SaveMsgs2DB(ctx context.Context, msgs []string) error {
+func (s *syncStore) ProcessDirtyMsgs(ctx context.Context, msgs []string) (int, error) {
 	s.saved = msgs
-	return s.call(ctx, "save")
+	if s.resultOverride != nil {
+		return *s.resultOverride, s.call(ctx, "save")
+	}
+	if err := s.call(ctx, "save"); err != nil {
+		return s.completed, err
+	}
+	return len(msgs), nil
 }
 func (s *syncStore) RemDirtyMsgs(ctx context.Context, prefix []string) error {
 	s.acked = prefix
+	if s.ackErr != nil {
+		s.calls = append(s.calls, "ack")
+		return s.ackErr
+	}
 	return s.call(ctx, "ack")
+}
+
+func TestSyncMsgInvalidProgressAndCombinedErrors(t *testing.T) {
+	ctx := context.Background()
+	for _, n := range []int{-1, 1, 3} {
+		store := &syncStore{ctx: ctx, msgs: []string{"one", "two"}, size: 2, resultOverride: &n}
+		if err := SyncMsg(ctx, store); err == nil || store.acked != nil {
+			t.Fatalf("invalid processed count %d acknowledged: %v", n, err)
+		}
+	}
+	processErr, ackErr := errors.New("isolation unavailable"), errors.New("ack unavailable")
+	store := &syncStore{ctx: ctx, msgs: []string{"done", "failed", "tail"}, size: 3, stage: "save", cause: processErr, completed: 1, ackErr: ackErr}
+	if err := SyncMsg(ctx, store); !errors.Is(err, processErr) || !errors.Is(err, ackErr) {
+		t.Fatalf("lost failure cause: %v", err)
+	}
+	if !reflect.DeepEqual(store.acked, []string{"done"}) {
+		t.Fatalf("incorrect prefix=%v", store.acked)
+	}
 }
 
 func TestSyncMsgStages(t *testing.T) {
@@ -53,6 +84,7 @@ func TestSyncMsgStages(t *testing.T) {
 		{"empty", []string{"read"}},
 		{"read", []string{"read"}},
 		{"save", []string{"read", "save"}},
+		{"partial", []string{"read", "save", "ack"}},
 		{"ack", []string{"read", "save", "ack"}},
 		{"mismatch", []string{"read"}},
 		{"negative", []string{"read"}},
@@ -77,6 +109,8 @@ func TestSyncMsgStages(t *testing.T) {
 				store.size = len(store.msgs)
 			case "stale":
 				store.stage, store.cause = "ack", database.ErrDirtyMessagePrefixMismatch
+			case "partial":
+				store.stage, store.completed = "save", 1
 			case "canceled":
 				cancel()
 			}
@@ -86,7 +120,7 @@ func TestSyncMsgStages(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case "read", "save", "ack":
+			case "read", "save", "ack", "partial":
 				if !errors.Is(err, cause) {
 					t.Fatalf("error=%v", err)
 				}
@@ -109,7 +143,11 @@ func TestSyncMsgStages(t *testing.T) {
 			if len(store.calls) > 1 && !reflect.DeepEqual(store.saved, store.msgs) {
 				t.Fatal("batch changed")
 			}
-			if len(store.calls) == 3 && !reflect.DeepEqual(store.acked, store.msgs) {
+			wantAck := store.msgs
+			if tc.name == "partial" {
+				wantAck = wantAck[:1]
+			}
+			if len(store.calls) == 3 && !reflect.DeepEqual(store.acked, wantAck) {
 				t.Fatal("acknowledgement did not contain the persisted raw prefix")
 			}
 		})

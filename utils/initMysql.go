@@ -61,5 +61,5 @@ func MigrateLegacy(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("migrate legacy: mysql is not initialized")
 	}
-	return db.AutoMigrate(&models.User{}, &models.Relation{}, &models.Group{}, &models.Message{})
+	return db.AutoMigrate(&models.User{}, &models.Relation{}, &models.Group{}, &models.Message{}, &models.LegacyMessageQuarantine{})
 }

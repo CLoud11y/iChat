@@ -108,7 +108,7 @@ func TestMigrationIntegration(t *testing.T) {
 	if err := db.Raw("SHOW TABLES").Scan(&tables).Error; err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"group", "message", "relation", "user"}; !reflect.DeepEqual(tables, want) {
+	if want := []string{"group", "legacy_message_quarantine", "message", "relation", "user"}; !reflect.DeepEqual(tables, want) {
 		t.Fatalf("tables=%v, want %v", tables, want)
 	}
 	user := models.User{Identifier: "migration-user", Name: "preserved", Phone: "migration-phone", Password: "fixture-only"}
@@ -119,7 +119,15 @@ func TestMigrationIntegration(t *testing.T) {
 	if err := db.Create(&message).Error; err != nil {
 		t.Fatal(err)
 	}
+	audit := models.LegacyMessageQuarantine{PayloadHash: strings.Repeat("a", 64), RawBody: []byte{0xff, 0, 0xfe}, ReasonCode: "INVALID_JSON", ReasonDetail: "preserve raw bytes"}
+	if err := db.Create(&audit).Error; err != nil {
+		t.Fatal(err)
+	}
 	checkSuccess()
+	var gotAudit models.LegacyMessageQuarantine
+	if err := db.Where("payload_hash = ?", audit.PayloadHash).Take(&gotAudit).Error; err != nil || !reflect.DeepEqual(gotAudit.RawBody, audit.RawBody) || gotAudit.ReasonCode != audit.ReasonCode || gotAudit.ReasonDetail != audit.ReasonDetail {
+		t.Fatalf("audit changed on repeat migration: %+v error=%v", gotAudit, err)
+	}
 	var got models.Message
 	if err := db.First(&got, "id = ?", message.Id).Error; err != nil || !reflect.DeepEqual(got, message) {
 		t.Fatalf("message after repeat migration=%+v, want %+v, err=%v", got, message, err)
@@ -128,7 +136,7 @@ func TestMigrationIntegration(t *testing.T) {
 	if err := db.First(&gotUser, user.ID).Error; err != nil || gotUser.Name != user.Name || gotUser.Identifier != user.Identifier || gotUser.Phone != user.Phone || gotUser.Password != user.Password {
 		t.Fatalf("user changed after repeat migration: err=%v", err)
 	}
-	for _, table := range []string{"user", "message"} {
+	for _, table := range []string{"user", "message", "legacy_message_quarantine"} {
 		var count int64
 		if err := db.Table(table).Count(&count).Error; err != nil || count != 1 {
 			t.Fatalf("%s count=%d err=%v, want 1", table, count, err)

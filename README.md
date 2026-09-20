@@ -61,7 +61,11 @@ go test ./...
 
    迁移命令沿用应用配置（支持 `ICHAT_CONFIG_FILE` 和 `ICHAT_MYSQL_*` 环境变量），只连接 MySQL；不需要 Redis。成功输出 `legacy schema migration completed` 并以 0 退出；配置、连接或迁移失败输出错误并非零退出，此时应先排查错误，再启动服务。
 
-   当前命令使用旧模型的 `AutoMigrate` 创建或更新 `user`、`relation`、`group`、`message` 四张表；可对当前 schema 重复执行，后续可靠性 schema 将在 P2 引入版本化迁移。MySQL DDL 失败可能保留已执行的变更，该命令不承诺整批回滚。业务服务启动不再自动建表或修改 schema。
+   当前命令使用旧模型的 `AutoMigrate` 创建或更新 `user`、`relation`、`group`、`message` 和 `legacy_message_quarantine` 五张表；可对当前 schema 重复执行，后续可靠性 schema 将在 P2 引入版本化迁移。MySQL DDL 失败可能保留已执行的变更，该命令不承诺整批回滚。业务服务启动不再自动建表或修改 schema。
+
+   P1.3.2 新增 `legacy_message_quarantine`，升级代码后须先重新执行迁移。旧 worker 每批最多读取 128 条，逐条提交消息或隔离记录，只确认已提交的连续前缀。隔离表长期保留原始字节（longblob）、SHA-256 摘要、原因与时间；完全相同的原文合并为一条审计记录，不代表物理投递次数。隔离成功不代表业务发送成功；基础设施故障或隔离写入失败时保留待处理队列。缺少该表会阻止 worker 推进，存储健康接口只检查连接，不能证明 schema 已准备好。
+
+   可通过 SQL 查询 `legacy_message_quarantine` 的 `payload_hash`、`reason_code`、`reason_detail`、`created_at` 和 `HEX(raw_body)` 审计原文；原文可能包含消息正文，应按数据库访问权限管理。重复消费已隔离原文只确认既有隔离结果，不自动再次执行业务；本阶段没有隔离记录清理、自动重放或管理接口，后续受控重放流程不在旧 worker 中实现。
 
    ```bash
    go run .
