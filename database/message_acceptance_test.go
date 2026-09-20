@@ -135,7 +135,9 @@ func TestLegacyMessageAcceptance(t *testing.T) {
 			if tc.wantError && (!errors.Is(err, ErrMessageEnqueueUnknown) || !errors.Is(err, ErrStorageUnavailable)) {
 				t.Errorf("enqueue classification: %v", err)
 			}
-			if tc.loseReply && !errors.Is(err, io.EOF) {
+			// net.Pipe can report EOF or ErrClosedPipe depending on whether
+			// the peer closes before the client sets its read deadline.
+			if tc.loseReply && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
 				t.Errorf("lost original cause: %v", err)
 			}
 			if got := commands(); !reflect.DeepEqual(got, tc.commands) {

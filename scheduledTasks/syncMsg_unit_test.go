@@ -16,7 +16,7 @@ type syncStore struct {
 	cause error
 	calls []string
 	saved []string
-	acked int
+	acked []string
 }
 
 func (s *syncStore) call(ctx context.Context, stage string) error {
@@ -36,8 +36,8 @@ func (s *syncStore) SaveMsgs2DB(ctx context.Context, msgs []string) error {
 	s.saved = msgs
 	return s.call(ctx, "save")
 }
-func (s *syncStore) RemDirtyMsgs(ctx context.Context, size int) error {
-	s.acked = size
+func (s *syncStore) RemDirtyMsgs(ctx context.Context, prefix []string) error {
+	s.acked = prefix
 	return s.call(ctx, "ack")
 }
 
@@ -56,6 +56,8 @@ func TestSyncMsgStages(t *testing.T) {
 		{"ack", []string{"read", "save", "ack"}},
 		{"mismatch", []string{"read"}},
 		{"negative", []string{"read"}},
+		{"oversized", []string{"read"}},
+		{"stale", []string{"read", "save", "ack"}},
 		{"canceled", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,6 +72,11 @@ func TestSyncMsgStages(t *testing.T) {
 				store.size = 1
 			case "negative":
 				store.size = -1
+			case "oversized":
+				store.msgs = make([]string, database.DirtyMessageBatchSize+1)
+				store.size = len(store.msgs)
+			case "stale":
+				store.stage, store.cause = "ack", database.ErrDirtyMessagePrefixMismatch
 			case "canceled":
 				cancel()
 			}
@@ -87,6 +94,10 @@ func TestSyncMsgStages(t *testing.T) {
 				if !errors.Is(err, context.Canceled) {
 					t.Fatalf("error=%v", err)
 				}
+			case "stale":
+				if !errors.Is(err, database.ErrDirtyMessagePrefixMismatch) {
+					t.Fatalf("error=%v", err)
+				}
 			default:
 				if err == nil {
 					t.Fatal("invalid batch accepted")
@@ -98,8 +109,8 @@ func TestSyncMsgStages(t *testing.T) {
 			if len(store.calls) > 1 && !reflect.DeepEqual(store.saved, store.msgs) {
 				t.Fatal("batch changed")
 			}
-			if len(store.calls) == 3 && store.acked != len(store.msgs) {
-				t.Fatal("incorrect acknowledgement size")
+			if len(store.calls) == 3 && !reflect.DeepEqual(store.acked, store.msgs) {
+				t.Fatal("acknowledgement did not contain the persisted raw prefix")
 			}
 		})
 	}

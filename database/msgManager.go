@@ -27,19 +27,13 @@ func NewMessageManager(db *gorm.DB, rds *redis.Client) *msgManager {
 	}
 }
 
+// GetAllDirtyMsgs retains the legacy API name but returns at most one bounded
+// batch. The count is derived from the records actually read, never from LLEN.
 func (mm *msgManager) GetAllDirtyMsgs(ctx context.Context) ([]string, int, error) {
 	if mm == nil || mm.rds == nil {
 		return nil, 0, ErrStorageUnavailable
 	}
-	key := getDirtyMsgsKey()
-	size, err := mm.rds.LLen(ctx, key).Result()
-	if err != nil {
-		return nil, 0, storageError("read dirty queue length", err)
-	}
-	if size == 0 {
-		return nil, 0, nil
-	}
-	msgs, err := mm.rds.LRange(ctx, key, 0, size-1).Result()
+	msgs, err := mm.rds.LRange(ctx, getDirtyMsgsKey(), 0, DirtyMessageBatchSize-1).Result()
 	if err != nil {
 		return nil, 0, storageError("read dirty queue", err)
 	}
@@ -50,34 +44,63 @@ func (mm *msgManager) SaveMsgs2DB(ctx context.Context, msgs []string) error {
 	if mm == nil || mm.db == nil || mm.db.Config == nil {
 		return ErrStorageUnavailable
 	}
+	if err := ctx.Err(); err != nil {
+		return storageError("persist dirty messages", err)
+	}
 	if len(msgs) == 0 {
 		return nil
 	}
-	// 先解析消息 []string -> []models.Message
 	messages := make([]models.Message, len(msgs))
-	var err error
-	for i, msg := range msgs {
-		err = json.Unmarshal([]byte(msg), &messages[i])
-		if err != nil {
+	for i, raw := range msgs {
+		if err := json.Unmarshal([]byte(raw), &messages[i]); err != nil {
 			return fmt.Errorf("decode dirty message %d: %w", i, err)
 		}
+		if messages[i].Id == "" {
+			return fmt.Errorf("dirty message %d: %w: missing ID", i, ErrInvalidMessage)
+		}
 	}
-	// 存入数据库
-	if err := mm.db.WithContext(ctx).CreateInBatches(messages, 128).Error; err != nil {
+	// Commit the whole supplied batch or leave it unacknowledged. Isolation and
+	// partial-prefix advancement are introduced separately in P1.3.2.
+	err := mm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for i := range messages {
+			if err := persistLegacyMessage(tx, &messages[i]); err != nil {
+				return fmt.Errorf("dirty message %d: %w", i, err)
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, ErrMessageConflict) {
+		return err
+	}
+	if err != nil {
 		return storageError("persist dirty messages", err)
 	}
 	return nil
 }
 
-func (mm *msgManager) RemDirtyMsgs(ctx context.Context, size int) error {
+// RemDirtyMsgs acknowledges only a committed (or durably isolated) raw prefix.
+// Comparing and trimming happen in a single Redis execution; mismatches do not
+// mutate the queue. A Redis error does not prove the script did not execute.
+func (mm *msgManager) RemDirtyMsgs(ctx context.Context, prefix []string) error {
 	if mm == nil || mm.rds == nil {
 		return ErrStorageUnavailable
 	}
-	if size <= 0 {
-		return fmt.Errorf("dirty message acknowledgement count must be positive")
+	if len(prefix) == 0 || len(prefix) > DirtyMessageBatchSize {
+		return fmt.Errorf("dirty message acknowledgement size must be between 1 and %d", DirtyMessageBatchSize)
 	}
-	if err := mm.rds.LTrim(ctx, getDirtyMsgsKey(), int64(size), -1).Err(); err != nil {
+	args := make([]interface{}, len(prefix))
+	for i, raw := range prefix {
+		args[i] = raw
+	}
+	result, err := mm.rds.Eval(ctx, acknowledgeDirtyPrefix, []string{getDirtyMsgsKey()}, args...).Int64()
+	if err != nil {
 		return storageError("acknowledge dirty messages", err)
+	}
+	if result == 0 {
+		return ErrDirtyMessagePrefixMismatch
+	}
+	if result != 1 {
+		return fmt.Errorf("unexpected dirty message acknowledgement result: %d", result)
 	}
 	return nil
 }

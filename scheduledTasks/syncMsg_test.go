@@ -9,6 +9,7 @@ import (
 	"iChat/models"
 	"iChat/tests/testenv"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -39,7 +40,24 @@ func TestSyncMsg(t *testing.T) {
 	}
 	assertSyncState(t, f, messages, 0)
 
-	// Redis length failures must not be reported as an empty queue.
+	// Each invocation persists and acknowledges only the bounded head batch.
+	for i := 0; i < database.DirtyMessageBatchSize+2; i++ {
+		msg := f.Message(f.Users[0].ID, f.Users[1].ID, models.PrivateType, models.TextMedia, "bounded")
+		if err := store.SaveMsg(context.Background(), &msg); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, msg)
+	}
+	if err := SyncMsg(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	assertSyncState(t, f, messages[:len(messages)-2], 2)
+	if err := SyncMsg(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	assertSyncState(t, f, messages, 0)
+
+	// Redis read failures must not be reported as an empty queue.
 	closed := redis.NewClient(f.Redis.Options())
 	if err := closed.Close(); err != nil {
 		t.Fatal(err)
@@ -58,7 +76,7 @@ func TestSyncMsg(t *testing.T) {
 		t.Fatalf("canceled sync: %v", err)
 	}
 	assertSyncState(t, f, messages, 1)
-	for _, err := range []error{store.SaveMsgs2DB(canceled, []string{`{}`}), store.RemDirtyMsgs(canceled, 1)} {
+	for _, err := range []error{store.SaveMsgs2DB(canceled, []string{`{}`}), store.RemDirtyMsgs(canceled, []string{`{}`})} {
 		if !errors.Is(err, context.Canceled) || !errors.Is(err, database.ErrStorageUnavailable) {
 			t.Fatalf("canceled repository: %v", err)
 		}
@@ -93,13 +111,17 @@ func TestSyncMsg(t *testing.T) {
 	ackFailure := errors.New("injected Redis acknowledgement failure")
 	ackRedis := redis.NewClient(f.Redis.Options())
 	t.Cleanup(func() { _ = ackRedis.Close() })
-	ackRedis.AddHook(&syncCommandFailure{command: "ltrim", cause: ackFailure})
+	ackRedis.AddHook(&syncCommandFailure{command: "eval", cause: ackFailure})
 	if err := SyncMsg(context.Background(), database.NewMessageManager(f.DB, ackRedis)); !errors.Is(err, ackFailure) {
 		t.Fatalf("failed acknowledgement: %v", err)
 	}
 	messages = append(messages, pending)
 	assertSyncState(t, f, messages, 1)
-	// Do not retry the committed batch: idempotent replay remains a P1 task.
+	// Retry after a committed batch lost its Redis acknowledgement.
+	if err := SyncMsg(context.Background(), store); err != nil {
+		t.Fatalf("replay committed batch: %v", err)
+	}
+	assertSyncState(t, f, messages, 0)
 }
 
 type syncCommandFailure struct {
@@ -121,6 +143,10 @@ func (*syncCommandFailure) AfterProcessPipeline(context.Context, []redis.Cmder) 
 
 func assertSyncState(t *testing.T, f *testenv.LegacyFixture, want []models.Message, queued int64) {
 	t.Helper()
+	// Fixture IDs have unpadded numeric suffixes, so SQL's ID order differs
+	// from generation order once the fixture contains at least ten messages.
+	want = append([]models.Message(nil), want...)
+	sort.Slice(want, func(i, j int) bool { return want[i].Id < want[j].Id })
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var got []models.Message
