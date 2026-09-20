@@ -84,7 +84,9 @@ P0.6.3c.2 的 HTTP 消息默认测试覆盖仓储缺失/失败、请求取消、
 go test -race -tags=integration ./service -run '^TestMessageHTTPIntegration$' -count=1 -v -timeout=8m
 ```
 
-验证真实入队内容中的发送者为鉴权用户、Redis 缓存命中、MySQL 回源、旧格式缓存迁移、缺失 DB 时只允许命中缓存、取消请求、MySQL 查询失败、分页游标不存在和损坏的历史 JSON。在本轮 Redis 将脏队列设为字符串，制造 ZADD 成功但 RPUSH 真正返回 WRONGTYPE，断言 HTTP 503 且未执行 PUBLISH；另通过 hook 注入 PUBLISH 失败并核对消息已留在队列。关闭 Redis 客户端后两个 HTTP 接口均返回 503。上述验证不代表接受链路的原子性或重投幂等已经实现。
+验证真实入队内容中的发送者为鉴权用户、Redis 缓存命中、MySQL 回源、旧格式缓存迁移、缺失 DB 时只允许命中缓存、取消请求、MySQL 查询失败、分页游标不存在和损坏的历史 JSON。P1.1 更新发送故障断言：本轮脏队列设为字符串时，RPUSH 真正返回 WRONGTYPE，HTTP 返回 503 / `MESSAGE_ENQUEUE_UNKNOWN`，不执行 ZADD/PUBLISH，不创建缓存；缓存 key 设为字符串时，RPUSH 成功、ZADD 失败，仍尝试 PUBLISH 并返回旧接口成功，核对队列完整内容。另通过 hook 注入 PUBLISH 失败，断言队列和缓存保留；在真实 RPUSH 成功后的 hook 注入超时、取消、EOF，断言 HTTP unknown 与实际入队并存；入队确认后取消请求仍返回成功。关闭 Redis 客户端后发送返回 503 / unknown，历史返回普通依赖不可用 503。
+
+默认 `TestLegacyMessageAcceptance` 使用 `net.Pipe` RESP 替身验证 RPUSH→ZADD→PUBLISH 顺序、RPUSH 拒绝/响应丢失时无后续副作用、缓存/通知失败不撤销成功；`TestLegacyMessagePreCanceled` 验证调用前取消不发送命令。HTTP 单元测试验证 unknown 分类优先于普通存储错误，不泄露内部错误。发送成功仍为 HTTP 200 / code 0，只代表旧 Redis 入队确认；未接入 MQ 202，也未实现重投幂等、缓存完整性修复或通知重试。由于共享 Redis 客户端可能自动重试，调用 RPUSH 后所有未获成功结果的错误均保守归为 unknown，最终 WRONGTYPE 等错误不被当作此前所有尝试均未接受的证据。
 
 P0.6.3c.3a 的订阅单元测试覆盖缺失依赖、连接/握手失败、取消阻塞的握手、并发重复关闭空句柄；接收循环测试覆盖部分初始化失败的资源释放、关闭通道、nil 消息和 context 取消。真实订阅验收：
 

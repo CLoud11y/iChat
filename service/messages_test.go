@@ -134,6 +134,25 @@ func TestMessageHTTPInjectedSuccess(t *testing.T) {
 	}
 }
 
+func TestMessageHTTPEnqueueUnknown(t *testing.T) {
+	stub := &messageStub{err: fmt.Errorf("private Redis detail: %w: %w", database.ErrMessageEnqueueUnknown, database.ErrStorageUnavailable)}
+	response := contactRequest(SendMsg(stub), sendMessageBody, context.Background(), 42)
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			ReasonCode string `json:"reasonCode"`
+			Status     string `json:"status"`
+			MessageID  string `json:"messageId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusServiceUnavailable || result.Code != -1 || result.Data.ReasonCode != "MESSAGE_ENQUEUE_UNKNOWN" || result.Data.Status != "enqueue_unknown" || result.Data.MessageID != "m1" || strings.Contains(response.Body.String(), "private Redis detail") {
+		t.Fatalf("unknown enqueue response: %d %s", response.Code, response.Body)
+	}
+}
+
 func TestHistoryDecodeFailureIsNotPartialSuccess(t *testing.T) {
 	stub := &messageStub{rows: []string{`{"id":"partial"}`, `{`}}
 	response := contactRequest(GetMessageList(stub), messageListBody, context.Background(), 42)

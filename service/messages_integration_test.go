@@ -7,10 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iChat/config"
 	"iChat/database"
 	"iChat/models"
 	"iChat/tests/testenv"
+	"iChat/utils"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,6 +29,9 @@ type messageCommandHook struct {
 	cause    error
 	commands []string
 	contexts []context.Context
+	after    string
+	afterErr error
+	cancel   context.CancelFunc
 }
 
 func (h *messageCommandHook) BeforeProcess(ctx context.Context, cmd redis.Cmder) (context.Context, error) {
@@ -33,13 +42,36 @@ func (h *messageCommandHook) BeforeProcess(ctx context.Context, cmd redis.Cmder)
 	}
 	return ctx, nil
 }
-func (*messageCommandHook) AfterProcess(context.Context, redis.Cmder) error { return nil }
+func (h *messageCommandHook) AfterProcess(_ context.Context, cmd redis.Cmder) error {
+	if cmd.Name() == h.after && cmd.Err() == nil {
+		if h.cancel != nil {
+			h.cancel()
+		}
+		return h.afterErr
+	}
+	return nil
+}
 func (*messageCommandHook) BeforeProcessPipeline(ctx context.Context, _ []redis.Cmder) (context.Context, error) {
 	return ctx, nil
 }
 func (*messageCommandHook) AfterProcessPipeline(context.Context, []redis.Cmder) error { return nil }
 
 func TestMessageHTTPIntegration(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPath, err := filepath.Rel(config.FindProjectRoot(wd), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := config.Conf.LOG.Path
+	config.Conf.LOG.Path = logPath
+	logger := utils.Logger()
+	config.Conf.LOG.Path = oldPath
+	if file, ok := logger.Out.(*os.File); ok {
+		t.Cleanup(func() { _ = file.Close(); logger.SetOutput(io.Discard) })
+	}
 	f := testenv.NewLegacyFixture(t)
 	ctx := context.Background()
 	store := database.NewMessageManager(f.DB, f.Redis)
@@ -126,7 +158,27 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	}
 	assertAccountUnavailable(t, contactRequest(GetMessageList(store), historyBody, ctx, uid))
 
-	// Real WRONGTYPE on RPUSH after ZADD succeeds must produce 503 and skip PUBLISH.
+	assertUnknown := func(response *httptest.ResponseRecorder) {
+		t.Helper()
+		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), `"reasonCode":"MESSAGE_ENQUEUE_UNKNOWN"`) || !strings.Contains(response.Body.String(), `"status":"enqueue_unknown"`) {
+			t.Fatalf("enqueue outcome: %d %s", response.Code, response.Body)
+		}
+	}
+	assertSuccess := func(response *httptest.ResponseRecorder) {
+		t.Helper()
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"code":0`) {
+			t.Fatalf("send: %d %s", response.Code, response.Body)
+		}
+	}
+	assertQueued := func() {
+		t.Helper()
+		got, err := f.Redis.LRange(ctx, "dirty:msgs", 0, -1).Result()
+		if err != nil || !reflect.DeepEqual(got, raw) {
+			t.Fatalf("queue=%v want=%v error=%v", got, raw, err)
+		}
+	}
+	// Real WRONGTYPE on RPUSH must skip both cache and notification. The shared
+	// retrying client exposes no per-attempt evidence, so the HTTP result is unknown.
 	if err := f.Redis.Del(ctx, "dirty:msgs").Err(); err != nil {
 		t.Fatal(err)
 	}
@@ -137,8 +189,11 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 	hook := &messageCommandHook{}
 	client.AddHook(hook)
-	assertAccountUnavailable(t, contactRequest(SendMsg(database.NewMessageManager(f.DB, client)), string(body), ctx, uid))
-	if !reflect.DeepEqual(hook.commands, []string{"zadd", "rpush"}) {
+	if err := f.Redis.Del(ctx, key).Err(); err != nil {
+		t.Fatal(err)
+	}
+	assertUnknown(contactRequest(SendMsg(database.NewMessageManager(f.DB, client)), string(body), ctx, uid))
+	if !reflect.DeepEqual(hook.commands, []string{"rpush"}) {
 		t.Fatalf("unexpected send commands: %v", hook.commands)
 	}
 	for _, got := range hook.contexts {
@@ -149,18 +204,68 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	if value, err := f.Redis.Get(ctx, "dirty:msgs").Result(); err != nil || value != "wrong-type" {
 		t.Fatalf("queue modified: %q %v", value, err)
 	}
+	if n, err := f.Redis.Exists(ctx, key).Result(); err != nil || n != 0 {
+		t.Fatalf("rejected send created cache: %d %v", n, err)
+	}
 	if err := f.Redis.Del(ctx, "dirty:msgs").Err(); err != nil {
 		t.Fatal(err)
 	}
-	hook.fail, hook.cause = "publish", errors.New("injected publish failure")
-	assertAccountUnavailable(t, contactRequest(SendMsg(database.NewMessageManager(f.DB, client)), string(body), ctx, uid))
-	if n, err := f.Redis.LLen(ctx, "dirty:msgs").Result(); err != nil || n != 1 {
-		t.Fatalf("publish failure queue: %d %v", n, err)
+	// RPUSH succeeds while ZADD receives a real Redis WRONGTYPE response.
+	if err := f.Redis.Set(ctx, key, "wrong-type", 0).Err(); err != nil {
+		t.Fatal(err)
 	}
-	// Publication failed after enqueue; 503 does not mean nothing was written.
+	hook.commands = nil
+	assertSuccess(contactRequest(SendMsg(database.NewMessageManager(f.DB, client)), string(body), ctx, uid))
+	assertQueued()
+	if !reflect.DeepEqual(hook.commands, []string{"rpush", "zadd", "publish"}) {
+		t.Fatalf("cache failure commands: %v", hook.commands)
+	}
+	if value, err := f.Redis.Get(ctx, key).Result(); err != nil || value != "wrong-type" {
+		t.Fatalf("cache failure replaced key: %q %v", value, err)
+	}
+	if err := f.Redis.Del(ctx, "dirty:msgs", key).Err(); err != nil {
+		t.Fatal(err)
+	}
+	// Notification failure must retain both the queue and the successfully written cache.
+	hook.fail, hook.cause = "publish", errors.New("injected publish failure")
+	hook.commands = nil
+	assertSuccess(contactRequest(SendMsg(database.NewMessageManager(f.DB, client)), string(body), ctx, uid))
+	assertQueued()
+	assertHistory(store)
+	if !reflect.DeepEqual(hook.commands, []string{"rpush", "zadd", "publish"}) {
+		t.Fatalf("publish failure commands: %v", hook.commands)
+	}
+	// Simulate losing the result AFTER a real RPUSH. Redis demonstrably contains
+	// the message while the caller receives a timeout/cancellation/connection loss.
+	hook.fail = ""
+	hook.after = "rpush"
+	for _, cause := range []error{context.DeadlineExceeded, context.Canceled, io.EOF} {
+		if err := f.Redis.Del(ctx, "dirty:msgs", key).Err(); err != nil {
+			t.Fatal(err)
+		}
+		hook.commands, hook.afterErr = nil, cause
+		assertUnknown(contactRequest(SendMsg(database.NewMessageManager(f.DB, client)), string(body), ctx, uid))
+		assertQueued()
+		if !reflect.DeepEqual(hook.commands, []string{"rpush"}) {
+			t.Fatalf("lost reply commands: %v", hook.commands)
+		}
+		if n, err := f.Redis.Exists(ctx, key).Result(); err != nil || n != 0 {
+			t.Fatalf("unknown send created cache: %d %v", n, err)
+		}
+	}
+	// Request cancellation after confirmed RPUSH also cannot undo acceptance.
+	if err := f.Redis.Del(ctx, "dirty:msgs").Err(); err != nil {
+		t.Fatal(err)
+	}
+	acceptedCtx, cancelAccepted := context.WithCancel(ctx)
+	defer cancelAccepted()
+	hook.afterErr, hook.cancel = nil, cancelAccepted
+	assertSuccess(contactRequest(SendMsg(database.NewMessageManager(f.DB, client)), string(body), acceptedCtx, uid))
+	assertQueued()
+
 	closed := redis.NewClient(f.Redis.Options())
 	_ = closed.Close()
 	unavailable := database.NewMessageManager(f.DB, closed)
-	assertAccountUnavailable(t, contactRequest(SendMsg(unavailable), string(body), ctx, uid))
+	assertUnknown(contactRequest(SendMsg(unavailable), string(body), ctx, uid))
 	assertAccountUnavailable(t, contactRequest(GetMessageList(unavailable), historyBody, ctx, uid))
 }

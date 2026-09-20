@@ -145,21 +145,25 @@ func (mm *msgManager) SaveMsg(ctx context.Context, msg *models.Message) error {
 	if mm == nil || mm.rds == nil {
 		return ErrStorageUnavailable
 	}
-	key := getKey(msg)
+	if err := ctx.Err(); err != nil {
+		return storageError("enqueue dirty message", err)
+	}
 	member, err := encodeCachedMessage(msg)
 	if err != nil {
 		return err
 	}
-	_, err = mm.rds.ZAdd(ctx, key, &redis.Z{
-		Score:  getScore(msg),
-		Member: member,
-	}).Result()
-	if err != nil {
-		return storageError("cache message", err)
-	}
-	// 记录脏数据
+	// Once RPUSH starts, an error cannot prove that no attempt was accepted.
+	// The shared Redis client may retry after losing an earlier reply.
 	if err := mm.rds.RPush(ctx, getDirtyMsgsKey(), msg).Err(); err != nil {
-		return storageError("enqueue dirty message", err)
+		return fmt.Errorf("%w: %w", ErrMessageEnqueueUnknown, storageError("enqueue dirty message", err))
+	}
+	// A confirmed enqueue owns the persistence responsibility. Cache failures
+	// cannot undo it or turn the accepted send into a definite failure.
+	if err := mm.rds.ZAdd(ctx, getKey(msg), &redis.Z{
+		Score: getScore(msg), Member: member,
+	}).Err(); err != nil {
+		utils.Logger().WithError(err).WithField("message_id", msg.Id).
+			WithField("sender_id", msg.SenderId).Warn("legacy message enqueued; cache update failed")
 	}
 	return nil
 }
@@ -242,21 +246,14 @@ func getDirtyMsgsKey() string {
 	return "dirty:msgs"
 }
 
-// 先存还是先publish呢？？？
+// PublishAndSave confirms the legacy enqueue before attempting notification.
 func (mm *msgManager) PublishAndSave(ctx context.Context, msg *models.Message) error {
-	// save
-	err := mm.SaveMsg(ctx, msg)
-	if err != nil {
+	if err := mm.SaveMsg(ctx, msg); err != nil {
 		return err
 	}
-	// publish 若失败需要删掉redis中存的内容
-	err = mm.PublishMsg(ctx, msg)
-	if err != nil {
-		member, encodeErr := encodeCachedMessage(msg)
-		if encodeErr == nil {
-			mm.rds.ZRem(ctx, getKey(msg), member)
-		}
-		return err
+	if err := mm.PublishMsg(ctx, msg); err != nil {
+		utils.Logger().WithError(err).WithField("message_id", msg.Id).
+			WithField("sender_id", msg.SenderId).Warn("legacy message enqueued; notification failed")
 	}
 	return nil
 }
