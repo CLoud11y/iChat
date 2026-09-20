@@ -22,6 +22,14 @@ go test -tags=integration ./tests/integration/... -count=1 -v -timeout=12m
 
 这条命令自动创建、等待就绪并清理测试资源，不需要先手动执行 `docker compose up`。
 
+P0.6.3d 的真实 MySQL 离线启动与恢复验收：
+
+```powershell
+go test -race -tags=integration . -run '^TestBootstrapMySQLRecoveryIntegration$' -count=1 -v -timeout=8m
+```
+
+测试先创建本轮 fixture 并迁移/写入测试账号，再停止该 MySQL 容器，使用默认 bootstrap 的数据库、Redis、worker 和健康探测装配启动本地临时 HTTP 服务。验证存活接口、存储未就绪、登录/联系人 503 和无 token 的 401；恢复后验证就绪、登录身份/token 与联系人查询。随后再次停机、恢复，始终使用同一 API 和仓储实例。Docker 重启可能重新分配随机宿主端口，测试以本地 TCP 转发器提供固定入口，仅更新其后端地址；应用配置、池和仓储不变，所有握手及查询均到达真实 MySQL。接受就绪仍为 503，不代表 MQ accepted 验收。容器停止/启动前核对本轮项目和 runId 标签；结束后按 fixture 归属清理，转发器等待所有连接任务退出。该测试不模拟网络黑洞或操作系统进程退出。
+
 P0.5 的迁移命令验收同样使用独立环境：
 
 ```powershell
