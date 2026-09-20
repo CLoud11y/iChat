@@ -37,41 +37,68 @@ var websocketSessions = struct {
 	items map[uint]*websocketSession
 }{items: make(map[uint]*websocketSession)}
 
-func Chat(c *gin.Context) {
-	senderId := c.GetUint("uid")
-	ws, err := getWebsocket(c)
-	if err != nil {
-		utils.Logger().WithError(err).WithField("user_id", senderId).Warn("websocket upgrade failed")
-		return
+func Chat(subscriptions MessageSubscriptions, offline func(uint), logger *logrus.Logger) gin.HandlerFunc {
+	if logger == nil {
+		logger = logrus.StandardLogger()
 	}
-	defer ws.Close()
-
-	ctx, canceller := context.WithCancel(context.Background())
-	defer canceller()
-
-	session := &websocketSession{
-		outbound: make(chan websocketOutbound, websocketSendQueueSize),
-		cancel:   canceller,
-	}
-	registerWebsocketSession(senderId, session)
-
-	utils.Logger().WithField("user_id", senderId).Info("websocket connected")
-	defer utils.Logger().WithField("user_id", senderId).Info("websocket disconnected")
-
-	go websocketWriteProc(ctx, canceller, senderId, ws, session.outbound)
-	go func() {
-		if err := recvProc(ctx, canceller, database.Mmanager, senderId, session.outbound); err != nil {
-			utils.Logger().WithError(err).WithField("user_id", senderId).Error("receive websocket messages failed")
+	return func(c *gin.Context) {
+		senderId := c.GetUint("uid")
+		if senderId == 0 {
+			utils.RespondAuthError(c, utils.ErrUnauthenticated)
+			return
 		}
-	}()
-	go sendProc(ctx, canceller, senderId, ws)
-	go heatbeatProc(ctx, canceller, session.outbound)
-	<-ctx.Done()
-	if unregisterWebsocketSession(senderId, session) {
-		database.Umanager.Offline(senderId)
+		if subscriptions == nil || offline == nil {
+			storageUnavailable(c)
+			return
+		}
+		ctx, cancel := context.WithCancel(c.Request.Context())
+		defer cancel()
+		owned, err := openSubscriptions(ctx, subscriptions, senderId)
+		if err != nil {
+			storageUnavailable(c)
+			return
+		}
+		defer owned.Close()
+		if ctx.Err() != nil {
+			storageUnavailable(c)
+			return
+		}
+		ws, err := getWebsocket(c)
+		if err != nil {
+			logger.WithError(err).WithField("user_id", senderId).Warn("websocket upgrade failed")
+			return
+		}
+		session := &websocketSession{outbound: make(chan websocketOutbound, websocketSendQueueSize), cancel: cancel}
+		registerWebsocketSession(senderId, session)
+		var workers sync.WaitGroup
+		run := func(fn func()) { workers.Add(1); go func() { defer workers.Done(); fn() }() }
+		defer func() {
+			cancel()
+			_ = ws.Close() // Unblock ReadMessage before waiting for the reader.
+			owned.Close()
+			workers.Wait()
+			finishWebsocketSession(senderId, session, offline)
+		}()
+		run(func() { websocketWriteProc(ctx, cancel, senderId, ws, session.outbound, logger) })
+		run(func() {
+			receiveMessages(ctx, cancel, senderId, owned.private.Channel(), owned.groups.Channel(), session.outbound, logger)
+		})
+		run(func() { sendProc(ctx, cancel, senderId, ws, logger) })
+		run(func() { heatbeatProc(ctx, cancel, session.outbound) })
+		<-ctx.Done()
 	}
 }
 
+// Serialize the identity check and local Offline with new registrations so an
+// older connection cannot clear the online state of a replacement connection.
+func finishWebsocketSession(uid uint, session *websocketSession, offline func(uint)) {
+	websocketSessions.Lock()
+	defer websocketSessions.Unlock()
+	if websocketSessions.items[uid] == session {
+		delete(websocketSessions.items, uid)
+		offline(uid)
+	}
+}
 func registerWebsocketSession(uid uint, session *websocketSession) {
 	websocketSessions.Lock()
 	oldSession := websocketSessions.items[uid]
@@ -120,6 +147,7 @@ func websocketWriteProc(
 	userID uint,
 	ws *websocket.Conn,
 	outbound <-chan websocketOutbound,
+	logger *logrus.Logger,
 ) {
 	defer func() {
 		cancel()
@@ -129,13 +157,16 @@ func websocketWriteProc(
 		select {
 		case <-ctx.Done():
 			return
-		case message := <-outbound:
+		case message, ok := <-outbound:
+			if !ok {
+				return
+			}
 			if err := ws.SetWriteDeadline(time.Now().Add(websocketWriteTimeout)); err != nil {
-				utils.Logger().WithError(err).WithField("user_id", userID).Warn("set websocket write deadline failed")
+				logger.WithError(err).WithField("user_id", userID).Warn("set websocket write deadline failed")
 				return
 			}
 			if err := ws.WriteMessage(message.messageType, message.data); err != nil {
-				utils.Logger().WithError(err).WithField("user_id", userID).Warn("write websocket message failed")
+				logger.WithError(err).WithField("user_id", userID).Warn("write websocket message failed")
 				return
 			}
 			if message.closeAfter {
@@ -180,88 +211,103 @@ type MessageSubscriptions interface {
 	SubscribeGroups(context.Context, uint) (database.Subscription, error)
 }
 
-func recvProc(ctx context.Context, cancel context.CancelFunc, subscriptions MessageSubscriptions, senderId uint, outbound chan<- websocketOutbound) error {
+type sessionSubscriptions struct {
+	private, groups database.Subscription
+	once            sync.Once
+}
+
+func (s *sessionSubscriptions) Close() {
+	s.once.Do(func() {
+		if s.groups != nil {
+			_ = s.groups.Close()
+		}
+		if s.private != nil {
+			_ = s.private.Close()
+		}
+	})
+}
+
+func openSubscriptions(ctx context.Context, provider MessageSubscriptions, uid uint) (_ *sessionSubscriptions, err error) {
+	if provider == nil {
+		return nil, database.ErrStorageUnavailable
+	}
+	owned := &sessionSubscriptions{}
 	defer func() {
-		cancel()
+		if err != nil {
+			owned.Close()
+		}
 	}()
-	if subscriptions == nil {
-		return database.ErrStorageUnavailable
-	}
-	private, err := subscriptions.Subscribe(ctx, senderId)
-	if private != nil {
-		defer private.Close()
-	}
+	owned.private, err = provider.Subscribe(ctx, uid)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if private == nil {
-		return database.ErrStorageUnavailable
+	if owned.private == nil || owned.private.Channel() == nil {
+		return nil, database.ErrStorageUnavailable
 	}
-	groups, err := subscriptions.SubscribeGroups(ctx, senderId)
-	if groups != nil {
-		defer groups.Close()
-	}
+	owned.groups, err = provider.SubscribeGroups(ctx, uid)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if groups == nil {
-		return database.ErrStorageUnavailable
+	if owned.groups == nil {
+		return nil, database.ErrStorageUnavailable
 	}
-	subChan, groupChan := private.Channel(), groups.Channel()
-	if subChan == nil {
-		return database.ErrStorageUnavailable
-	}
+	return owned, nil
+}
+
+func receiveMessages(ctx context.Context, cancel context.CancelFunc, senderId uint, subChan, groupChan <-chan *redis.Message, outbound chan<- websocketOutbound, logger *logrus.Logger) {
+	defer cancel()
+	var err error
 	var msg *redis.Message
 	var ok bool
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case msg, ok = <-subChan:
 			if !ok || msg == nil {
-				return nil
+				return
 			}
 			// TODO: 将msg解绑至message结构体 获取信息后再展示
 			jsonMsg := &models.Message{}
 			err = json.Unmarshal(utils.String2Bytes(msg.Payload), jsonMsg)
 			if err != nil {
-				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("decode private message failed")
+				logger.WithError(err).WithField("user_id", senderId).Warn("decode private message failed")
 				continue
 			}
-			utils.Logger().WithFields(logrus.Fields{
+			logger.WithFields(logrus.Fields{
 				"message_id":  jsonMsg.Id,
 				"sender_id":   jsonMsg.SenderId,
 				"receiver_id": jsonMsg.ReceiverId,
 			}).Debug("private message received")
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "simple"})
 			if !enqueueWebsocketMessage(ctx, outbound, b) {
-				return nil
+				return
 			}
 		case msg, ok = <-groupChan:
 			if !ok || msg == nil {
-				return nil
+				return
 			}
 			jsonMsg := &models.Message{}
 			err = json.Unmarshal(utils.String2Bytes(msg.Payload), jsonMsg)
 			if err != nil {
-				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("decode group message failed")
+				logger.WithError(err).WithField("user_id", senderId).Warn("decode group message failed")
 				continue
 			}
-			utils.Logger().WithFields(logrus.Fields{
+			logger.WithFields(logrus.Fields{
 				"message_id": jsonMsg.Id,
 				"sender_id":  jsonMsg.SenderId,
 				"group_id":   jsonMsg.ReceiverId,
 			}).Debug("group message received")
 			b, _ := json.Marshal(models.CtrlMsg{Data: jsonMsg.Conv2MsgInfo(), Type: "group"})
 			if !enqueueWebsocketMessage(ctx, outbound, b) {
-				return nil
+				return
 			}
 		}
 	}
 }
 
 // 发送goroutine挂了 接收goroutine也挂掉
-func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws *websocket.Conn) {
+func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws *websocket.Conn, logger *logrus.Logger) {
 	defer func() {
 		cancel()
 	}()
@@ -273,7 +319,7 @@ func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 			_, p, err := ws.ReadMessage()
 			// websocket 发生错误 结束此sendProc
 			if err != nil {
-				entry := utils.Logger().WithError(err).WithField("user_id", senderId)
+				entry := logger.WithError(err).WithField("user_id", senderId)
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 					entry.Warn("read websocket message failed")
 				} else {
@@ -284,25 +330,25 @@ func sendProc(ctx context.Context, cancel context.CancelFunc, senderId uint, ws 
 			msg := &models.CtrlMsg{}
 			err = json.Unmarshal(p, msg)
 			if err != nil {
-				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("decode websocket control message failed")
+				logger.WithError(err).WithField("user_id", senderId).Warn("decode websocket control message failed")
 				continue
 			}
 			// 处理待发送消息
-			err = handleCtrlMsg(msg)
+			err = handleCtrlMsg(msg, logger)
 			if err != nil {
-				utils.Logger().WithError(err).WithField("user_id", senderId).Warn("handle websocket control message failed")
+				logger.WithError(err).WithField("user_id", senderId).Warn("handle websocket control message failed")
 				continue
 			}
 		}
 	}
 }
 
-func handleCtrlMsg(msg *models.CtrlMsg) error {
+func handleCtrlMsg(msg *models.CtrlMsg, logger *logrus.Logger) error {
 	switch msg.Type {
 	case "ping":
 	case "pong":
 	default:
-		utils.Logger().WithField("message_type", msg.Type).Warn("unsupported websocket control message")
+		logger.WithField("message_type", msg.Type).Warn("unsupported websocket control message")
 	}
 	return nil
 }

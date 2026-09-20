@@ -82,6 +82,14 @@ go test -race -tags=integration ./database -run '^TestSubscriptionsIntegration$'
 
 在全局群 manager 为 nil 时建立私聊及两个群订阅，核对 Redis NUMSUB 和实际消息内容；取消后与手动 Close 后等待消息通道关闭、NUMSUB 回到零；另覆盖无群空句柄及错误 Redis 密码的握手失败。此用例不覆盖完整 WebSocket 握手和会话替换。
 
+P0.6.3c.3b 默认测试使用本地 `httptest` WebSocket 服务和注入的订阅，覆盖升级前依赖/订阅失败、无身份拒绝、升级失败的资源释放、私聊/群消息转发、无群连接、客户端关闭、订阅关闭、请求取消、连接替换及注销下线帧。通过阻塞读取 goroutine，验证 handler 必须等其结束后才返回并调用 Offline；测试 logger 写入 `io.Discard`，不读取开发配置或创建日志文件。
+
+```powershell
+go test -race -tags=integration ./service -run '^TestChatRedisIntegration$' -count=1 -v -timeout=8m
+```
+
+真实验收使用独立 MySQL/Redis、JWT 中间件和本地 WebSocket 客户端，验证 401、升级成功与实际 PubSub 转发；缺失 MySQL 或关闭 Redis 的连接请求返回 503，已建立的原连接仍可用，失败请求创建的订阅得到释放；正常关闭和无群用户关闭后 NUMSUB 归零。本用例不覆盖完整应用服务器退出、Redis 服务端重启或跨实例会话抢占。
+
 P0.3 已恢复旧业务集成测试。执行消息存取、缓存删除/回源、好友、群成员和定时落库测试：
 
 ```powershell

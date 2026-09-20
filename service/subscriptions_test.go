@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/sirupsen/logrus"
 	"iChat/database"
 	"testing"
 	"time"
@@ -88,9 +89,10 @@ func TestReceiveSubscriptionCleanup(t *testing.T) {
 				groups.messages = nil
 			case "private_channel_nil":
 				private.messages = nil
+				wantGroup = 0
 			}
 			done := make(chan error, 1)
-			go func() { done <- recvProc(ctx, cancel, stub, 42, make(chan websocketOutbound, 1)) }()
+			go func() { done <- testReceiveSession(ctx, cancel, stub, 42, make(chan websocketOutbound, 1)) }()
 			if scenario == "canceled" || scenario == "no_groups" {
 				select {
 				case <-stub.ready:
@@ -123,7 +125,18 @@ func TestReceiveSubscriptionCleanup(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := recvProc(ctx, cancel, nil, 1, nil); !errors.Is(err, database.ErrStorageUnavailable) {
+	if err := testReceiveSession(ctx, cancel, nil, 1, nil); !errors.Is(err, database.ErrStorageUnavailable) {
 		t.Fatalf("nil store: %v", err)
 	}
+}
+
+func testReceiveSession(ctx context.Context, cancel context.CancelFunc, provider MessageSubscriptions, uid uint, outbound chan<- websocketOutbound) error {
+	defer cancel()
+	owned, err := openSubscriptions(ctx, provider, uid)
+	if err != nil {
+		return err
+	}
+	defer owned.Close()
+	receiveMessages(ctx, cancel, uid, owned.private.Channel(), owned.groups.Channel(), outbound, logrus.New())
+	return nil
 }
