@@ -12,6 +12,18 @@ import (
 var DB *gorm.DB
 
 func OpenMySQL(conf config.Config) (*gorm.DB, error) {
+	return openMySQL(conf, false)
+}
+
+// NewMySQL creates a pool without contacting the server. API startup can bind
+// this stable handle while MySQL is offline; database/sql retries connections on
+// subsequent operations. This does not assert storage readiness or migrate.
+// The application targets MySQL 8; version discovery is deliberately skipped.
+func NewMySQL(conf config.Config) (*gorm.DB, error) {
+	return openMySQL(conf, true)
+}
+
+func openMySQL(conf config.Config, lazy bool) (*gorm.DB, error) {
 	// 初始化数据库连接
 	mysqlConf := &conf.MYSQL
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
@@ -21,8 +33,12 @@ func OpenMySQL(conf config.Config) (*gorm.DB, error) {
 		mysqlConf.Port,
 		mysqlConf.DbName,
 	)
-	MysqlConf := mysql.New(mysql.Config{DSN: dsn})
-	GormConf := &gorm.Config{}
+	if lazy {
+		// Bound connection and socket I/O when callers have no deadline.
+		dsn += "&timeout=3s&readTimeout=5s&writeTimeout=5s"
+	}
+	MysqlConf := mysql.New(mysql.Config{DSN: dsn, SkipInitializeWithVersion: lazy})
+	GormConf := &gorm.Config{DisableAutomaticPing: lazy}
 
 	db, err := gorm.Open(MysqlConf, GormConf)
 	if err != nil {

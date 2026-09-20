@@ -11,15 +11,98 @@ import (
 	"iChat/service"
 	"iChat/utils"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"gorm.io/gorm"
 )
+
+func TestBootstrapMySQLOffline(t *testing.T) {
+	// A local endpoint rejects every MySQL handshake; no external DB is used.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	defer func() { _ = listener.Close(); <-done }()
+	var conf config.Config
+	conf.MYSQL.Host, conf.MYSQL.Port, err = net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conf.MYSQL.User, conf.MYSQL.DbName = "offline", "offline"
+	original := legacyState()
+	deps := defaultStartupDependencies()
+	deps.loadConfig = func() (config.Config, error) { return conf, nil }
+	var pool *sql.DB
+	opener := deps.openMySQL
+	deps.openMySQL = func(c config.Config) (*gorm.DB, error) {
+		db, err := opener(c)
+		if err != nil {
+			return nil, err
+		}
+		pool, err = db.DB()
+		if err != nil {
+			return nil, err
+		}
+		if pool.Stats().OpenConnections != 0 {
+			t.Error("constructor connected to MySQL")
+		}
+		return db, nil
+	}
+	deps.openRedis = func(context.Context, config.Config) (*redis.Client, error) {
+		return redis.NewClient(&redis.Options{Addr: "127.0.0.1:0"}), nil
+	}
+	started, stopped, served := false, false, false
+	deps.startWorker = func(scheduledtasks.MessageStore) (func(), error) {
+		started = true
+		return func() { stopped = true }, nil
+	}
+	deps.serve = func(_ config.Config, _ *redis.Client, users service.AccountUsers, _ service.ContactQueries, _ service.ContactWrites, _ service.MessageStore, _ service.MessageSubscriptions) error {
+		served = true
+		r := gin.New()
+		r.POST("/login", service.LoginUser(users, nil))
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"account":"offline","password":"password"}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		r.ServeHTTP(response, req)
+		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "DEPENDENCY_UNAVAILABLE") {
+			t.Errorf("offline login = %d %s", response.Code, response.Body.String())
+		}
+		return nil
+	}
+	if err := bootstrap(deps); err != nil {
+		t.Fatal(err)
+	}
+	if !started || !stopped || !served {
+		t.Fatal("offline startup did not complete worker/HTTP lifecycle")
+	}
+	if !reflect.DeepEqual(original, legacyState()) {
+		t.Fatal("globals not restored")
+	}
+	if err := pool.Ping(); err == nil || !strings.Contains(err.Error(), "database is closed") {
+		t.Fatalf("pool not closed: %v", err)
+	}
+}
 
 // No socket is opened: this pool implements only the lifecycle operations used
 // by bootstrap, and rejects SQL so an accidental startup migration fails tests.

@@ -10,6 +10,8 @@ go test ./...
 
 启动流程的回归测试也在默认范围内：注入配置、MySQL/Redis 构造器、worker 和 HTTP 启动函数，覆盖依赖缺失、启动失败、连接释放及全局绑定恢复。MySQL 使用不联网的测试 driver，Redis 使用拒绝联网的测试 dialer；另用真实 cron 验证停止时等待正在执行的任务。可运行 `go test -race . -count=2 -shuffle=on` 检查重复执行和退出时的数据竞争。
 
+MySQL 离线启动测试也在默认范围内：本地临时端口接受后立即关闭连接，模拟 MySQL 握手失败，验证默认 API 构造器无需连接即可启动 worker/HTTP、登录返回 503、退出关闭连接池及恢复全局绑定。另验证取消的 Ping 和独立迁移所用构造器仍在连接失败时报错。这些用例不使用 Docker 或开发数据库，不替代真实 MySQL 停机/恢复验收。
+
 P0.2 的环境隔离验收需要本机 Docker 引擎已启动、Docker Compose 可用。首次执行可能需要下载测试镜像：
 
 ```powershell

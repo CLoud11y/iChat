@@ -30,7 +30,7 @@ type startupDependencies struct {
 func defaultStartupDependencies() startupDependencies {
 	return startupDependencies{
 		loadConfig: config.Load,
-		openMySQL:  utils.OpenMySQL,
+		openMySQL:  utils.NewMySQL,
 		openRedis:  utils.OpenRedis,
 		startWorker: func(store scheduledtasks.MessageStore) (func(), error) {
 			return startLegacyCron("@every 60s", func() {
@@ -55,9 +55,9 @@ func defaultStartupDependencies() startupDependencies {
 }
 
 // bootstrap currently owns the legacy, single-process dependency lifecycle.
-// It must not run concurrently: handlers still read legacy global bindings.
-// Failed dependencies prevent worker/HTTP startup until the later degraded-mode
-// API and explicit service injection work replaces this transitional contract.
+// It must not run concurrently because it owns legacy global bindings.
+// MySQL construction is lazy: an offline server does not prevent HTTP startup.
+// Invalid handles/configuration and Redis startup failures remain fatal.
 func bootstrap(deps startupDependencies) (err error) {
 	if deps.loadConfig == nil || deps.openMySQL == nil || deps.openRedis == nil || deps.startWorker == nil || deps.serve == nil {
 		return errors.New("bootstrap: missing startup dependency")
