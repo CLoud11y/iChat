@@ -25,7 +25,7 @@ type startupDependencies struct {
 	loadConfig  func() (config.Config, error)
 	openMySQL   func(config.Config) (*gorm.DB, error)
 	openRedis   func(context.Context, config.Config) (*redis.Client, error)
-	startWorker func(scheduledtasks.MessageStore) (func(), error)
+	startWorker func(scheduledtasks.MessageStore, *redis.Client) (func(), error)
 	serve       func(config.Config, *redis.Client, service.AccountUsers, service.ContactQueries, service.ContactWrites, service.MessageStore, service.MessageSubscriptions, router.StorageHealth) error
 }
 
@@ -34,8 +34,22 @@ func defaultStartupDependencies() startupDependencies {
 		loadConfig: config.Load,
 		openMySQL:  utils.NewMySQL,
 		openRedis:  utils.OpenRedis,
-		startWorker: func(store scheduledtasks.MessageStore) (func(), error) {
-			return startLegacyCron("@every 60s", func() {
+		startWorker: func(store scheduledtasks.MessageStore, rds *redis.Client) (func(), error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			owner, err := database.AcquireLegacyWorker(ctx, rds)
+			cancel()
+			if err != nil {
+				return nil, err
+			}
+			release := func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := owner.Release(ctx); err != nil {
+					utils.Logger().WithError(err).Error("release legacy worker ownership failed; operator recovery may be required")
+				}
+			}
+			store = scheduledtasks.OwnedMessages{MessageStore: store, Owner: owner}
+			stop, err := startLegacyCron("@every 60s", func() {
 				defer func() {
 					if recovered := recover(); recovered != nil {
 						utils.Logger().WithField("panic", recovered).Error("sync messages panicked")
@@ -45,6 +59,11 @@ func defaultStartupDependencies() startupDependencies {
 					utils.Logger().WithError(err).Error("sync messages failed")
 				}
 			})
+			if err != nil {
+				release()
+				return nil, err
+			}
+			return func() { stop(); release() }, nil
 		},
 		serve: func(conf config.Config, rds *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore, subscriptions service.MessageSubscriptions, storage router.StorageHealth) error {
 			tokens, err := utils.NewTokenService(conf, utils.NewRedisTokenBlacklist(rds))
@@ -105,7 +124,7 @@ func bootstrap(deps startupDependencies) (err error) {
 	restore := bindLegacyDependencies(conf, db, rds)
 	defer restore()
 	if conf.LEGACY_WORKER.Enabled {
-		stop, err := deps.startWorker(database.Mmanager)
+		stop, err := deps.startWorker(database.Mmanager, rds)
 		// Also stop a partially started worker if its factory supplies a stop handle.
 		if stop != nil {
 			defer stop()

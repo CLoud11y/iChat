@@ -84,7 +84,7 @@ go run ./cmd/loadtest -users 100 -rate 200 -duration 5m -warmup 15s -message-byt
 go run ./cmd/loadtest -users 100 -rate 500 -duration 5m -warmup 15s -message-bytes 256 -out msg-500.json
 ~~~
 
-旧队列压测仅在一个应用实例显式启用 worker；当前没有跨进程排他约束。每轮最多处理 128 条，周期为 60 秒，重叠触发会跳过，因此固定等待 60 秒不能保证积压已清空；每档之间应确认测试队列处理完成。稳定消息吞吐量的建议口径：
+旧队列压测仅在一个应用实例显式启用 worker；共享 Redis DB 的第二个 worker 会被排他注册拒绝。异常退出的遗留锁按[恢复说明](legacy-worker-recovery.md)处理，不可直接删除后并发重启。每轮最多处理 128 条，周期为 60 秒，重叠触发会跳过，因此固定等待 60 秒不能保证积压已清空；每档之间应确认测试队列处理完成。稳定消息吞吐量的建议口径：
 
 - HTTP 失败率低于 1%；
 - 消息送达率不低于 99%；

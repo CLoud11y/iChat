@@ -73,7 +73,7 @@ func TestBootstrapMySQLOffline(t *testing.T) {
 		return redis.NewClient(&redis.Options{Addr: "127.0.0.1:0"}), nil
 	}
 	started, stopped, served := false, false, false
-	deps.startWorker = func(scheduledtasks.MessageStore) (func(), error) {
+	deps.startWorker = func(scheduledtasks.MessageStore, *redis.Client) (func(), error) {
 		started = true
 		return func() { stopped = true }, nil
 	}
@@ -250,7 +250,7 @@ func TestBootstrapLifecycle(t *testing.T) {
 					t.Cleanup(func() { _ = rds.Close() })
 					return rds, nil
 				},
-				startWorker: func(store scheduledtasks.MessageStore) (func(), error) {
+				startWorker: func(store scheduledtasks.MessageStore, rds *redis.Client) (func(), error) {
 					if store != database.Mmanager {
 						t.Fatal("worker did not receive supplied message store")
 					}
