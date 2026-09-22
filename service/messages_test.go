@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iChat/config"
 	"iChat/database"
+	"iChat/middlewares"
 	"iChat/models"
+	"iChat/utils"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -43,6 +47,100 @@ func (s *messageStub) LoadMsgs(ctx context.Context, uid, target, kind uint, curs
 
 const sendMessageBody = `{"id":"m1","identifier":7,"sendTime":123,"toContactId":9,"fromUser":{"id":999},"type":"picture","content":"image","is_group":0}`
 const messageListBody = `{"toContactId":9,"limit":10,"is_group":0,"uid":999}`
+
+func TestSendMessageRequiresAuthenticatedContext(t *testing.T) {
+	for _, identity := range []any{nil, uint(0), 42, "42"} {
+		stub := &messageStub{}
+		r := gin.New()
+		r.POST("/send", func(c *gin.Context) {
+			if identity != nil {
+				c.Set("uid", identity)
+			}
+		}, SendMsg(stub))
+		// Authentication must fail before body parsing or repository access.
+		for _, body := range []string{sendMessageBody, "{"} {
+			req := httptest.NewRequest(http.MethodPost, "/send", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			r.ServeHTTP(response, req)
+			if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "UNAUTHENTICATED") || stub.calls != 0 {
+				t.Fatalf("identity=%#v response=%d %s calls=%d", identity, response.Code, response.Body, stub.calls)
+			}
+		}
+	}
+}
+
+func TestSendMessageJWTIdentity(t *testing.T) {
+	for _, scenario := range []string{"forged_private", "forged_group", "omitted_sender", "missing_token", "invalid_token", "wrong_signature", "revoked", "blacklist_unavailable"} {
+		t.Run(scenario, func(t *testing.T) {
+			var conf config.Config
+			conf.JWT.Key, conf.JWT.TokenHourLifeSpan = "send-identity-test-key", 1
+			blacklist := &authBlacklist{}
+			tokens, err := utils.NewTokenService(conf, blacklist)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := tokens.GenerateToken(42)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := strings.Replace(sendMessageBody, `"id":"m1"`, `"id":"m1","senderId":999,"userId":999,"uid":999`, 1)
+			wantStatus := http.StatusOK
+			wantType := uint(models.PrivateType)
+			switch scenario {
+			case "forged_group":
+				body = strings.Replace(body, `"is_group":0`, `"is_group":1`, 1)
+				wantType = models.GroupType
+			case "omitted_sender":
+				body = strings.Replace(body, `"fromUser":{"id":999},`, "", 1)
+			case "missing_token":
+				raw = ""
+				wantStatus = http.StatusUnauthorized
+			case "invalid_token":
+				raw = "broken-token"
+				wantStatus = http.StatusUnauthorized
+			case "wrong_signature":
+				conf.JWT.Key = "different-key"
+				other, err := utils.NewTokenService(conf, blacklist)
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw, err = other.GenerateToken(999)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantStatus = http.StatusUnauthorized
+			case "revoked":
+				blacklist.banned = true
+				wantStatus = http.StatusUnauthorized
+			case "blacklist_unavailable":
+				blacklist.readErr = errors.New("private dependency details")
+				wantStatus = http.StatusServiceUnavailable
+			}
+			stub := &messageStub{}
+			r := gin.New()
+			r.POST("/auth/sendMessage", middlewares.JwtAuth(tokens), SendMsg(stub))
+			req := httptest.NewRequest(http.MethodPost, "/auth/sendMessage?uid=999&senderId=999", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-User-ID", "999")
+			if raw != "" {
+				req.Header.Set("Authorization", "Bearer "+raw)
+			}
+			response := httptest.NewRecorder()
+			r.ServeHTTP(response, req)
+			if response.Code != wantStatus {
+				t.Fatalf("response=%d %s", response.Code, response.Body)
+			}
+			if wantStatus == http.StatusOK {
+				if stub.calls != 1 || stub.msg.SenderId != 42 || stub.msg.Type != wantType || stub.msg.ReceiverId != 9 {
+					t.Fatalf("published=%+v calls=%d", stub.msg, stub.calls)
+				}
+			} else if stub.calls != 0 || strings.Contains(response.Body.String(), "private dependency") {
+				t.Fatalf("failed authentication reached storage or exposed details: %s", response.Body)
+			}
+		})
+	}
+}
 
 func TestMessageHTTPFailures(t *testing.T) {
 	for _, action := range []string{"send", "history"} {
