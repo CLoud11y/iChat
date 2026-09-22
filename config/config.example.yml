@@ -1,6 +1,9 @@
 APP:
   name: iChat
   version: 0.1
+LEGACY_WORKER:
+  # Enable on only one application instance while the legacy queue is in use.
+  enabled: false
 MYSQL:
   host: 127.0.0.1
   user: root

@@ -12,6 +12,9 @@ import (
 var Conf Config
 
 type Config struct {
+	LEGACY_WORKER struct {
+		Enabled bool `mapstructure:"enabled"`
+	} `mapstructure:"LEGACY_WORKER"`
 	App struct {
 		Name    string `mapstructure:"name"`
 		Version string `mapstructure:"version"`
@@ -47,6 +50,7 @@ func Load() (Config, error) {
 	configureConfigFile(viper)
 	viper.SetDefault("LOG.level", "info")
 	viper.SetDefault("LOG.accessEnabled", true)
+	viper.SetDefault("LEGACY_WORKER.enabled", false)
 	viper.SetEnvPrefix("ICHAT")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()

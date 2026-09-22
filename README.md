@@ -67,9 +67,20 @@ go test ./...
 
    可通过 SQL 查询 `legacy_message_quarantine` 的 `payload_hash`、`reason_code`、`reason_detail`、`created_at` 和 `HEX(raw_body)` 审计原文；原文可能包含消息正文，应按数据库访问权限管理。重复消费已隔离原文只确认既有隔离结果，不自动再次执行业务；本阶段没有隔离记录清理、自动重放或管理接口，后续受控重放流程不在旧 worker 中实现。
 
+   旧消息 worker 现在默认关闭。使用旧队列时，在唯一一个负责落库的应用实例配置中显式开启：
+
+   ```yaml
+   LEGACY_WORKER:
+     enabled: true
+   ```
+
+   也可在 PowerShell 当前终端设置 `$env:ICHAT_LEGACY_WORKER_ENABLED = 'true'`，然后启动：
+
    ```bash
    go run .
    ```
+
+   未配置或设置为 false 时仍启动 HTTP/健康探测，但不启动消费任务；旧发送接口仍会入队，因此没有其他已启用 worker 时消息不会异步落库。开启后每 60 秒触发一次，上一轮仍在运行则跳过本次触发，不积压等待任务。任务 panic 后可恢复后续调度，正常返回时等待当前任务退出后才关闭数据库/Redis。当前仅有进程内防重入，跨进程单消费者约束待 P1.4.2；不要同时开启多个实例。
 
    服务默认监听 `http://localhost:8080`。
 

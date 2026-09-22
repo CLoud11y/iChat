@@ -44,6 +44,7 @@ func TestBootstrapMySQLOffline(t *testing.T) {
 	}()
 	defer func() { _ = listener.Close(); <-done }()
 	var conf config.Config
+	conf.LEGACY_WORKER.Enabled = true
 	conf.MYSQL.Host, conf.MYSQL.Port, err = net.SplitHostPort(listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +156,8 @@ func TestBootstrapLifecycle(t *testing.T) {
 		{"missing_stop", []string{"config", "mysql", "redis", "worker", "close_mysql"}},
 		{"http", []string{"config", "mysql", "redis", "worker", "http", "stop_worker", "close_mysql"}},
 		{"success", []string{"config", "mysql", "redis", "worker", "http", "stop_worker", "close_mysql"}},
+		{"disabled", []string{"config", "mysql", "redis", "http", "close_mysql"}},
+		{"disabled_nil_worker", []string{"config", "mysql", "redis", "http", "close_mysql"}},
 		{"close", []string{"config", "mysql", "redis", "worker", "http", "stop_worker", "close_mysql"}},
 		{"http_and_close", []string{"config", "mysql", "redis", "worker", "http", "stop_worker", "close_mysql"}},
 	} {
@@ -162,6 +165,7 @@ func TestBootstrapLifecycle(t *testing.T) {
 			original := legacyState()
 			var events []string
 			var conf config.Config
+			conf.LEGACY_WORKER.Enabled = tc.name != "disabled" && tc.name != "disabled_nil_worker"
 			conf.App.Name = "injected-bootstrap"
 			conf.MYSQL.Host = "must-not-connect"
 			var db *gorm.DB
@@ -282,8 +286,11 @@ func TestBootstrapLifecycle(t *testing.T) {
 					return nil
 				},
 			}
+			if tc.name == "disabled_nil_worker" {
+				deps.startWorker = nil
+			}
 			err := bootstrap(deps)
-			if (err == nil) != (tc.name == "success") {
+			if (err == nil) != (tc.name == "success" || tc.name == "disabled" || tc.name == "disabled_nil_worker") {
 				t.Fatalf("bootstrap error=%v", err)
 			}
 			switch tc.name {
@@ -310,6 +317,11 @@ func TestBootstrapMissingFactory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			deps := defaultStartupDependencies()
 			deps.loadConfig = func() (config.Config, error) {
+				if name == "worker" {
+					var conf config.Config
+					conf.LEGACY_WORKER.Enabled = true
+					return conf, nil
+				}
 				t.Fatal("missing dependencies must be rejected before loading config")
 				return config.Config{}, nil
 			}
@@ -372,5 +384,54 @@ func TestLegacyCronInvalidConfiguration(t *testing.T) {
 	}
 	if stop, err := startLegacyCron("@every 60s", nil); err == nil || stop != nil {
 		t.Fatal("nil job started a worker")
+	}
+}
+
+func TestLegacyCronSkipsOverlappingRuns(t *testing.T) {
+	started := make(chan struct{}, 8)
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	stop, err := startLegacyCron("@every 1s", func() { started <- struct{}{}; <-release })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { unblock(); stop() })
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("job did not start")
+	}
+	select {
+	case <-started:
+		t.Fatal("a second job started while the first was still running")
+	case <-time.After(2200 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("job did not resume after the previous run completed")
+	}
+}
+
+func TestLegacyCronResumesAfterPanic(t *testing.T) {
+	var first sync.Once
+	resumed := make(chan struct{}, 1)
+	stop, err := startLegacyCron("@every 1s", func() {
+		first.Do(func() { panic("injected legacy job panic") })
+		select {
+		case resumed <- struct{}{}:
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	select {
+	case <-resumed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("panic stranded the non-reentrancy token")
 	}
 }

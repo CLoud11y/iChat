@@ -34,6 +34,7 @@ func TestBootstrapMySQLRecoveryIntegration(t *testing.T) {
 	}
 	conf.JWT.Key, conf.JWT.TokenHourLifeSpan = "isolated-recovery-test-key", 1
 	conf.LOG.AccessEnabled = false
+	conf.LEGACY_WORKER.Enabled = true // Preserve this test's enabled-worker lifecycle coverage.
 	// Preserve the application endpoint across Docker's random port changes.
 	// Only raw TCP routing changes; every handshake/query reaches real MySQL.
 	proxy, target := recoveryTCPProxy(t, net.JoinHostPort(conf.MYSQL.Host, conf.MYSQL.Port))

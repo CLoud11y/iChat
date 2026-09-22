@@ -20,6 +20,7 @@ docker compose up -d
 docker compose ps
 go run ./cmd/migrate
 # 迁移成功后再启动服务。
+$env:ICHAT_LEGACY_WORKER_ENABLED = "true"
 $env:GIN_MODE = "release"
 $env:ICHAT_LOG_LEVEL = "info"
 $env:ICHAT_LOG_ACCESSENABLED = "false"
@@ -33,6 +34,7 @@ $env:ICHAT_LOG_ACCESSENABLED = "false"
 ~~~powershell
 Remove-Item Env:ICHAT_LOG_LEVEL
 Remove-Item Env:ICHAT_LOG_ACCESSENABLED
+Remove-Item Env:ICHAT_LEGACY_WORKER_ENABLED
 ~~~
 
 日志配置发生变化后必须重新建立性能基线。不同日志配置产生的数据必须使用不同
@@ -82,7 +84,7 @@ go run ./cmd/loadtest -users 100 -rate 200 -duration 5m -warmup 15s -message-byt
 go run ./cmd/loadtest -users 100 -rate 500 -duration 5m -warmup 15s -message-bytes 256 -out msg-500.json
 ~~~
 
-每档之间等待至少 60 秒，让脏消息同步任务完成。稳定消息吞吐量的建议口径：
+旧队列压测仅在一个应用实例显式启用 worker；当前没有跨进程排他约束。每轮最多处理 128 条，周期为 60 秒，重叠触发会跳过，因此固定等待 60 秒不能保证积压已清空；每档之间应确认测试队列处理完成。稳定消息吞吐量的建议口径：
 
 - HTTP 失败率低于 1%；
 - 消息送达率不低于 99%；

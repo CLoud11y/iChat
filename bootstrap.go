@@ -61,12 +61,15 @@ func defaultStartupDependencies() startupDependencies {
 // MySQL construction is lazy: an offline server does not prevent HTTP startup.
 // Invalid handles/configuration and Redis startup failures remain fatal.
 func bootstrap(deps startupDependencies) (err error) {
-	if deps.loadConfig == nil || deps.openMySQL == nil || deps.openRedis == nil || deps.startWorker == nil || deps.serve == nil {
+	if deps.loadConfig == nil || deps.openMySQL == nil || deps.openRedis == nil || deps.serve == nil {
 		return errors.New("bootstrap: missing startup dependency")
 	}
 	conf, err := deps.loadConfig()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
+	}
+	if conf.LEGACY_WORKER.Enabled && deps.startWorker == nil {
+		return errors.New("bootstrap: missing startup dependency for enabled legacy worker")
 	}
 	db, err := deps.openMySQL(conf)
 	if err != nil {
@@ -101,16 +104,18 @@ func bootstrap(deps startupDependencies) (err error) {
 	}()
 	restore := bindLegacyDependencies(conf, db, rds)
 	defer restore()
-	stop, err := deps.startWorker(database.Mmanager)
-	// Also stop a partially started worker if its factory supplies a stop handle.
-	if stop != nil {
-		defer stop()
-	}
-	if err != nil {
-		return fmt.Errorf("start legacy worker: %w", err)
-	}
-	if stop == nil {
-		return errors.New("start legacy worker: missing stop function")
+	if conf.LEGACY_WORKER.Enabled {
+		stop, err := deps.startWorker(database.Mmanager)
+		// Also stop a partially started worker if its factory supplies a stop handle.
+		if stop != nil {
+			defer stop()
+		}
+		if err != nil {
+			return fmt.Errorf("start legacy worker: %w", err)
+		}
+		if stop == nil {
+			return errors.New("start legacy worker: missing stop function")
+		}
 	}
 	storage := health.StartStorage(pool.PingContext, 5*time.Second, 2*time.Second)
 	defer storage.Stop()
@@ -144,7 +149,12 @@ func startLegacyCron(schedule string, job func()) (func(), error) {
 	if job == nil {
 		return nil, errors.New("legacy cron requires a job")
 	}
-	c := cron.New()
+	// Recovery must be INSIDE the skip wrapper: cron v3 releases its token
+	// after Run returns, so an escaping panic would otherwise strand the token.
+	c := cron.New(cron.WithChain(
+		cron.SkipIfStillRunning(cron.DefaultLogger),
+		cron.Recover(cron.DefaultLogger),
+	))
 	if _, err := c.AddFunc(schedule, job); err != nil {
 		return nil, err
 	}
