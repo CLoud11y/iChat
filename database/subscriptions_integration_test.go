@@ -8,6 +8,7 @@ import (
 	"errors"
 	"iChat/models"
 	"iChat/tests/testenv"
+	"sync"
 	"testing"
 	"time"
 
@@ -132,6 +133,50 @@ func TestSubscriptionsIntegration(t *testing.T) {
 	}
 	assertCount(0)
 	options := *f.Redis.Options()
+	// Repeated lifecycles with undelivered notifications must not accumulate
+	// Redis subscribers or leave local readers waiting for a consumer.
+	for cycle := 0; cycle < 3; cycle++ {
+		cycleCtx, stop := context.WithCancel(context.Background())
+		sub, err := store.Subscribe(cycleCtx, uid)
+		if err != nil {
+			stop()
+			t.Fatal(err)
+		}
+		for n := 0; n < 110; n++ {
+			if err := f.Redis.Publish(cycleCtx, getPrivateChannel(uid), "unread notification").Err(); err != nil {
+				stop()
+				_ = sub.Close()
+				t.Fatal(err)
+			}
+		}
+		stop()
+		var wg sync.WaitGroup
+		for n := 0; n < 4; n++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := sub.Close(); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+		closed := make(chan struct{})
+		go func() { wg.Wait(); close(closed) }()
+		select {
+		case <-closed:
+		case <-time.After(3 * time.Second):
+			t.Fatal("concurrent subscription close stuck")
+		}
+		select {
+		case _, ok := <-sub.Channel():
+			if ok {
+				t.Fatal("closed subscription retained notifications")
+			}
+		default:
+			t.Fatal("subscription channel not closed")
+		}
+		assertCount(0)
+	}
 	options.Password = "invalid-fixture-password"
 	bad := redis.NewClient(&options)
 	defer bad.Close()

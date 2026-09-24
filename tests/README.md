@@ -4,6 +4,14 @@
 
 默认单元测试不启动外部服务：
 
+P1.7 的 `TestSubscriptionConfirmsRequestedChannels` 使用受控 RESP 对端验证错误/重复频道不能通过就绪确认；`TestSubscriptionFullBufferClose` 用真实 go-redis 解析和缓冲、内存 net.Pipe 填满消息队列，验证手动关闭、仅取消 context、并发关闭后通道关闭且自有任务退出。`TestReceiveFullOutboundQueueCancellation` 验证私聊/群聊在 WebSocket 发送队列满时仍能响应取消并释放订阅；原有通道关闭/nil 消息/升级失败回归保留。
+
+```powershell
+go test -race -tags=integration ./database ./service -run '^(TestSubscriptionsIntegration|TestChatRedisIntegration)$' -count=1 -v -timeout=8m
+```
+
+真实 Redis 用例新增三轮未读取通知后的取消与并发 Close，核对消息通道已关闭及 NUMSUB 回到 0；原有私聊/多群就绪、错误密码、手动关闭，以及真实 JWT/WebSocket 连接、初始化失败、客户端断开的回归保留。这些测试不代替 Redis 重启、网络黑洞、群权限动态变更或消息恢复验收。
+
 P1.6 的 `TestMessageHistoryMedia` 覆盖文本/图片/音频及原始内容引用，`TestMessageHistoryAuthorization` 覆盖 401、403、鉴权 UID 和错误信息隐藏，未知媒体类型不得返回部分历史。真实分页、当前群成员/软删除权限和存储故障使用独立 fixture：
 
 ```powershell

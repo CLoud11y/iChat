@@ -50,7 +50,7 @@ func (s *subscriptionStub) SubscribeGroups(ctx context.Context, uid uint) (datab
 }
 
 func TestReceiveSubscriptionCleanup(t *testing.T) {
-	for _, scenario := range []string{"private_failure", "private_partial", "private_nil", "group_failure", "group_partial", "group_nil", "private_closed", "group_closed", "nil_message", "canceled", "no_groups", "private_channel_nil"} {
+	for _, scenario := range []string{"private_failure", "private_partial", "private_nil", "group_failure", "group_partial", "group_nil", "private_closed", "group_closed", "nil_message", "nil_group_message", "canceled", "no_groups", "private_channel_nil"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -85,6 +85,8 @@ func TestReceiveSubscriptionCleanup(t *testing.T) {
 				close(groups.messages)
 			case "nil_message":
 				private.messages <- nil
+			case "nil_group_message":
+				groups.messages <- nil
 			case "no_groups":
 				groups.messages = nil
 			case "private_channel_nil":
@@ -127,6 +129,43 @@ func TestReceiveSubscriptionCleanup(t *testing.T) {
 	defer cancel()
 	if err := testReceiveSession(ctx, cancel, nil, 1, nil); !errors.Is(err, database.ErrStorageUnavailable) {
 		t.Fatalf("nil store: %v", err)
+	}
+}
+
+func TestReceiveFullOutboundQueueCancellation(t *testing.T) {
+	for _, group := range []bool{false, true} {
+		t.Run(map[bool]string{false: "private", true: "group"}[group], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			private := &testSubscription{messages: make(chan *redis.Message)}
+			groups := &testSubscription{messages: make(chan *redis.Message)}
+			stub := &subscriptionStub{private: private, groups: groups}
+			outbound := make(chan websocketOutbound, 1)
+			outbound <- websocketOutbound{}
+			done := make(chan error, 1)
+			go func() { done <- testReceiveSession(ctx, cancel, stub, 42, outbound) }()
+			messages := private.messages
+			if group {
+				messages = groups.messages
+			}
+			select {
+			case messages <- &redis.Message{Payload: `{"id":"blocked","media":0}`}:
+			case <-time.After(time.Second):
+				t.Fatal("receiver did not acquire message")
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("full outbound queue prevented cleanup")
+			}
+			if private.closed != 1 || groups.closed != 1 || len(outbound) != 1 {
+				t.Fatalf("cleanup private=%d group=%d outbound=%d", private.closed, groups.closed, len(outbound))
+			}
+		})
 	}
 }
 
