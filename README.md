@@ -124,9 +124,11 @@ go test ./...
 
 旧消息同步任务由 bootstrap 显式传入消息仓储，读取、落库或队列确认失败会返回错误，由定时调度入口记录；Redis 读取失败不会被当成空队列，落库失败不会继续确认队列。当前仍采用旧 Redis List 链路，尚未实现提交后重投幂等、并发精确确认或有界批次，不能据此视为可靠消息投递已经完成。
 
-`/auth/sendMessage` 与 `/auth/getMessageList` 使用注入的消息仓储，context 贯穿 Redis 和 MySQL 回源。发送者取自鉴权 UID，忽略请求体 `fromUser.id`；目标 ID 必须非零，`is_group` 为 0 或 1，发送类型支持 `text`、`picture`、`audio`。历史 `limit` 必须为 1–100；无效参数或不存在的分页游标返回 HTTP 200、`code: -1`。仓储缺失、Redis 故障、MySQL 回源失败或历史 JSON 解码失败返回 HTTP 503、`data.reasonCode: DEPENDENCY_UNAVAILABLE`，不回传底层错误或部分历史。
+`/auth/sendMessage` 与 `/auth/getMessageList` 使用注入的消息仓储，context 贯穿存储调用。发送者取自鉴权 UID，忽略请求体 `fromUser.id`；目标 ID 必须非零，`is_group` 为 0 或 1，发送及历史类型支持 `text`、`picture`、`audio`。历史 `limit` 必须为 1–100；无效参数或不存在/不属于当前会话的分页游标返回 HTTP 200、`code: -1`。历史缺失鉴权身份返回 401；非当前群成员或群不存在（含软删除）返回 HTTP 403、`reasonCode: GROUP_HISTORY_FORBIDDEN`。MySQL 不可用或历史解码/媒体类型异常返回 HTTP 503、`data.reasonCode: DEPENDENCY_UNAVAILABLE`，不回传底层错误或部分历史。
 
-历史缓存命中仅依赖 Redis，缓存未命中时才需要 MySQL。发送仍采用旧缓存→入队→发布流程，成功响应尚不代表 MySQL 已持久化；入队失败会停止发布，但可能已经写入缓存，发布失败也可能已经入队。503 不能视为消息从未被接受，完整接受语义、重试幂等和群历史权限仍待后续阶段实现。
+P1.6 起历史直接查询 MySQL，只返回已落库消息，不读取、迁移或回填 Redis 历史缓存。按 `(time_stamp, identifier, id)` 降序取一页，响应页内逆序供展示；游标只用消息 ID 定位当前会话中的存储记录。每页在独立的可重复读只读事务中校验群成员和群存续状态，再读取游标及历史；当前成员可读入群前的全部历史。权限在本页数据库快照建立时判定，之后离群不撤回已开始的读取，下一页重新检查。尚未实现跨页快照或按提交顺序的 `seq`，并发晚落库消息仍需重新查询，不能把旧时间戳分页当作可靠同步游标。
+
+发送仍为旧 Redis 入队→缓存→发布流程：入队确认后缓存/发布失败不撤销成功；调用入队后结果不确定时返回 503 / `MESSAGE_ENQUEUE_UNKNOWN`。发送成功不代表 MySQL 已持久化，历史需等待启用的 worker 落库；worker 默认关闭时待处理消息会持续积压。历史仓储不依赖 Redis，但生产 HTTP 鉴权仍需要 Redis 黑名单服务。完整 MQ 接受语义、客户端重试幂等、发送权限事务和群推送权限仍待后续阶段实现。
 
 Redis 私聊/群消息订阅返回可关闭的句柄，确认订阅后才交给接收循环使用。context 取消、接收循环退出或群订阅初始化失败时会释放已建立的订阅；无群用户使用空句柄，不发送空的 SUBSCRIBE。群列表使用消息仓储自身的 DB。
 

@@ -108,6 +108,8 @@ Get-ComputerInfo | Select-Object CsProcessors,CsTotalPhysicalMemory,WindowsProdu
 
 ## 7. MySQL 历史消息查询
 
+P1.6 起旧历史接口直接查询 MySQL，不使用 Redis 历史缓存。排序为 `(time_stamp, identifier, id)`，私聊条件包含双向收发；群查询另在同一读事务内检查当前成员和未删除的群。下面的索引仅为待测候选，本轮未迁移索引或取得性能基线。
+
 1. 准备 10 万、50 万、100 万条消息。
 2. 选择一个包含大量消息的会话。
 3. 对真实历史消息 SQL 执行 EXPLAIN ANALYZE。
@@ -119,20 +121,20 @@ Get-ComputerInfo | Select-Object CsProcessors,CsTotalPhysicalMemory,WindowsProdu
 
 ~~~sql
 CREATE INDEX idx_message_private_history
-ON message (sender_id, receiver_id, type, time_stamp DESC, id);
+ON message (sender_id, receiver_id, type, time_stamp DESC, identifier DESC, id DESC);
 
 CREATE INDEX idx_message_group_history
-ON message (receiver_id, type, time_stamp DESC, id);
+ON message (receiver_id, type, time_stamp DESC, identifier DESC, id DESC);
 ~~~
 
 ~~~sql
 EXPLAIN ANALYZE
 SELECT *
 FROM message
-WHERE sender_id = 1
-  AND receiver_id = 2
-  AND type = 2
-ORDER BY time_stamp DESC, id DESC
+WHERE type = 2
+  AND ((sender_id = 1 AND receiver_id = 2)
+    OR (sender_id = 2 AND receiver_id = 1))
+ORDER BY time_stamp DESC, identifier DESC, id DESC
 LIMIT 20;
 ~~~
 
@@ -152,7 +154,7 @@ docker compose exec redis redis-cli -a $env:REDIS_PASSWORD INFO stats
 命中率 = hits 增量 / (hits 增量 + misses 增量) × 100%
 ~~~
 
-这是 Redis 实例的全局数据，也包含 JWT 黑名单等访问。若要写历史消息缓存命中率，应在应用中单独增加 message cache hit/miss 计数器。
+这是 Redis 实例的全局数据，也包含 JWT 黑名单等访问。P1.6 的历史读取不访问 Redis，不能把该指标写成历史消息缓存命中率。
 
 ## 9. 简历模板
 

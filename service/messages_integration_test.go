@@ -105,9 +105,13 @@ func TestMessageHTTPIntegration(t *testing.T) {
 			t.Fatalf("history=%+v", rows)
 		}
 	}
-	assertHistory(store)
-	// A cache hit needs Redis only; a cold read additionally needs MySQL.
-	assertHistory(database.NewMessageManager(nil, f.Redis))
+	// Enqueued/cached messages are not yet persisted history.
+	var pendingRows []RespMsgInfo
+	contactData(t, contactRequest(GetMessageList(store), historyBody, ctx, uid), &pendingRows)
+	if len(pendingRows) != 0 {
+		t.Fatalf("pending message presented as persisted history: %+v", pendingRows)
+	}
+	assertAccountUnavailable(t, contactRequest(GetMessageList(database.NewMessageManager(nil, f.Redis)), historyBody, ctx, uid))
 	if err := store.SaveMsgs2DB(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +120,7 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	}
 	assertAccountUnavailable(t, contactRequest(GetMessageList(database.NewMessageManager(nil, f.Redis)), historyBody, ctx, uid))
 	assertHistory(store)
-	// The old cache format still migrates using the request's context.
+	// Old cache contents are also not an authority for history.
 	if err := f.Redis.Del(ctx, key).Err(); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +128,8 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	if err := f.Redis.ZAdd(ctx, legacyKey, &redis.Z{Score: float64(msg.TimeStamp), Member: raw[0]}).Err(); err != nil {
 		t.Fatal(err)
 	}
-	assertHistory(database.NewMessageManager(nil, f.Redis))
+	assertAccountUnavailable(t, contactRequest(GetMessageList(database.NewMessageManager(nil, f.Redis)), historyBody, ctx, uid))
+	assertHistory(store)
 	if err := f.Redis.Del(ctx, key, legacyKey).Err(); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +143,10 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	if n, err := f.Redis.LLen(ctx, "dirty:msgs").Result(); err != nil || n != 1 {
 		t.Fatalf("canceled send changed queue: %d %v", n, err)
 	}
-	// MySQL is only reached on a cache miss; make that read really fail.
+	// MySQL failure must not fall back to a cache hit.
+	if err := f.Redis.Set(ctx, key, "warm-but-invalid-cache", 0).Err(); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.DB.Exec("RENAME TABLE message TO http_message_unavailable").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +155,9 @@ func TestMessageHTTPIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertHistory(store)
+	if err := f.Redis.Del(ctx, key).Err(); err != nil {
+		t.Fatal(err)
+	}
 	missingCursor := msg
 	missingCursor.Id = "missing-cursor"
 	if _, err := store.LoadMsgs(ctx, uid, target, models.PrivateType, missingCursor, 10); !errors.Is(err, database.ErrMessageCursorNotFound) {
@@ -156,7 +167,7 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	if err := f.Redis.ZAdd(ctx, key, &redis.Z{Score: float64(msg.TimeStamp + 1), Member: fmt.Sprintf("%020d:%020d:{", msg.TimeStamp+1, 99)}).Err(); err != nil {
 		t.Fatal(err)
 	}
-	assertAccountUnavailable(t, contactRequest(GetMessageList(store), historyBody, ctx, uid))
+	assertHistory(store)
 
 	assertUnknown := func(response *httptest.ResponseRecorder) {
 		t.Helper()
@@ -267,5 +278,5 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	_ = closed.Close()
 	unavailable := database.NewMessageManager(f.DB, closed)
 	assertUnknown(contactRequest(SendMsg(unavailable), string(body), ctx, uid))
-	assertAccountUnavailable(t, contactRequest(GetMessageList(unavailable), historyBody, ctx, uid))
+	assertHistory(unavailable)
 }

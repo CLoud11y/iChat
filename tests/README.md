@@ -4,6 +4,14 @@
 
 默认单元测试不启动外部服务：
 
+P1.6 的 `TestMessageHistoryMedia` 覆盖文本/图片/音频及原始内容引用，`TestMessageHistoryAuthorization` 覆盖 401、403、鉴权 UID 和错误信息隐藏，未知媒体类型不得返回部分历史。真实分页、当前群成员/软删除权限和存储故障使用独立 fixture：
+
+```powershell
+go test -race -tags=integration ./database ./service -run '^(TestMessageHistoryIntegration|TestMessageHTTPIntegration|TestSaveAndLoadMsg|TestDeleteMsg)$' -count=1 -v -timeout=8m
+```
+
+验证缓存只有最新一条时仍可翻完私聊双向/群聊全部已落库历史、相同时间戳及 identifier 的 ID 排序、伪造游标字段和跨会话游标、刚入群可读旧消息、离群/群删除后拒绝读取。历史无 Redis 依赖；缺 DB、DB 查询失败或请求取消时不得回退到缓存。旧发送测试仍核对 Redis 入队接受和错误语义。历史仅展示已落库消息，未落库消息需等待启用的 worker 处理；旧时间戳游标不是未来按提交顺序的 seq 同步协议。
+
 P1.5 的 `TestSendMessageRequiresAuthenticatedContext` 验证缺失、零值或错误类型 UID 在解析请求前返回 401，且不访问消息仓库。`TestSendMessageJWTIdentity` 串联真实 JWT 中间件和发送 handler，覆盖私聊/群聊伪造身份、省略发送者、缺失/无效/错误签名 token、撤销和黑名单不可用；黑名单及消息仓库使用替身。`TestMessageHTTPIntegration` 使用独立 Redis 验证伪造 `fromUser.id` 不进入队列，并回归原有接受语义。
 
 P1.4.1 的配置测试验证旧 worker 默认关闭、YAML 显式开关、`ICHAT_LEGACY_WORKER_ENABLED` 覆盖及非法值拒绝。bootstrap 测试验证关闭时不调用 worker 工厂（允许缺少该工厂）、开启时的启动/停止和失败清理顺序；真实 cron 测试阻塞任务跨越多个周期，验证不会重叠，任务结束或 panic 后可继续调度，Stop 等待当前任务退出。现有 MySQL 离线/恢复集成用例显式设置开启，保留其原来的 worker 生命周期范围。P1.4.2 增加真实 Redis 与独立测试子进程的注册竞争、正常释放、强制退出后拒绝接管、人工恢复、旧持有者不得释放新锁及原子确认校验；默认测试覆盖逐条检查所有权与部分持久化边界。恢复限制见 `docs/legacy-worker-recovery.md`。
@@ -114,7 +122,7 @@ P0.6.3c.2 的 HTTP 消息默认测试覆盖仓储缺失/失败、请求取消、
 go test -race -tags=integration ./service -run '^TestMessageHTTPIntegration$' -count=1 -v -timeout=8m
 ```
 
-验证真实入队内容中的发送者为鉴权用户、Redis 缓存命中、MySQL 回源、旧格式缓存迁移、缺失 DB 时只允许命中缓存、取消请求、MySQL 查询失败、分页游标不存在和损坏的历史 JSON。P1.1 更新发送故障断言：本轮脏队列设为字符串时，RPUSH 真正返回 WRONGTYPE，HTTP 返回 503 / `MESSAGE_ENQUEUE_UNKNOWN`，不执行 ZADD/PUBLISH，不创建缓存；缓存 key 设为字符串时，RPUSH 成功、ZADD 失败，仍尝试 PUBLISH 并返回旧接口成功，核对队列完整内容。另通过 hook 注入 PUBLISH 失败，断言队列和缓存保留；在真实 RPUSH 成功后的 hook 注入超时、取消、EOF，断言 HTTP unknown 与实际入队并存；入队确认后取消请求仍返回成功。关闭 Redis 客户端后发送返回 503 / unknown，历史返回普通依赖不可用 503。
+验证真实入队内容中的发送者为鉴权用户。P1.6 将历史断言更新为只读 MySQL：入队未落库时为空、落库后可读、旧格式/损坏缓存不影响结果、缺 DB 和 MySQL 查询失败时返回 503，并保留取消请求和缺失分页游标检查。P1.1 的发送故障断言保留：本轮脏队列设为字符串时，RPUSH 真正返回 WRONGTYPE，HTTP 返回 503 / `MESSAGE_ENQUEUE_UNKNOWN`，不执行 ZADD/PUBLISH，不创建缓存；缓存 key 设为字符串时，RPUSH 成功、ZADD 失败，仍尝试 PUBLISH 并返回旧接口成功，核对队列完整内容。另通过 hook 注入 PUBLISH 失败，断言队列保留；在真实 RPUSH 成功后的 hook 注入超时、取消、EOF，断言 HTTP unknown 与实际入队并存；入队确认后取消请求仍返回成功。关闭 Redis 客户端后发送返回 503 / unknown，直接调用历史 handler 仍可从 MySQL 读取（此测试未经过依赖 Redis 的 JWT 黑名单中间件）。
 
 默认 `TestLegacyMessageAcceptance` 使用 `net.Pipe` RESP 替身验证 RPUSH→ZADD→PUBLISH 顺序、RPUSH 拒绝/响应丢失时无后续副作用、缓存/通知失败不撤销成功；`TestLegacyMessagePreCanceled` 验证调用前取消不发送命令。HTTP 单元测试验证 unknown 分类优先于普通存储错误，不泄露内部错误。发送成功仍为 HTTP 200 / code 0，只代表旧 Redis 入队确认；未接入 MQ 202，也未实现重投幂等、缓存完整性修复或通知重试。由于共享 Redis 客户端可能自动重试，调用 RPUSH 后所有未获成功结果的错误均保守归为 unknown，最终 WRONGTYPE 等错误不被当作此前所有尝试均未接受的证据。
 

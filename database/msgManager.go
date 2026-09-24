@@ -109,55 +109,17 @@ func (mm *msgManager) LoadMsgs(ctx context.Context, uIdA, uIdB, msgType uint, ea
 	if uIdA == 0 || uIdB == 0 || (msgType != models.PrivateType && msgType != models.GroupType) || cnt < 1 || cnt > MaxMessagePageSize {
 		return nil, ErrInvalidMessage
 	}
-	if mm == nil || mm.rds == nil {
+	if mm == nil || mm.db == nil || mm.db.Config == nil {
 		return nil, ErrStorageUnavailable
 	}
-	rows, err := mm.loadMsgs(ctx, uIdA, uIdB, msgType, earliestMsg, cnt)
-	if err != nil && !errors.Is(err, ErrMessageCursorNotFound) {
+	rows, err := mm.loadPersistedHistory(ctx, uIdA, uIdB, msgType, earliestMsg, cnt)
+	if err != nil {
+		if errors.Is(err, ErrMessageCursorNotFound) || errors.Is(err, ErrMessageHistoryForbidden) {
+			return nil, err
+		}
 		return nil, storageError("load message history", err)
 	}
-	return rows, err
-}
-
-func (mm *msgManager) loadMsgs(ctx context.Context, uIdA, uIdB, msgType uint, earliestMsg models.Message, cnt int) ([]string, error) {
-	key := getKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: msgType})
-	// 检查key是否存在 若不存在则去数据库获取数据并存入redis
-	n, err := mm.rds.Exists(ctx, key).Result()
-	if err != nil {
-		return nil, err
-	}
-	if n == 0 {
-		migrated, migrateErr := mm.migrateLegacyMsgs(ctx, uIdA, uIdB, msgType)
-		if migrateErr != nil {
-			return nil, migrateErr
-		}
-		if !migrated {
-			err = mm.syncMsgsFromDB2Rds(ctx, uIdA, uIdB, msgType)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	start := int64(0)
-	if earliestMsg.Type != models.InvalidType {
-		member, encodeErr := encodeCachedMessage(&earliestMsg)
-		if encodeErr != nil {
-			return nil, encodeErr
-		}
-		start, err = mm.rds.ZRevRank(ctx, key, member).Result()
-		if errors.Is(err, redis.Nil) {
-			return nil, ErrMessageCursorNotFound
-		}
-		if err != nil {
-			return nil, err
-		}
-		start++ // 排除掉earliestMsg
-	}
-	cachedMessages, err := mm.rds.ZRevRange(ctx, key, start, start+int64(cnt-1)).Result()
-	if err != nil {
-		return nil, err
-	}
-	return decodeCachedMessages(cachedMessages)
+	return rows, nil
 }
 
 // 保存消息到redis 同时标记为脏数据
@@ -189,58 +151,6 @@ func (mm *msgManager) SaveMsg(ctx context.Context, msg *models.Message) error {
 			WithField("sender_id", msg.SenderId).Warn("legacy message enqueued; cache update failed")
 	}
 	return nil
-}
-
-func (mm *msgManager) syncMsgsFromDB2Rds(ctx context.Context, uIdA, uIdB, msgType uint) error {
-	if mm == nil || mm.db == nil || mm.db.Config == nil {
-		return ErrStorageUnavailable
-	}
-	// 从数据库获取
-	var messages []models.Message
-	var err error
-	switch msgType {
-	case models.GroupType:
-		err = mm.db.WithContext(ctx).Where("receiver_id =? AND type =?", uIdB, msgType).Find(&messages).Error
-		if err != nil {
-			return err
-		}
-	case models.PrivateType:
-		err = mm.db.WithContext(ctx).Where("sender_id =? AND receiver_id =? AND type =?", uIdA, uIdB, msgType).Find(&messages).Error
-		if err != nil {
-			return err
-		}
-		var tempMsgs []models.Message
-		err = mm.db.WithContext(ctx).Where("sender_id =? AND receiver_id =? AND type =?", uIdB, uIdA, msgType).Find(&tempMsgs).Error
-		if err != nil {
-			return err
-		}
-		messages = append(messages, tempMsgs...)
-	}
-
-	// 存入redis
-	return mm.saveMsgs(ctx, messages)
-}
-
-func (mm *msgManager) migrateLegacyMsgs(ctx context.Context, uIdA, uIdB, msgType uint) (bool, error) {
-	legacyKey := getLegacyKey(&models.Message{SenderId: uIdA, ReceiverId: uIdB, Type: msgType})
-	cachedMessages, err := mm.rds.ZRange(ctx, legacyKey, 0, -1).Result()
-	if err != nil {
-		return false, err
-	}
-	if len(cachedMessages) == 0 {
-		return false, nil
-	}
-
-	messages := make([]models.Message, len(cachedMessages))
-	for i, cachedMessage := range cachedMessages {
-		if err := json.Unmarshal([]byte(cachedMessage), &messages[i]); err != nil {
-			return false, err
-		}
-	}
-	if err := mm.saveMsgs(ctx, messages); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 // 批量保存消息到redis 不标记为脏数据

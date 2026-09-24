@@ -36,7 +36,7 @@ func TestMessageStoreMissingDependencies(t *testing.T) {
 			t.Fatalf("closed Redis: %v", err)
 		}
 	}
-	if _, err := store.LoadMsgs(ctx, 1, 2, models.PrivateType, models.Message{Type: models.InvalidType}, 10); !errors.Is(err, redis.ErrClosed) || !errors.Is(err, ErrStorageUnavailable) {
-		t.Fatalf("closed history: %v", err)
+	if _, err := store.LoadMsgs(ctx, 1, 2, models.PrivateType, models.Message{Type: models.InvalidType}, 10); !errors.Is(err, ErrStorageUnavailable) || errors.Is(err, redis.ErrClosed) {
+		t.Fatalf("history requires DB, not Redis: %v", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"iChat/database"
 	"iChat/models"
 	"iChat/utils"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -29,12 +30,16 @@ type RespMsgInfo struct {
 func GetMessageList(store MessageStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userId := c.GetUint("uid")
+		if userId == 0 {
+			utils.RespondAuthError(c, utils.ErrUnauthenticated)
+			return
+		}
 		info := ReqMsgInfo{}
 		if err := c.ShouldBind(&info); err != nil {
 			utils.RespFail(c.Writer, "invalid message list request")
 			return
 		}
-		if userId == 0 || info.TocontactId == 0 || info.Limit < 1 || info.Limit > database.MaxMessagePageSize || (info.IsGroup != 0 && info.IsGroup != 1) {
+		if info.TocontactId == 0 || info.Limit < 1 || info.Limit > database.MaxMessagePageSize || (info.IsGroup != 0 && info.IsGroup != 1) {
 			utils.RespFail(c.Writer, "invalid message list request")
 			return
 		}
@@ -53,7 +58,11 @@ func GetMessageList(store MessageStore) gin.HandlerFunc {
 		}
 		strMsgs, err := store.LoadMsgs(c.Request.Context(), userId, info.TocontactId, uint(msgType), earliestMsg, info.Limit)
 		if err != nil {
-			if errors.Is(err, database.ErrMessageCursorNotFound) {
+			if errors.Is(err, database.ErrMessageHistoryForbidden) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+					"code": -1, "msg": "group history access denied", "reasonCode": "GROUP_HISTORY_FORBIDDEN",
+				})
+			} else if errors.Is(err, database.ErrMessageCursorNotFound) {
 				utils.RespFail(c.Writer, "message cursor not found")
 			} else if errors.Is(err, database.ErrInvalidMessage) {
 				utils.RespFail(c.Writer, "invalid message list request")
@@ -69,10 +78,15 @@ func GetMessageList(store MessageStore) gin.HandlerFunc {
 				storageUnavailable(c)
 				return
 			}
+			mediaType := msg.Conv2MsgInfo().Type
+			if mediaType == "" {
+				storageUnavailable(c)
+				return
+			}
 			respMsg := RespMsgInfo{
 				Id:          msg.Id,
 				Status:      "succeed",
-				Type:        "text",
+				Type:        mediaType,
 				SendTime:    msg.TimeStamp,
 				Content:     msg.Content,
 				TocontactId: msg.ReceiverId,

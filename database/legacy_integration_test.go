@@ -46,6 +46,9 @@ func TestSaveAndLoadMsg(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertMessages(t, decodeMessages(t, raw), sent)
+	if err := f.messages.SaveMsgs2DB(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
 	// Fetch every page, including the final empty page, in both directions.
 	for _, reverse := range []bool{false, true} {
 		a, b := f.Users[0].ID, f.Users[1].ID
