@@ -4,6 +4,16 @@
 
 默认单元测试不启动外部服务：
 
+P1 汇总的 L1—L12 测试名称、关键失败证据、F01—F04 故障边界和完整重跑命令见 [旧消息链路回归对照](../docs/legacy-reliability-acceptance.md)。P1.8.2 为 `TestMessageHTTPIntegration` 增加直接读取 Redis ZSET 的断言，验证通知失败后缓存仍在；MySQL 历史成功不再被用作缓存保留的证据。
+
+新增确认结果不确定性验收：
+
+```powershell
+go test -mod=readonly -race -tags=integration ./scheduledTasks -run '^TestLegacyAcknowledgementUnknownIntegration$' -count=1 -v -timeout=8m
+```
+
+该用例在真实 Lua 已成功确认 128 条前缀后，由 Redis hook 向调用方返回 EOF；验证 worker 返回错误并永久停止本实例的消费尝试，未处理的第 129 条原文仍在队列且未落库，隔离记录已提交，其他实例不能抢占尚未释放的注册。原 worker 已无在途调用后正常释放注册，再用新 owner 处理尾部和完整重投，核对消息和审计记录保持不变。此处是成功执行后的错误注入，不是网络丢包；实际子进程崩溃由下面的 P1.8.1 用例验证。
+
 P1.8.1 的真实进程崩溃恢复验收：
 
 ```powershell
@@ -12,7 +22,7 @@ go test -mod=readonly -race -tags=integration ./scheduledTasks -run '^TestLegacy
 
 三个场景分别在首条消息提交、坏记录隔离提交、整批提交后阻塞测试子进程，此时尚未确认 Redis 队列。父进程从独立 MySQL 连接核对已提交内容，向队尾追加一条未读取消息，再强杀该 worker 并等待退出；确认其 MySQL 会话消失、注册锁不自动释放且新消费者被拒后，按恢复文档比较 token 删除锁。新子进程重新消费，逐字段核对全部消息、逐字节核对隔离原文及摘要/原因/时间，再重投一轮验证消息和审计行不重复、不改变。
 
-每个场景使用单独的 Docker fixture；测试配置只由父进程通过 stdin 传给子进程，不读取开发配置。屏障和子进程入口只存在于带 `integration` 标签的 `_test.go` 文件中。失败清理先结束子进程，再关闭连接并按归属标签回收本轮资源。本测试覆盖旧链路 DB 已提交、Redis 尚未确认的实际进程退出，不代表 COMMIT 响应丢失、在途事务强杀、Redis 数据丢失或 MQ 故障已验收。L1—L12 汇总及 P1 收口留在 P1.8.2。
+每个场景使用单独的 Docker fixture；测试配置只由父进程通过 stdin 传给子进程，不读取开发配置。屏障和子进程入口只存在于带 `integration` 标签的 `_test.go` 文件中。失败清理先结束子进程，再关闭连接并按归属标签回收本轮资源。本测试覆盖旧链路 DB 已提交、Redis 尚未确认的实际进程退出，不代表 COMMIT 响应丢失、在途事务强杀、Redis 数据丢失或 MQ 故障已验收。P1 汇总结果见开发实施记录 P1.8.2。
 
 P1.7 的 `TestSubscriptionConfirmsRequestedChannels` 使用受控 RESP 对端验证错误/重复频道不能通过就绪确认；`TestSubscriptionFullBufferClose` 用真实 go-redis 解析和缓冲、内存 net.Pipe 填满消息队列，验证手动关闭、仅取消 context、并发关闭后通道关闭且自有任务退出。`TestReceiveFullOutboundQueueCancellation` 验证私聊/群聊在 WebSocket 发送队列满时仍能响应取消并释放订阅；原有通道关闭/nil 消息/升级失败回归保留。
 

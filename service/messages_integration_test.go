@@ -242,6 +242,12 @@ func TestMessageHTTPIntegration(t *testing.T) {
 	hook.commands = nil
 	assertSuccess(contactRequest(SendMsg(database.NewMessageManager(f.DB, client)), string(body), ctx, uid))
 	assertQueued()
+	// History now reads MySQL, so it cannot prove that PUBLISH failure kept
+	// the ZADD result. Inspect Redis itself to catch accidental cache removal.
+	cached, err := f.Redis.ZRange(ctx, key, 0, -1).Result()
+	if err != nil || len(cached) != 1 || !strings.HasSuffix(cached[0], ":"+raw[0]) {
+		t.Fatalf("publish failure changed cache: %q err=%v", cached, err)
+	}
 	assertHistory(store)
 	if !reflect.DeepEqual(hook.commands, []string{"rpush", "zadd", "publish"}) {
 		t.Fatalf("publish failure commands: %v", hook.commands)
