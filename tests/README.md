@@ -4,6 +4,15 @@
 
 默认单元测试不启动外部服务：
 
+P2.1 新增纯标准库的 `messaging` 协议测试，详细契约见 [消息协议 v1](../docs/message-protocol-v1.md)。覆盖固定身份/hash 向量、规范化和正文保留、严格 JSON/Unicode、整数及长度边界、信封重算、发布 attempt 和字符串序号；没有接入旧 HTTP 或数据库。可单独运行：
+
+```powershell
+go test -mod=readonly -race ./messaging -count=1
+go test -mod=readonly ./messaging -run '^$' -fuzz '^FuzzRequestNormalization$' -fuzztime=20s -parallel=2
+```
+
+fuzz 使用 Go 子进程与本机缓存，检查解码不崩溃和成功规范化后的 JSON 往返不改变命令；不需要 Docker。短时 fuzz 通过不代替后续数据库幂等或端到端恢复验收。
+
 P1 汇总的 L1—L12 测试名称、关键失败证据、F01—F04 故障边界和完整重跑命令见 [旧消息链路回归对照](../docs/legacy-reliability-acceptance.md)。P1.8.2 为 `TestMessageHTTPIntegration` 增加直接读取 Redis ZSET 的断言，验证通知失败后缓存仍在；MySQL 历史成功不再被用作缓存保留的证据。
 
 新增确认结果不确定性验收：
