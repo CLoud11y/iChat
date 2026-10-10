@@ -111,7 +111,7 @@ func TestContactWrites(t *testing.T) {
 }
 
 func TestContactWriteBusinessErrors(t *testing.T) {
-	for _, business := range []error{database.ErrEmptyFriendPhone, database.ErrSelfFriend, database.ErrUserNotFound, database.ErrRelationExists, database.ErrGroupNotOwned} {
+	for _, business := range []error{database.ErrEmptyFriendPhone, database.ErrSelfFriend, database.ErrUserNotFound, database.ErrRelationExists, database.ErrGroupNotOwned, database.ErrGroupNotFound} {
 		stub := &contactWriteStub{err: fmt.Errorf("private SQL: %w", business)}
 		response := contactRequest(AddFriend(stub), contactWriteBody, context.Background(), 42)
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"code":-1`) || strings.Contains(response.Body.String(), "private SQL") {

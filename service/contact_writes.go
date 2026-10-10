@@ -30,7 +30,7 @@ func contactWriteResult(c *gin.Context, err error) {
 		return
 	}
 	// Only known business errors are safe to expose; unknown errors fail closed.
-	for _, business := range []error{database.ErrEmptyFriendPhone, database.ErrSelfFriend, database.ErrRelationExists, database.ErrGroupNotOwned} {
+	for _, business := range []error{database.ErrEmptyFriendPhone, database.ErrSelfFriend, database.ErrRelationExists, database.ErrGroupNotOwned, database.ErrGroupNotFound} {
 		if errors.Is(err, business) {
 			utils.RespFail(c.Writer, business.Error())
 			return

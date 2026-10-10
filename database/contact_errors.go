@@ -12,6 +12,7 @@ var (
 	ErrSelfFriend       = errors.New("不可添加自己为好友")
 	ErrRelationExists   = errors.New("关系已存在")
 	ErrGroupNotOwned    = errors.New("群不存在或无权删除")
+	ErrGroupNotFound    = errors.New("群不存在或已删除")
 )
 
 func relationWriteError(operation string, err error) error {

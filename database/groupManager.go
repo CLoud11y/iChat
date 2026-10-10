@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"iChat/models"
 
 	"gorm.io/gorm"
@@ -40,6 +41,9 @@ func (gm *groupManager) CreateGroup(ctx context.Context, name string, ownerId ui
 		MaxUser: MAX_GROUP_USER,
 	}
 	err := gm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := lockContactUsers(tx, ownerId); err != nil {
+			return err
+		}
 		if err := tx.Create(&group).Error; err != nil {
 			return err
 		}
@@ -47,6 +51,9 @@ func (gm *groupManager) CreateGroup(ctx context.Context, name string, ownerId ui
 		return tx.Create(&models.Relation{OwnerId: ownerId, TargetId: group.ID, Type: models.GroupRelation}).Error
 	})
 	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return err
+		}
 		return storageError("create group", err)
 	}
 	return nil
@@ -56,12 +63,31 @@ func (gm *groupManager) DeleteGroup(ctx context.Context, ownerId uint, groupId u
 	if gm == nil || gm.db == nil || gm.db.Config == nil {
 		return ErrStorageUnavailable
 	}
-	result := gm.db.WithContext(ctx).Delete(&models.Group{}, "owner_id =? AND id =?", ownerId, groupId)
-	if result.Error != nil {
-		return storageError("delete group", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrGroupNotOwned
+	err := gm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		group, err := lockContactGroup(tx, groupId)
+		if errors.Is(err, ErrGroupNotFound) {
+			return ErrGroupNotOwned
+		}
+		if err != nil {
+			return err
+		}
+		if group.OwnerId != ownerId {
+			return ErrGroupNotOwned
+		}
+		result := tx.Delete(group)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrGroupNotOwned
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrGroupNotOwned) {
+			return err
+		}
+		return storageError("delete group", err)
 	}
 	return nil
 }

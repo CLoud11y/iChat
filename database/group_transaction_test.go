@@ -16,11 +16,12 @@ import (
 // that cannot be deterministically produced by closing a real connection.
 type groupTransactionPool struct {
 	gorm.ConnPool
-	stage  string
-	cause  error
-	events []string
-	inside bool
-	writes int
+	stage   string
+	cause   error
+	events  []string
+	inside  bool
+	writes  int
+	queryDB *sql.DB
 }
 
 type groupTransaction struct {
@@ -57,6 +58,19 @@ func (p *groupTransactionPool) ExecContext(context.Context, string, ...interface
 	}
 	return groupWriteResult{}, nil
 }
+func (p *groupTransactionPool) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	if !p.inside {
+		return nil, errors.New("lock outside transaction")
+	}
+	p.events = append(p.events, "lock_user")
+	if p.stage == "lock" {
+		return nil, p.cause
+	}
+	return p.queryDB.QueryContext(ctx, query, args...)
+}
+func (tx *groupTransaction) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return tx.pool.QueryContext(ctx, query, args...)
+}
 func (tx *groupTransaction) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	return tx.pool.ExecContext(ctx, query, args...)
 }
@@ -79,14 +93,16 @@ func TestCreateGroupTransactionFailures(t *testing.T) {
 		stage  string
 		events []string
 	}{
-		{"success", []string{"begin", "write", "write", "commit"}},
+		{"success", []string{"begin", "lock_user", "write", "write", "commit"}},
 		{"begin", []string{"begin"}},
-		{"write", []string{"begin", "write", "write", "rollback"}},
-		{"commit", []string{"begin", "write", "write", "commit", "rollback"}},
-		{"panic", []string{"begin", "write", "write", "rollback"}},
+		{"lock", []string{"begin", "lock_user", "rollback"}},
+		{"write", []string{"begin", "lock_user", "write", "write", "rollback"}},
+		{"commit", []string{"begin", "lock_user", "write", "write", "commit", "rollback"}},
+		{"panic", []string{"begin", "lock_user", "write", "write", "rollback"}},
 	} {
 		t.Run(tc.stage, func(t *testing.T) {
 			pool := &groupTransactionPool{stage: tc.stage, cause: errors.New("injected transaction failure")}
+			pool.queryDB = permissionTestDB(t, &permissionTestState{active: map[string]bool{"user:1": true}})
 			db, err := gorm.Open(mysql.New(mysql.Config{Conn: pool, SkipInitializeWithVersion: true}), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Default.LogMode(logger.Silent)})
 			if err != nil {
 				t.Fatal(err)

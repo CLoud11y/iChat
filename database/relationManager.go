@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"iChat/models"
 
 	"gorm.io/gorm"
@@ -28,7 +29,19 @@ func (rm *relationManager) AddGroupRelation(ctx context.Context, userId uint, gr
 		TargetId: groupId,
 		Type:     models.GroupRelation,
 	}
-	if err := rm.db.WithContext(ctx).Create(&relation).Error; err != nil {
+	err := rm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := lockContactUsers(tx, userId); err != nil {
+			return err
+		}
+		if _, err := lockContactGroup(tx, groupId); err != nil {
+			return err
+		}
+		return tx.Create(&relation).Error
+	})
+	if err != nil {
+		if errors.Is(err, ErrGroupNotFound) || errors.Is(err, ErrUserNotFound) {
+			return err
+		}
 		return relationWriteError("add group relation", err)
 	}
 	return nil
@@ -97,10 +110,27 @@ func (rm *relationManager) AddFriendByPhone(ctx context.Context, userId uint, ta
 		TargetId: userId,
 		Type:     models.FriendRelation,
 	}
+	if relations[0].OwnerId > relations[1].OwnerId {
+		relations[0], relations[1] = relations[1], relations[0]
+	}
 	err = rm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		users, err := lockContactUsers(tx, userId, targetUser.ID)
+		if err != nil {
+			return err
+		}
+		// The phone lookup found an ID outside the transaction. Verify that
+		// identity again under lock before creating either friendship row.
+		for _, user := range users {
+			if user.ID == targetUser.ID && user.Phone != targetPhone {
+				return ErrUserNotFound
+			}
+		}
 		return tx.CreateInBatches(&relations, 2).Error
 	})
 	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return err
+		}
 		return relationWriteError("add friend relations", err)
 	}
 	return nil
