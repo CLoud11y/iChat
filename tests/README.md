@@ -4,6 +4,16 @@
 
 默认单元测试不启动外部服务：
 
+P1.8.1 的真实进程崩溃恢复验收：
+
+```powershell
+go test -mod=readonly -race -tags=integration ./scheduledTasks -run '^TestLegacyWorkerCrashRecoveryIntegration$' -count=1 -v -timeout=8m
+```
+
+三个场景分别在首条消息提交、坏记录隔离提交、整批提交后阻塞测试子进程，此时尚未确认 Redis 队列。父进程从独立 MySQL 连接核对已提交内容，向队尾追加一条未读取消息，再强杀该 worker 并等待退出；确认其 MySQL 会话消失、注册锁不自动释放且新消费者被拒后，按恢复文档比较 token 删除锁。新子进程重新消费，逐字段核对全部消息、逐字节核对隔离原文及摘要/原因/时间，再重投一轮验证消息和审计行不重复、不改变。
+
+每个场景使用单独的 Docker fixture；测试配置只由父进程通过 stdin 传给子进程，不读取开发配置。屏障和子进程入口只存在于带 `integration` 标签的 `_test.go` 文件中。失败清理先结束子进程，再关闭连接并按归属标签回收本轮资源。本测试覆盖旧链路 DB 已提交、Redis 尚未确认的实际进程退出，不代表 COMMIT 响应丢失、在途事务强杀、Redis 数据丢失或 MQ 故障已验收。L1—L12 汇总及 P1 收口留在 P1.8.2。
+
 P1.7 的 `TestSubscriptionConfirmsRequestedChannels` 使用受控 RESP 对端验证错误/重复频道不能通过就绪确认；`TestSubscriptionFullBufferClose` 用真实 go-redis 解析和缓冲、内存 net.Pipe 填满消息队列，验证手动关闭、仅取消 context、并发关闭后通道关闭且自有任务退出。`TestReceiveFullOutboundQueueCancellation` 验证私聊/群聊在 WebSocket 发送队列满时仍能响应取消并释放订阅；原有通道关闭/nil 消息/升级失败回归保留。
 
 ```powershell
@@ -201,4 +211,5 @@ Compose 项目名用于区分不同环境的资源，相关行为见 [Docker 项
 - 消息断言：双向会话的全部分页、同毫秒顺序、真实内容和媒体类型；队列中的原始消息集合；删除已存在的缓存 key 后从 MySQL 回源，且另一会话缓存和已存消息不受影响。
 - 关系断言：精确好友/群/群成员 ID 集合、双向好友、无关系用户的空结果，防止两种查询同样返回错误结果却被判为通过。
 - SyncMsg 断言：同步前数据库为空且队列有 3 条消息，同步后逐字段检查 3 条私聊/群聊及文本/图片/音频记录，队列为空；再次执行空队列同步不改变数据。直接断言任务返回值和数据库/队列状态，不依赖日志判断成功。
-- 尚未包含：真实进程崩溃/COMMIT 响应丢失、单消费者/防重入约束、受控隔离重放、RabbitMQ vhost、MQ 故障恢复、生产环境验收。已覆盖旧 worker 的消息/隔离写入后 EVAL 发送前失败的幂等重投、隔离失败与连续前缀推进；其余故障窗口按开发规范后续小点推进。
+- 已覆盖旧 worker 的显式启用、防重入、跨进程注册与人工恢复，以及消息/隔离提交后、Redis 确认前的真实进程崩溃和幂等重投；隔离失败与连续前缀推进另有集成回归。
+- 尚未包含：实际 COMMIT 响应丢失、在途事务强杀、受控隔离重放、RabbitMQ vhost、MQ 故障恢复、生产环境验收；其余故障窗口按开发规范后续小点推进。
