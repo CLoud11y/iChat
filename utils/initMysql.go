@@ -56,10 +56,17 @@ func openMySQL(conf config.Config, lazy bool) (*gorm.DB, error) {
 
 // MigrateLegacy applies the transitional schema for cmd/migrate and isolated
 // test fixtures. Business startup and connection construction never migrate.
-// Versioned migrations for the reliability schema are introduced in P2.
+// The old message model is incompatible with the reliable message table.
 func MigrateLegacy(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("migrate legacy: mysql is not initialized")
+	}
+	var count int64
+	if err := db.Raw("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('reliability_schema_migration','conversation','message_command','message_outbox','message_delivery_cursor','message_quarantine')").Scan(&count).Error; err != nil {
+		return fmt.Errorf("inspect schema before legacy migration: %w", err)
+	}
+	if count != 0 {
+		return fmt.Errorf("refusing legacy migration on reliable or partial schema")
 	}
 	return db.AutoMigrate(&models.User{}, &models.Relation{}, &models.Group{}, &models.Message{}, &models.LegacyMessageQuarantine{})
 }
