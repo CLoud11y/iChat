@@ -21,7 +21,8 @@ const (
 // ExecuteAuthorizedCommand checks permissions only after winning a new command
 // identity. A replay/conflict never rechecks current permissions. The handler
 // receives the same transaction while permission locks remain held.
-// Message/seq/Outbox production writes are supplied in P2.5.
+// Production callers use PersistCommand to include both successful and rejected
+// commands' Outbox events. This lower-level helper remains for trusted handlers.
 func (r *MessageRepository) ExecuteAuthorizedCommand(ctx context.Context, command messaging.Command, handler CommandHandler) (CommandExecution, error) {
 	if handler == nil {
 		return CommandExecution{}, ErrInvalidCommandDecision

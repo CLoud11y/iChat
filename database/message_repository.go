@@ -38,7 +38,7 @@ const (
 )
 
 // CommandDecision is a trusted transaction handler's final business result.
-// Permission checks and message/Outbox writes are added in P2.4/P2.5.
+// PersistCommand supplies permission checks and message/Outbox writes.
 type CommandDecision struct {
 	State      CommandState
 	ReasonCode string

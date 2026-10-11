@@ -79,6 +79,33 @@ payloadHash = db3a3b345db4485e071be38f136425b0d3489769106319e83dd662242e88f273
 
 错误可通过 `errors.Is` 区分 `ErrInvalidInput`、`ErrUnsupportedVersion`、`ErrIdentityMismatch`。错误不回传原始正文或底层解析内容；HTTP 状态和 MQ 隔离分类在对应适配阶段映射。
 
+## P2.5：持久化时间与内部 Outbox 事件
+
+生产事务入口 `MessageRepository.PersistCommand` 在命令幂等及授权通过后，锁定 conversation 分配连续 seq，将 message、last_seq、命令终态和固定身份 Outbox 一起提交。成功生成 message.persisted 与 command.result；业务拒绝只生成 command.result，不生成 message/seq。原键同 hash 重试保留原消息、序号、时间和事件；异 hash 不改变原记录。序号耗尽是显式仓储错误，不分配 0，也不提交业务拒绝。
+
+clientSentAt 在数据库中缺省为 NULL，非空先转 UTC 并**截取**到微秒，再绑定时钟文本写入 DATETIME(6)。例如 `.999999999` 保存为 `.999999`，不会舍入到下一秒。该元数据仍不参与身份/hash；改变重试的 clientSentAt 不修改首次提交值。serverCreatedAt 来自数据库 UTC 微秒时钟，成功结果事件中的 message DTO 使用相同值。固定 MySQL 8.0.44 的集成测试包含 0001 和 9999 年边界；MySQL 官方只保证 1000–9999 年的 DATETIME 范围，因此升级/替换数据库版本时须验证更早年份的兼容性。[MySQL DATETIME](https://dev.mysql.com/doc/refman/8.0/en/datetime.html)。
+
+两类内部事件的 eventId 均由规范 commandId 和事件类型派生：
+
+```text
+eventId preimage = UTF8("ichat:outbox:v1") || 0x00
+                  || LP(commandId) || LP(eventType)
+```
+
+eventType 只允许 message.persisted / command.result，eventId 为 SHA-256 小写 hex。独立 Python hashlib/struct 固定向量，以前文的 commandId 为输入：
+
+```text
+message.persisted eventId = de4b88c7c0deffb887f8c4d22bd07c788aee7de11c45b130bc63141fbac6de2d
+command.result eventId    = 56f143e224be2614fc13bc2fb656d1ab3e1cb46564871fbbcb85ca509c27ba30
+```
+
+| 内部事件 | 存储 payload |
+| --- | --- |
+| message.persisted | schemaVersion、eventId、commandId、conversationId、messageId、字符串 seq、senderId、targetId、targetType；不包含消息正文 |
+| command.result | schemaVersion、eventId、commandId、senderId、clientMessageId、payloadHash、state；成功包含完整 message DTO，拒绝包含 reasonCode 且无 message |
+
+schemaVersion 为 1，事件身份不含通知 attempt/lease。Outbox 中的身份和完整 DTO 不授予接收权限；P5 worker/网关仍需检查当前授权并适配实际通知/WS 帧，当前尚未实现发布。命令处理 SQL 错误回滚；COMMIT 报错保持 `ErrCommandCommitUnknown`，不能据此 ACK 或换键重发。
+
 ## 验证与后续
 
 `go test ./messaging` 覆盖固定向量、无歧义编码、字段变更、重试元数据、严格 JSON/Unicode、内容/字节边界、时间格式、超大 ID/序号、信封篡改和 DTO。`FuzzRequestNormalization` 检查解码/规范化不崩溃，成功数据经 JSON 往返后业务命令不变。
