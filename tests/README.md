@@ -193,6 +193,20 @@ go test -tags=integration ./database -run '^$' -bench . -benchtime=1x -count=1 -
 
 `1x` 仅验证 benchmark 能执行并通过结果断言，不是稳定的性能基线。每个测试/benchmark 调用都有自己的 MySQL/Redis 环境，整套测试需要几分钟；不同包可以独立运行。数据库查询和旧 worker fixture 已不需要绑定全局 manager；部分验证全局依赖隔离的单元测试仍会临时修改全局变量，所以不使用 `t.Parallel()`。
 
+## P2.6 状态仓储
+
+默认 `database` / `messaging` 测试覆盖查询输入、状态优先级、只读快照、无锁读取、失败返回空结果及损坏记录；不读取开发配置或访问外部存储。真实 MySQL 状态查询及共享命令读取解析器回归：
+
+```powershell
+go test -mod=readonly -race -tags=integration ./database -run '^Test(CommandStatusIntegration|CommandRepositoryIntegration)$' -count=1 -v -timeout=8m
+```
+
+每个顶层用例使用独立 fixture，校验 schema 归属后创建新版六表及必要的账号/关系/群表。新增状态测试核对当前发送者范围、同键异 hash 不泄露原结果、匹配未解决隔离记录、终态优先级、权限后续变更不改自己的终态，以及非 UTC session/driver 的规范时间。
+
+测试用真实 driver 屏障暂停未提交发送，证明状态查询不等待行锁、不读到临时占位；另一屏障在命令查询后暂停，期间提交命令并解决隔离，证明后续查询仍来自相同 REPEATABLE READ 快照。默认 READ-COMMITTED 的测试连接用于核验仓储显式隔离级别。临时重命名 fixture 表、篡改后恢复消息正文、取消 context 和关闭池验证故障不能变为 pending。用例最后核对无 committed claim、schema 指纹不变和 fixture cleanup。
+
+该测试不验证 HTTP 状态路由、隔离生产/重放、MQ 队列状态、真实 COMMIT 响应丢失或同步/历史权限；这些仍按对应小点实施。
+
 ## 每轮资源
 
 `tests/testenv.Start(ctx, composeFile)` 生成随机 128 位 runId 和测试密码，使用仓库的 `docker-compose.test.yml`：

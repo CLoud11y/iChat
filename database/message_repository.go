@@ -237,12 +237,7 @@ func (r *MessageRepository) ExecuteCommand(ctx context.Context, command messagin
 }
 
 func readCommand(ctx context.Context, tx *sql.Tx, sender uint64, clientID string) (CommandResult, error) {
-	var record CommandResult
-	var reasonCode, messageID, conversationID sql.NullString
-	var createdAt, completedAt string
-	err := tx.QueryRowContext(ctx, lockCommandSQL, sender, clientID).Scan(
-		&record.SenderID, &record.ClientMessageID, &record.CommandID, &record.PayloadHash, &record.State,
-		&reasonCode, &messageID, &conversationID, &createdAt, &completedAt)
+	record, err := scanCommandRow(tx.QueryRowContext(ctx, lockCommandSQL, sender, clientID))
 	if errors.Is(err, sql.ErrNoRows) {
 		// The other unique key may belong to a different logical command.
 		return CommandResult{}, ErrCommandInvariant
@@ -250,14 +245,27 @@ func readCommand(ctx context.Context, tx *sql.Tx, sender uint64, clientID string
 	if err != nil {
 		return CommandResult{}, fmt.Errorf("lock command result: %w", err)
 	}
+	return record, nil
+}
+
+// scanCommandRow is shared by locking command execution and non-locking status
+// snapshots. Keep SQL errors distinct from missing rows and corrupted metadata.
+func scanCommandRow(row *sql.Row) (CommandResult, error) {
+	var record CommandResult
+	var reasonCode, messageID, conversationID sql.NullString
+	var createdAt, completedAt string
+	if err := row.Scan(&record.SenderID, &record.ClientMessageID, &record.CommandID, &record.PayloadHash, &record.State,
+		&reasonCode, &messageID, &conversationID, &createdAt, &completedAt); err != nil {
+		return CommandResult{}, err
+	}
 	record.ReasonCode, record.MessageID, record.ConversationID = reasonCode.String, messageID.String, conversationID.String
-	// DATETIME has no timezone. Read explicit UTC clock text so the existing
-	// legacy pool's loc=Local cannot reinterpret UTC_TIMESTAMP as local time.
-	record.CreatedAt, err = time.Parse("2006-01-02 15:04:05.000000", createdAt)
+	// DATETIME has no timezone; parse explicit UTC text, independent of DSN loc.
+	var err error
+	record.CreatedAt, err = time.Parse(mysqlMicrosecondLayout, createdAt)
 	if err != nil {
 		return CommandResult{}, fmt.Errorf("%w: created_at", ErrCommandInvariant)
 	}
-	record.CompletedAt, err = time.Parse("2006-01-02 15:04:05.000000", completedAt)
+	record.CompletedAt, err = time.Parse(mysqlMicrosecondLayout, completedAt)
 	if err != nil {
 		return CommandResult{}, fmt.Errorf("%w: completed_at", ErrCommandInvariant)
 	}

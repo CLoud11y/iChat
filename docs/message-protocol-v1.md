@@ -1,6 +1,6 @@
 # 消息协议 v1：DTO、规范化与身份
 
-本规则由 `messaging` 包实现，属于 P2.1。当前未接入旧 HTTP/Redis 入口，未创建新 schema，也未发布 RabbitMQ 消息。后续 API、consumer、仓储与客户端适配必须复用这里的规则，不能分别生成不同的摘要。
+本规则由 `messaging` 包实现，始于 P2.1，后续小点在此补充持久化和查询契约。P2.2—P2.6 已实现独立 schema、幂等/权限/持久化事务和状态仓储，尚未接入旧 HTTP/Redis 入口或发布 RabbitMQ 消息。后续 API、consumer、仓储与客户端适配必须复用这里的规则，不能分别生成不同的摘要。
 
 ## 类型与调用边界
 
@@ -12,6 +12,7 @@
 | `NewEnvelope(command, receivedAt)` | 校验命令，使用调用方提供的服务端时间，生成本次物理发布的随机 v4 UUID。每次物理发布重新调用。 |
 | `DecodeEnvelope` / `ValidateEnvelope` | 严格解码后校验版本、所有字段、规范写法和重算的身份/hash；DecodeEnvelope 包含 ValidateEnvelope。无效时返回零值和错误，调用方仍须保留原 body 供后续隔离。 |
 | `Sequence` / `NewMessageDTO` | 序号在 Go 内为 uint64、JSON 中为十进制字符串；DTO 由已校验命令、已提交 seq 和服务端创建时间构造，messageId=commandId。不分配 seq、不写数据库、不生成 accepted 响应。 |
+| `NormalizeStatusQuery` / `CommandStatus` | 用已鉴权发送者、clientMessageId 和该次 payloadHash 构造状态查询，返回该次内容的状态；不接受客户端自报 senderId，不暴露冲突原消息或隔离诊断。 |
 
 未来入口调用顺序：先限制 HTTP 读取字节数，再 `DecodeRequest(body)`，然后 `Normalize(authenticatedUID, request)`，最后为每次发布调用 `NewEnvelope`。不能直接将请求 body 作为信封，也不能通过普通 `json.Unmarshal` 绕过严格解码器后声称原始内容已经校验。`MaxBodyBytes` 只约束传入的字节切片，读取前的 HTTP 内存限制须由 P3 适配层落实。
 
@@ -106,8 +107,37 @@ command.result eventId    = 56f143e224be2614fc13bc2fb656d1ab3e1cb46564871fbbcb85
 
 schemaVersion 为 1，事件身份不含通知 attempt/lease。Outbox 中的身份和完整 DTO 不授予接收权限；P5 worker/网关仍需检查当前授权并适配实际通知/WS 帧，当前尚未实现发布。命令处理 SQL 错误回滚；COMMIT 报错保持 `ErrCommandCommitUnknown`，不能据此 ACK 或换键重发。
 
+## P2.6：发送状态查询
+
+`MessageRepository.GetCommandStatus(ctx, authenticatedSender, clientMessageId, payloadHash)` 只查询当前发送者自己的逻辑命令。clientMessageId 沿用 UUID 规范化规则；payloadHash 必须为 64 字符小写 hex，不接受缺省、空白或大写。HTTP 适配层必须从鉴权上下文取 UID，不能信任查询参数中的发送者。
+
+所有读取使用同一个显式只读 REPEATABLE READ 快照，不加行锁、不写记录、不扫描 MQ/Redis。先查规范命令；同键异 hash 返回 ID_CONFLICT，同 hash 返回原 persisted/rejected。没有规范命令时，才查同 sender/clientMessageId/payloadHash 的未解决隔离记录（open 或 replay_pending，且 resolved_at 为 NULL）；隔离记录可缺少 commandId。两类记录都不存在时返回 pending_or_unknown，不能据此推断命令未入队。
+
+| state | 附加字段 | 后续 HTTP 映射 |
+| --- | --- | --- |
+| persisted | 完整规范 `message` DTO，无轮询字段 | 200 |
+| rejected | 稳定 `reasonCode`，无 message/轮询字段 | 200 |
+| ID_CONFLICT | 只回显本次请求的 key/hash；不附原消息、原 hash 或原拒绝原因 | 409 |
+| quarantined | `pollAfterMs: 2000`；不附隔离原文、headers、transportId 或诊断错误 | 200 |
+| pending_or_unknown | `pollAfterMs: 2000`；无 message/reasonCode | 200 |
+
+例如，尚无终态的 data DTO 为：
+
+```json
+{
+  "clientMessageId": "8fd7c2ef-ae26-4bb5-91a5-32a302bb05f1",
+  "payloadHash": "55405570ca8bd409cbc5ed2f2b5914c09b4b5141fb4b377ef6d46045550ad591",
+  "state": "pending_or_unknown",
+  "pollAfterMs": 2000
+}
+```
+
+persisted DTO 从同一快照内的 message 重建并核对命令身份、hash、会话及已提交 seq，时间按 UTC 微秒读取。好友解除、离群或删群不会重新判定自己既有发送终态；会话历史/同步的当前读取权限由 P2.7 单独处理。查询期间新终态提交时，本轮可以返回快照中的旧隔离状态，下轮返回终态，避免混合两个时刻误报 unknown。
+
+数据库、快照释放或数据不变量故障返回错误和空结果，不伪装为 pending_or_unknown，也不把底层错误放入状态 DTO。HTTP 路由、code/msg/data 包装和依赖故障映射仍归 P6.1；当前只完成仓储契约。隔离生产/审计/重放仍归 P4。
+
 ## 验证与后续
 
 `go test ./messaging` 覆盖固定向量、无歧义编码、字段变更、重试元数据、严格 JSON/Unicode、内容/字节边界、时间格式、超大 ID/序号、信封篡改和 DTO。`FuzzRequestNormalization` 检查解码/规范化不崩溃，成功数据经 JSON 往返后业务命令不变。
 
-P2.1 不创建数据库表/约束，不实现命令终态、会话 seq 分配、权限事务、Outbox 或可靠 publisher；这些能力分别按 P2.2 及后续小点实施。旧发送与历史接口保持现有行为。
+P2.1 的原始范围只包括协议；数据库表/约束、命令终态、权限事务、会话 seq、Outbox 和状态仓储已按 P2.2—P2.6 分项实施。同步/历史仓储和可靠 publisher 尚待后续小点。旧发送与历史接口保持现有行为。
