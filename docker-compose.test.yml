@@ -4,6 +4,27 @@ x-test-labels: &test-labels
   io.ichat.test.run: ${ICHAT_TEST_RUN_ID:?use tests/testenv to start the test environment}
 
 services:
+  rabbitmq:
+    profiles: ["mq"]
+    image: rabbitmq:4.3.6-management@sha256:8dd6e3570ddaa2ef82a6c3a8950e79c1f73893adfbdddbc374fc1f1ac8a0f5dd
+    hostname: rabbitmq
+    labels: *test-labels
+    environment:
+      RABBITMQ_DEFAULT_USER: ichat_test_admin
+      RABBITMQ_DEFAULT_PASS: ${ICHAT_TEST_PASSWORD:?test password is required}
+      RABBITMQ_DEFAULT_VHOST: /ichat_bootstrap_${ICHAT_TEST_RUN_ID}
+    ports:
+      - "127.0.0.1::5672"
+      - "127.0.0.1::15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      interval: 5s
+      timeout: 15s
+      retries: 30
+      start_period: 20s
+
   mysql:
     image: mysql:8.0@sha256:f37951fc3753a6a22d6c7bf6978c5e5fefcf6f31814d98c582524f98eae52b21
     labels: *test-labels
@@ -41,6 +62,8 @@ services:
       retries: 30
 
 volumes:
+  rabbitmq_data:
+    labels: *test-labels
   mysql_data:
     labels: *test-labels
   redis_data:

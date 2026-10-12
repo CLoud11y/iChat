@@ -30,14 +30,16 @@ type commandRunner func(context.Context, ...string) ([]byte, error)
 // Environment owns a single run's containers, volumes and network. Calls on an
 // Environment must be serialized; separate environments may run concurrently.
 type Environment struct {
-	runID    string
-	password string
-	compose  string
-	envFile  string
-	run      commandRunner
-	conf     config.Config
-	ready    bool
-	owned    bool
+	runID         string
+	password      string
+	compose       string
+	envFile       string
+	run           commandRunner
+	conf          config.Config
+	ready         bool
+	owned         bool
+	rabbitEnabled bool
+	rabbitConfig  RabbitMQConfig
 }
 
 func randomID() (string, error) {
@@ -52,6 +54,15 @@ func randomID() (string, error) {
 // checks. The caller must Close it after closing all database/client handles.
 // On partial startup failure, cleanup is attempted using a fresh timeout.
 func Start(ctx context.Context, composeFile string) (*Environment, error) {
+	return startEnvironment(ctx, composeFile, false)
+}
+
+// StartWithRabbitMQ adds the optional mq profile to the same isolated fixture.
+func StartWithRabbitMQ(ctx context.Context, composeFile string) (*Environment, error) {
+	return startEnvironment(ctx, composeFile, true)
+}
+
+func startEnvironment(ctx context.Context, composeFile string, withRabbitMQ bool) (*Environment, error) {
 	id, err := randomID()
 	if err != nil {
 		return nil, err
@@ -75,7 +86,7 @@ func Start(ctx context.Context, composeFile string) (*Environment, error) {
 		_ = os.Remove(file.Name())
 		return nil, err
 	}
-	e := &Environment{runID: id, password: password, compose: compose, envFile: file.Name()}
+	e := &Environment{runID: id, password: password, compose: compose, envFile: file.Name(), rabbitEnabled: withRabbitMQ}
 	e.run = e.docker
 	if err := e.start(ctx); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -109,7 +120,11 @@ func (e *Environment) docker(ctx context.Context, args ...string) ([]byte, error
 }
 
 func (e *Environment) composeArgs(args ...string) []string {
-	return append([]string{"compose", "--env-file", e.envFile, "-f", e.compose, "-p", e.project()}, args...)
+	base := []string{"compose", "--env-file", e.envFile, "-f", e.compose, "-p", e.project()}
+	if e.rabbitEnabled {
+		base = append(base, "--profile", "mq")
+	}
+	return append(base, args...)
 }
 
 func (e *Environment) start(ctx context.Context) error {
@@ -149,6 +164,11 @@ func (e *Environment) start(ctx context.Context) error {
 	e.conf.REDIS.Addr = redisAddr
 	e.conf.REDIS.Password = e.password
 	e.conf.REDIS.PoolSize = 4
+	if e.rabbitEnabled {
+		if err := e.initializeRabbitMQ(ctx); err != nil {
+			return err
+		}
+	}
 	e.ready = true
 	return nil
 }

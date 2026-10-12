@@ -239,6 +239,7 @@ go test -mod=readonly -race -tags=integration ./database -run '^Test(CommandRepo
 | Compose 项目 | `ichat-test-<runId>`，拒绝复用已经存在的项目资源 |
 | MySQL | 本轮独立容器；schema 为 `ichat_test_<runId>`，使用仅获该 schema 权限的 `ichat_test` 用户 |
 | Redis | 本轮独立容器、独立数据卷；即使旧代码使用固定 `dirty:msgs` key，也不会访问开发 Redis |
+| RabbitMQ（按需） | `StartWithRabbitMQ` 开启 `mq` profile；本轮独立 broker/卷、`ichat_test_<runId>` vhost 及专用无管理权限应用账号 |
 | 端口 | 只绑定 `127.0.0.1`，由 Docker 动态分配，不占用开发环境固定端口 |
 | 卷和网络 | 各轮独立，包含 Compose 项目标签与 `io.ichat.test.run` 标签 |
 | 镜像 | MySQL 8.0 / Redis 7，固定已验证 digest，未改变开发 Compose |
@@ -268,4 +269,5 @@ Compose 项目名用于区分不同环境的资源，相关行为见 [Docker 项
 - 关系断言：精确好友/群/群成员 ID 集合、双向好友、无关系用户的空结果，防止两种查询同样返回错误结果却被判为通过。
 - SyncMsg 断言：同步前数据库为空且队列有 3 条消息，同步后逐字段检查 3 条私聊/群聊及文本/图片/音频记录，队列为空；再次执行空队列同步不改变数据。直接断言任务返回值和数据库/队列状态，不依赖日志判断成功。
 - 已覆盖旧 worker 的显式启用、防重入、跨进程注册与人工恢复，以及消息/隔离提交后、Redis 确认前的真实进程崩溃和幂等重投；隔离失败与连续前缀推进另有集成回归。
-- 尚未包含：实际 COMMIT 响应丢失、在途事务强杀、受控隔离重放、RabbitMQ vhost、MQ 故障恢复、生产环境验收；其余故障窗口按开发规范后续小点推进。
+- RabbitMQ 版本、独立 vhost/账号、双环境同名资源隔离及基本 AMQP/quorum probe 已在 P3.1 验证；详细命令与源码边界见 [MQ 测试环境](../docs/mq-test-environment.md)。常规 fixture 仍不启用 MQ，测试必须显式调用 `StartWithRabbitMQ`。
+- 尚未包含：实际 COMMIT 响应丢失、在途事务强杀、受控隔离重放、正式 MQ 拓扑/可靠 DLX、生产 publisher、MQ 故障恢复、生产环境验收；其余故障窗口按开发规范后续小点推进。

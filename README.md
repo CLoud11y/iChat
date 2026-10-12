@@ -26,6 +26,8 @@ go test ./...
 
 默认单元测试不需要 MySQL/Redis。真实集成测试及 benchmark 的运行方式见 [测试说明](tests/README.md)。
 
+P3.1 已在 Docker 隔离测试环境引入 RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0。MQ 用例按需开启 `mq` profile，每轮拥有独立容器、数据卷、vhost 与应用账号；默认 fixture 保留 MySQL/Redis 启动方式。版本、权限、清理边界和运行命令见 [MQ 测试环境](docs/mq-test-environment.md)。常规本地 RabbitMQ 拓扑在 P3.2 加入，当前业务服务仍运行旧消息链路。
+
 ## 使用 Docker Compose 启动依赖
 
 项目中的 Go 服务运行在宿主机，MySQL 和 Redis 由 Docker Compose 启动并使用命名卷持久化数据。
