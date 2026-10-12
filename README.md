@@ -26,11 +26,11 @@ go test ./...
 
 默认单元测试不需要 MySQL/Redis。真实集成测试及 benchmark 的运行方式见 [测试说明](tests/README.md)。
 
-P3.1 已在 Docker 隔离测试环境引入 RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0。MQ 用例按需开启 `mq` profile，每轮拥有独立容器、数据卷、vhost 与应用账号；默认 fixture 保留 MySQL/Redis 启动方式。版本、权限、清理边界和运行命令见 [MQ 测试环境](docs/mq-test-environment.md)。常规本地 RabbitMQ 拓扑在 P3.2 加入，当前业务服务仍运行旧消息链路。
+RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔离测试环境验证，详见 [MQ 测试环境](docs/mq-test-environment.md)。P3.2 已加入常规本地 Docker 服务、单节点 quorum 主/隔离拓扑、可靠死信转发及管理命令，启动和故障边界见 [本地 MQ 拓扑](docs/mq-local-topology.md)。当前业务服务仍运行旧消息链路。
 
 ## 使用 Docker Compose 启动依赖
 
-项目中的 Go 服务运行在宿主机，MySQL 和 Redis 由 Docker Compose 启动并使用命名卷持久化数据。
+项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 
 1. 创建本地配置：
 
@@ -46,13 +46,15 @@ P3.1 已在 Docker 隔离测试环境引入 RabbitMQ 4.3.6（镜像 digest 固�
    cp config/config.example.yml config/config.yml
    ```
 
-   在本地 `.env` 中填写非空的 `MYSQL_ROOT_PASSWORD` 和 `REDIS_PASSWORD`，并将对应密码填入 `config/config.yml`。Compose 不提供默认密码，缺失或为空时会拒绝启动。
+   在本地 `.env` 中填写非空的 `MYSQL_ROOT_PASSWORD`、`REDIS_PASSWORD`、`RABBITMQ_ADMIN_PASSWORD` 和 `RABBITMQ_APP_PASSWORD`；MQ 两个密码须不同。MySQL/Redis 对应密码填入 `config/config.yml`。Compose 和 MQ 初始化不提供默认密码。已有配置只追加新字段，不要重新复制模板覆盖。
 
-2. 启动 MySQL 和 Redis，并等待两项服务变为 `healthy`：
+2. 启动三项依赖并等待健康检查，然后初始化与核验 MQ 拓扑：
 
    ```bash
-   docker compose up -d
+   docker compose up -d --wait
    docker compose ps
+   go run ./cmd/mqadmin init
+   go run ./cmd/mqadmin check
    ```
 
 3. 显式执行数据库迁移，成功后再启动 Go 服务：

@@ -1,6 +1,6 @@
 # RabbitMQ 隔离测试环境与版本核验
 
-P3.1 已完成（2026-10-13，Australia/Sydney）。RabbitMQ 使用 Docker，与每轮独立 MySQL/Redis fixture 一起启动；本阶段只交付版本核验和测试基础设施。生产发送入口、HTTP 202、有界 publisher、可靠死信与消费任务按后续小点接入。
+P3.1 已完成（2026-10-13，Australia/Sydney）。RabbitMQ 使用 Docker，与每轮独立 MySQL/Redis fixture 一起启动；本阶段只交付版本核验和测试基础设施。P3.2 已完成正式本地 Docker 拓扑及可靠 DLX，启动与故障验收见 [本地 MQ 拓扑](mq-local-topology.md)。生产发送入口、HTTP 202、有界 publisher 与消费任务按后续小点接入。
 
 ## 固定版本
 

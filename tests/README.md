@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.2 正式 RabbitMQ 拓扑与可靠 DLX 故障测试使用本轮专用 Docker broker，默认死信重试周期为 180 秒，完整用例可能需要数分钟：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq ./cmd/mqadmin -count=1
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQTopologyIntegration$' -count=1 -v -timeout=10m
+```
+
+覆盖主/隔离队列、失败投递上限、DLX 失效保留及恢复、策略/经典队列不匹配时数据保留和实际管理命令，详见 [本地 MQ 拓扑](../docs/mq-local-topology.md)。仅开启本轮 fixture，开发 `.env` 不参与测试。
+
 当前验证工具链为 **Go 1.27.1**。运行前按 [README 工具链说明](../README.md#go-工具链) 设置当前终端的 `GOTOOLCHAIN=go1.27.1`，并用 `go version` 核对实际版本。
 
 默认单元测试不启动外部服务：
