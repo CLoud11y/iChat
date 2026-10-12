@@ -136,8 +136,27 @@ persisted DTO 从同一快照内的 message 重建并核对命令身份、hash�
 
 数据库、快照释放或数据不变量故障返回错误和空结果，不伪装为 pending_or_unknown，也不把底层错误放入状态 DTO。HTTP 路由、code/msg/data 包装和依赖故障映射仍归 P6.1；当前只完成仓储契约。隔离生产/审计/重放仍归 P4。
 
+## P2.7：会话同步与历史仓储
+
+`MessageRepository.SyncMessages(ctx, authenticatedReader, conversationId, afterSeq, limit)` 和 `HistoryMessages(ctx, authenticatedReader, conversationId, beforeSeq, limit)` 只读取 MySQL。鉴权 UID 由适配层提供；不读取 Redis、MQ 或服务器 deliveredSeq，客户端本地清空后仍可从 0 补齐。
+
+conversationId 只接受规范形式：私聊 `p:<小ID>:<大ID>` 的两个正 uint64 ID 必须严格递增，群聊 `g:<正ID>`；拒绝前导零、倒序、相同参与者及未知前缀。游标为规范十进制 uint64 字符串，允许 0；空字符串代表省略。limit=0 表示仓储默认 100，其他值必须为 1–500；HTTP 适配层仍需校验显式参数，不能把解析失败转换为默认值。
+
+每页显式开启只读 REPEATABLE READ 事务，使用普通 SELECT，在同一视图中完成授权、会话身份核验、highWatermark 和消息读取。私聊只允许会话两位参与者，解除好友后仍可读取已有历史；群聊要求该快照中群未软删除且当前用户有未软删除的成员关系，群主不能绕过成员条件。拒绝返回 `ErrConversationForbidden`，不附带水位或消息。权限按本页快照判定，之后的离群/删群不撤回已经开始的读取，下一页重新授权。
+
+| 查询 | 范围与返回 |
+| --- | --- |
+| sync | `afterSeq < seq <= highWatermark`，按 seq 升序；省略 afterSeq 等于 0。nextAfterSeq 为最后返回序号，无消息时保持输入游标。afterSeq 超过当前水位返回输入错误，不能静默回退或改写本地游标。 |
+| history | beforeSeq 是排他的上界，省略时从当前快照最新消息开始；显式 0 返回空页，高于水位的上界按当前已有范围读取。SQL 降序取最近一页，items 逆序为升序展示，nextBeforeSeq 为最旧返回序号；空页保持输入游标，省略输入时为空页的 0。 |
+
+两类响应都含 conversationId、items（空结果为 `[]`）、highWatermark 和 hasMore。sync 另含 afterSeq/nextAfterSeq；history 另含 nextBeforeSeq 和可省略的 beforeSeq。所有序号字段仍是 JSON 字符串，最新历史不会计算 `highWatermark+1`，因此最大 uint64 不回绕。授权通过但会话尚无提交记录时返回水位 0 和空页；不存在的群或非成员仍拒绝读取。
+
+每次 SQL 最多读取 `limit+1` 行，额外一行仅用于确认后续范围完整，不作为返回 item。对本次范围（含额外行）逐一检查预期连续 seq，并核验规范消息身份、会话、正文 hash、媒体和 UTC 微秒时间；消息对应的规范命令必须为 persisted。缺少预期消息、缺少命令、内容损坏或 SQL/迭代/快照释放错误返回空结果和错误，不返回部分页、不跳过缺号、不伪造 hasMore=false。检查是有界范围检查，不宣称每页审计全部历史。
+
+每页建立独立快照，不维持跨页数据库事务。分页期间的新提交可被下一页或后续周期扫描发现；客户端仍应持久化连续本地游标、去重并定期核对。HTTP 路由、会话发现及周期同步归 P6，通知和 ACK 归 P5；本阶段没有改动旧历史入口。
+
 ## 验证与后续
 
 `go test ./messaging` 覆盖固定向量、无歧义编码、字段变更、重试元数据、严格 JSON/Unicode、内容/字节边界、时间格式、超大 ID/序号、信封篡改和 DTO。`FuzzRequestNormalization` 检查解码/规范化不崩溃，成功数据经 JSON 往返后业务命令不变。
 
-P2.1 的原始范围只包括协议；数据库表/约束、命令终态、权限事务、会话 seq、Outbox 和状态仓储已按 P2.2—P2.6 分项实施。同步/历史仓储和可靠 publisher 尚待后续小点。旧发送与历史接口保持现有行为。
+P2.1 的原始范围只包括协议；数据库表/约束、命令终态、权限事务、会话 seq、Outbox、状态及同步/历史仓储已按 P2.2—P2.7 分项实施。可靠 publisher、通知及新 HTTP 适配尚待后续阶段。旧发送与历史接口保持现有行为。

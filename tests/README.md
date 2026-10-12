@@ -207,6 +207,29 @@ go test -mod=readonly -race -tags=integration ./database -run '^Test(CommandStat
 
 该测试不验证 HTTP 状态路由、隔离生产/重放、MQ 队列状态、真实 COMMIT 响应丢失或同步/历史权限；这些仍按对应小点实施。
 
+## P2.7：可靠同步与历史
+
+```powershell
+go test -mod=readonly -race ./database ./messaging -count=1
+go test -mod=readonly -race -tags=integration ./database -run '^TestReliableMessageHistoryIntegration$' -count=1 -v -timeout=8m
+```
+
+默认测试覆盖规范会话/游标输入、默认及最大 limit、字符串序号、最大 uint64、空页、私聊参与者和群成员检查、有界 lookahead、正反向缺号、损坏记录及 SQL/迭代/关闭/快照释放错误。任何失败都不得返回部分页或可推进的游标。
+
+真实测试使用独立 fixture，消息均先由 `PersistCommand` 生成。覆盖双向私聊完整补拉与历史翻页、文本/图片/音频及 Unicode/NUL 原文、UTC 微秒输出、服务器 deliveredSeq 已较大时仍从本地 0 恢复、授权但没有消息的会话、入群后读取全部历史、离群/删群后的下一页拒绝，以及解除好友后私聊参与者仍可读历史。
+
+测试连接默认 READ-COMMITTED、session 时区 +05:30、driver loc +13。真实 driver 屏障在授权/水位 SELECT 后用另一连接提交新消息或撤销权限：本页仍按旧快照读取，下一页检查新状态；授权后首次创建的会话也不能混入旧快照。实际消息及 Outbox 已写入但未提交的发送事务不会阻塞查询或泄露新 seq，提交后可从原游标补齐。
+
+故障用例只在归属已验证的 schema 中移动消息 seq、篡改后恢复正文、临时重命名后恢复指定表，验证缺号/损坏/真实 1146 错误不会伪造完整结果。最大 uint64 测试刻意把两条已生成消息和水位临时移动到上界，仅证明该局部范围及最新历史没有溢出，不冒充完整连续历史；随后恢复。最终核对迁移指纹、无内部命令占位和 fixture cleanup。
+
+P2 仓储集中回归：
+
+```powershell
+go test -mod=readonly -race -tags=integration ./database -run '^Test(CommandRepositoryIntegration|MessagePermissionsIntegration|ReliableMessagePersistenceIntegration|CommandStatusIntegration|ReliableMessageHistoryIntegration)$' -count=1 -v -timeout=8m
+```
+
+这些用例尚未验证新 HTTP 同步路由、会话列表、浏览器本地保存/周期恢复、消息通知或 ACK；对应 P5/P6。仓储不读取 Redis，也不通过服务器 deliveredSeq 代替客户端本地数据。
+
 ## 每轮资源
 
 `tests/testenv.Start(ctx, composeFile)` 生成随机 128 位 runId 和测试密码，使用仓库的 `docker-compose.test.yml`：
