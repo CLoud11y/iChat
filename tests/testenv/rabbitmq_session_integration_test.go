@@ -243,6 +243,7 @@ type sessionProxy struct {
 	mode            atomic.Uint32
 	onlyFirst       atomic.Bool
 	accepted        atomic.Uint64
+	framesDropped   atomic.Uint64
 	dropped         chan struct{}
 	closeOnce       sync.Once
 }
@@ -334,6 +335,7 @@ func (p *sessionProxy) downstream(client, broker net.Conn, index uint64) {
 			}
 		}
 		if drop {
+			p.framesDropped.Add(1)
 			continue
 		}
 		frame := append(header, payload...)

@@ -37,7 +37,7 @@ result, err := session.Publish(requestCtx, normalizedCommand, time.Now())
 
 裸 `NewPublisher(connection, options)` 仍属于 P3.3 的底层接口，调用者拥有连接并自行负责有界 I/O。新 `PublisherSession` 拥有全部资源、没有公开 connection/channel 或允许外部注册通知的入口；对应硬超时承诺只适用于这个有界入口及正常 net.Conn 实现。Go 调度/系统负载仍影响实际唤醒时间，配置值不是毫秒级 SLA。
 
-单个 session 不自行恢复、不声明/持续复核拓扑、不分配单调 epoch。P3.4.2 supervisor 已在新连接接单前只读复核拓扑并重建 session；配置加载、独立生产/消费连接与持续 readiness 仍在 P3.5。生产三节点、磁盘损毁、MySQL 终态和端到端幂等接线也不属于此次验收。
+单个 session 不自行恢复、不声明/持续复核拓扑、不分配单调 epoch。P3.4.2 supervisor 已在新连接接单前只读复核拓扑并重建 session。P3.5.1 已提供应用配置；P3.5.2.1 将底层所有权、握手、socket watchdog 和关闭提取为每实例独立的连接内核，并增加 [消费者基础连接](mq-consumer-session.md)，没有共享 publisher/consumer socket 或修改确认状态机。消费 channel / ACK、主程序装配与持续 readiness 仍待后续小点。生产三节点、磁盘损毁、MySQL 终态和端到端幂等接线也不属于此次验收。
 
 ## 验证
 

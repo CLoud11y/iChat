@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.5.2.1 独立消费者基础连接、有界生命周期和双向故障隔离：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq -run '^TestConsumerSession' -count=1 -v -timeout=30s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQ(Publisher|Session|Supervisor|ConsumerSession)Integration$' -count=1 -v -timeout=10m
+```
+
+测试观察真实 broker 上不同生产/消费连接，验证生产 Write 背压、双方响应黑洞、独立关闭和只读拓扑漂移拒绝。消费者目前只提供连接/核验/关闭，测试读回和 ACK 来自 fixture 控制连接，不代表消费者 delivery/ACK 业务已接入。覆盖与拆分见 [独立消费者连接](../docs/mq-consumer-session.md)。
+
 P3.4.2 supervisor 的退避、epoch、拓扑阻断和 broker 重启验收：
 
 ```powershell
