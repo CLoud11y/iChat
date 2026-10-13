@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.3 publisher slot/confirm/return 状态机及真实 Return/NACK 用例：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq -run '^TestPublisher' -count=1 -v
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQPublisherIntegration$' -count=1 -v -timeout=8m
+```
+
+确定性先读 ACK 后排空 Return 的生产判定测试、池满零写入、晚到 ACK 隔离和真实 broker 容量拒绝细节见 [MQ publisher](../docs/mq-publisher.md)。网络黑洞硬超时及自动重连在 P3.4 验收，当前业务入口尚未接入。
+
 P3.2 正式 RabbitMQ 拓扑与可靠 DLX 故障测试使用本轮专用 Docker broker，默认死信重试周期为 180 秒，完整用例可能需要数分钟：
 
 ```powershell
