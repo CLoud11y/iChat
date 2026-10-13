@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.4.2 supervisor 的退避、epoch、拓扑阻断和 broker 重启验收：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq -run '^TestSupervisor' -count=1 -v -timeout=30s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQ(Publisher|Session|Supervisor)Integration$' -count=1 -v -timeout=10m
+```
+
+测试只读复核后接单、不自动重发 unknown 命令、旧结果隔离与本轮 broker 持久卷重启；随机端口重分配的测试处理及边界见 [MQ supervisor](../docs/mq-supervisor.md)。
+
 P3.4.1 的有界连接/写入/关闭及真实 TCP 确认黑洞测试：
 
 ```powershell
@@ -7,7 +16,7 @@ go test -mod=readonly -race ./messaging/rabbitmq -run '^TestSession' -count=1 -v
 go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQ(Publisher|Session)Integration$' -count=1 -v -timeout=8m
 ```
 
-默认单元测试使用受控 AMQP 对端、net.Pipe 和本机 TCP/TLS 黑洞；Docker 测试用代理截获真实 broker ACK，验证 unknown、消息保留及关闭响应丢失时退出。覆盖与资源边界见 [MQ session](../docs/mq-session.md)。下一项 P3.4.2 才实现自动重连与单调 epoch。
+默认单元测试使用受控 AMQP 对端、net.Pipe 和本机 TCP/TLS 黑洞；Docker 测试用代理截获真实 broker ACK，验证 unknown、消息保留及关闭响应丢失时退出。覆盖与资源边界见 [MQ session](../docs/mq-session.md)。自动恢复由 P3.4.2 supervisor 在其上管理。
 
 P3.3 publisher slot/confirm/return 状态机及真实 Return/NACK 用例：
 
@@ -16,7 +25,7 @@ go test -mod=readonly -race ./messaging/rabbitmq -run '^TestPublisher' -count=1 
 go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQPublisherIntegration$' -count=1 -v -timeout=8m
 ```
 
-确定性先读 ACK 后排空 Return 的生产判定测试、池满零写入、晚到 ACK 隔离和真实 broker 容量拒绝细节见 [MQ publisher](../docs/mq-publisher.md)。有界 I/O/关闭已在 P3.4.1 验收，自动重连在 P3.4.2 实施，当前业务入口尚未接入。
+确定性先读 ACK 后排空 Return 的生产判定测试、池满零写入、晚到 ACK 隔离和真实 broker 容量拒绝细节见 [MQ publisher](../docs/mq-publisher.md)。有界 I/O/关闭已在 P3.4.1 验收，自动重连已由 P3.4.2 supervisor 管理，当前业务入口尚未接入。
 
 P3.2 正式 RabbitMQ 拓扑与可靠 DLX 故障测试使用本轮专用 Docker broker，默认死信重试周期为 180 秒，完整用例可能需要数分钟：
 

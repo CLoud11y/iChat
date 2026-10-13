@@ -241,6 +241,8 @@ type sessionProxy struct {
 	connections     []net.Conn
 	wg              sync.WaitGroup
 	mode            atomic.Uint32
+	onlyFirst       atomic.Bool
+	accepted        atomic.Uint64
 	dropped         chan struct{}
 	closeOnce       sync.Once
 }
@@ -260,30 +262,38 @@ func startSessionProxy(t *testing.T, upstream string) *sessionProxy {
 
 func (p *sessionProxy) serve() {
 	defer p.wg.Done()
-	client, err := p.listener.Accept()
-	if err != nil {
-		return
-	}
-	broker, err := net.DialTimeout("tcp", p.upstreamAddress, 3*time.Second)
-	if err != nil {
-		client.Close()
-		return
-	}
-	p.mu.Lock()
-	if p.stopped {
+	for {
+		client, err := p.listener.Accept()
+		if err != nil {
+			return
+		}
+		index := p.accepted.Add(1)
+		broker, err := net.DialTimeout("tcp", p.upstreamAddress, 3*time.Second)
+		if err != nil {
+			client.Close()
+			continue
+		}
+		p.mu.Lock()
+		if p.stopped {
+			p.mu.Unlock()
+			client.Close()
+			broker.Close()
+			return
+		}
+		p.connections = append(p.connections, client, broker)
+		p.wg.Add(2)
 		p.mu.Unlock()
-		client.Close()
-		broker.Close()
-		return
+		go func() { defer p.wg.Done(); defer client.Close(); defer broker.Close(); io.Copy(broker, client) }()
+		go func() {
+			defer p.wg.Done()
+			defer client.Close()
+			defer broker.Close()
+			p.downstream(client, broker, index)
+		}()
 	}
-	p.connections = append(p.connections, client, broker)
-	p.wg.Add(2)
-	p.mu.Unlock()
-	go func() { defer p.wg.Done(); defer client.Close(); defer broker.Close(); io.Copy(broker, client) }()
-	go func() { defer p.wg.Done(); defer client.Close(); defer broker.Close(); p.downstream(client, broker) }()
 }
 
-func (p *sessionProxy) downstream(client, broker net.Conn) {
+func (p *sessionProxy) downstream(client, broker net.Conn, index uint64) {
 	for {
 		header := make([]byte, 7)
 		if _, err := io.ReadFull(broker, header); err != nil {
@@ -298,6 +308,9 @@ func (p *sessionProxy) downstream(client, broker net.Conn) {
 			return
 		}
 		mode := p.mode.Load()
+		if p.onlyFirst.Load() && index != 1 {
+			mode = 0
+		}
 		drop := mode == 1
 		signal := false
 		if header[0] == 1 && size >= 4 {

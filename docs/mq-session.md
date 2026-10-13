@@ -1,6 +1,6 @@
 # RabbitMQ 发布连接的 I/O 和关闭边界
 
-P3.4 拆为两个可审查小点：**P3.4.1 有界连接、网络写入、确认等待与关闭（已完成）**；P3.4.2 supervisor 退避重连、单调 epoch 和新连接拓扑复核（下一项）。当前仍是独立库与隔离测试，业务入口、HTTP 202 和消费者尚未接入。
+P3.4 拆为两个可审查小点：**P3.4.1 有界连接、网络写入、确认等待与关闭（已完成）**；P3.4.2 supervisor 退避重连、单调 epoch 和新连接拓扑复核也已完成，见 [MQ supervisor](mq-supervisor.md)。当前仍是独立库与隔离测试，业务入口、HTTP 202 和消费者尚未接入。
 
 ## 推荐入口
 
@@ -37,7 +37,7 @@ result, err := session.Publish(requestCtx, normalizedCommand, time.Now())
 
 裸 `NewPublisher(connection, options)` 仍属于 P3.3 的底层接口，调用者拥有连接并自行负责有界 I/O。新 `PublisherSession` 拥有全部资源、没有公开 connection/channel 或允许外部注册通知的入口；对应硬超时承诺只适用于这个有界入口及正常 net.Conn 实现。Go 调度/系统负载仍影响实际唤醒时间，配置值不是毫秒级 SLA。
 
-本小点不拨号恢复、不声明/持续复核拓扑、不管理单调 epoch。新连接前的拓扑复核与重建在 P3.4.2/P3.5 装配；配置加载和独立生产/消费连接仍在 P3.5。生产三节点、磁盘损毁、MySQL 终态和端到端幂等接线也不属于此次验收。
+单个 session 不自行恢复、不声明/持续复核拓扑、不分配单调 epoch。P3.4.2 supervisor 已在新连接接单前只读复核拓扑并重建 session；配置加载、独立生产/消费连接与持续 readiness 仍在 P3.5。生产三节点、磁盘损毁、MySQL 终态和端到端幂等接线也不属于此次验收。
 
 ## 验证
 

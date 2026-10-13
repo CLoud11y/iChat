@@ -59,6 +59,12 @@ func DialPublisher(ctx context.Context, address string, options SessionOptions) 
 }
 
 func dialPublisher(ctx context.Context, address string, options SessionOptions, dial func(context.Context, string, string) (net.Conn, error)) (*PublisherSession, error) {
+	return dialPreparedPublisher(ctx, address, options, dial, nil)
+}
+
+// prepare runs against the new connection before creating publishing channels,
+// under the same setup deadline and socket-interruption watchdog.
+func dialPreparedPublisher(ctx context.Context, address string, options SessionOptions, dial func(context.Context, string, string) (net.Conn, error), prepare func(context.Context, *amqp.Connection) error) (*PublisherSession, error) {
 	if ctx == nil || !validSessionOptions(address, options) {
 		return nil, ErrSessionConfig
 	}
@@ -116,7 +122,13 @@ func dialPublisher(ctx context.Context, address string, options SessionOptions, 
 	}
 	setupCtx, setupCancel := context.WithTimeout(ctx, options.OperationTimeout)
 	setupStop := watchCancellation(setupCtx, s.abort)
-	p, err := newPublisher(func() (publishChannel, error) { return conn.Channel() }, options.Publisher)
+	var p *Publisher
+	if prepare != nil {
+		err = prepare(setupCtx, conn)
+	}
+	if err == nil {
+		p, err = newPublisher(func() (publishChannel, error) { return conn.Channel() }, options.Publisher)
+	}
 	setupStop()
 	setupErr := setupCtx.Err()
 	setupCancel()
@@ -128,6 +140,9 @@ func dialPublisher(ctx context.Context, address string, options SessionOptions, 
 		conn.CloseDeadline(time.Now().Add(options.CloseTimeout))
 		if setupErr != nil {
 			return nil, setupErr
+		}
+		if errors.Is(err, ErrSupervisorTopology) {
+			return nil, ErrSupervisorTopology
 		}
 		return nil, ErrSessionSetup
 	}
@@ -212,6 +227,12 @@ func (s *PublisherSession) Publish(ctx context.Context, command messaging.Comman
 
 // Done signals permanently stopped admission, not completed client teardown.
 func (s *PublisherSession) Done() <-chan struct{} { return s.done }
+
+func (s *PublisherSession) quiescent() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.idle
+}
 
 func (s *PublisherSession) stopAdmission() {
 	s.mu.Lock()
