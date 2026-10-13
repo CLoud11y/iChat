@@ -26,7 +26,7 @@ go test ./...
 
 默认单元测试不需要 MySQL/Redis。真实集成测试及 benchmark 的运行方式见 [测试说明](tests/README.md)。
 
-RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔离测试环境验证，详见 [MQ 测试环境](docs/mq-test-environment.md)。本地 Docker 服务与可靠死信见 [本地 MQ 拓扑](docs/mq-local-topology.md)；发布判定见 [MQ publisher](docs/mq-publisher.md)，有界 I/O/关闭见 [MQ session](docs/mq-session.md)，重连、epoch 和只读拓扑复核见 [MQ supervisor](docs/mq-supervisor.md)。当前业务服务仍运行旧消息链路。
+RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔离测试环境验证，详见 [MQ 测试环境](docs/mq-test-environment.md)。本地 Docker 服务与可靠死信见 [本地 MQ 拓扑](docs/mq-local-topology.md)；发布判定见 [MQ publisher](docs/mq-publisher.md)，有界 I/O/关闭见 [MQ session](docs/mq-session.md)，重连、epoch 和只读拓扑复核见 [MQ supervisor](docs/mq-supervisor.md)。[MQ 应用配置](docs/mq-application-config.md) 提供无网络 I/O 的读取、环境变量覆盖和参数校验；连接装配尚未接入主程序，当前业务服务仍运行旧消息链路。
 
 ## 使用 Docker Compose 启动依赖
 

@@ -84,12 +84,11 @@ func (s *Supervisor) String() string { return "RabbitMQ publisher supervisor" }
 // AMQP passive checks, management verification and fresh notification/confirm
 // setup have completed for that connection.
 func StartSupervisor(ctx context.Context, address string, management *Management, vhost string, o SupervisorOptions) (*Supervisor, error) {
-	if ctx == nil || management == nil || management.client == nil || !validSupervisorOptions(o) || !validSessionOptions(address, o.Session) {
+	if ctx == nil || management == nil || management.client == nil {
 		return nil, ErrSupervisorConfig
 	}
-	uri, err := amqp.ParseURI(address)
-	if err != nil || vhost == "" || uri.Vhost != vhost {
-		return nil, ErrSupervisorConfig
+	if err := ValidateSupervisorOptions(address, vhost, o); err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -108,6 +107,20 @@ func StartSupervisor(ctx context.Context, address string, management *Management
 		}
 		return session, nil
 	}), nil
+}
+
+// ValidateSupervisorOptions checks configuration without dialing, resolving a
+// hostname, starting goroutines or contacting management. It shares the exact
+// validation used by StartSupervisor and never includes credentials in errors.
+func ValidateSupervisorOptions(address, vhost string, o SupervisorOptions) error {
+	if !validSupervisorOptions(o) || !validSessionOptions(address, o.Session) {
+		return ErrSupervisorConfig
+	}
+	uri, err := amqp.ParseURI(address)
+	if err != nil || vhost == "" || uri.Vhost != vhost {
+		return ErrSupervisorConfig
+	}
+	return nil
 }
 
 func validSupervisorOptions(o SupervisorOptions) bool {

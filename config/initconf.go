@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 var Conf Config
 
 type Config struct {
+	// Decoded separately so RabbitMQ input errors cannot echo credentials.
+	RABBITMQ      RabbitMQConfig `mapstructure:"-"`
 	LEGACY_WORKER struct {
 		Enabled bool `mapstructure:"enabled"`
 	} `mapstructure:"LEGACY_WORKER"`
@@ -46,23 +49,32 @@ type Config struct {
 
 // Load reads configuration explicitly; importing this package performs no I/O.
 func Load() (Config, error) {
-	viper := viper.New()
-	configureConfigFile(viper)
-	viper.SetDefault("LOG.level", "info")
-	viper.SetDefault("LOG.accessEnabled", true)
-	viper.SetDefault("LEGACY_WORKER.enabled", false)
-	viper.SetEnvPrefix("ICHAT")
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	viper.AutomaticEnv()
+	v := viper.New()
+	configureConfigFile(v)
+	v.SetDefault("LOG.level", "info")
+	v.SetDefault("LOG.accessEnabled", true)
+	v.SetDefault("LEGACY_WORKER.enabled", false)
+	v.SetEnvPrefix("ICHAT")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err := v.ReadInConfig(); err != nil {
+		var parseError viper.ConfigParseError
+		if errors.As(err, &parseError) {
+			return Config{}, errors.New("read config: invalid configuration file")
+		}
 		return Config{}, fmt.Errorf("read config (copy config/config.example.yml to config/config.yml): %w", err)
 	}
 
+	mq, err := loadRabbitMQ(v)
+	if err != nil {
+		return Config{}, err
+	}
 	var conf Config
-	if err := viper.Unmarshal(&conf); err != nil {
+	if err := v.Unmarshal(&conf); err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
+	conf.RABBITMQ = mq
 	return conf, nil
 }
 
