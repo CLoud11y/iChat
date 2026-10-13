@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.5.2.2 有界消费 channel、顺序 delivery 与单条手动 ACK/Reject：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq -run '^TestConsumerChannel' -count=1 -v -timeout=30s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQ(ConsumerChannel|ConsumerSession|Publisher|Session|Supervisor)Integration$' -count=1 -v -timeout=12m
+```
+
+新的 suite 通过消费者 API 验证实际 prefetch、未确认及预取消息重投、旧 handle 隔离、可靠 DLX、生产 confirm 黑洞期间独立消费 ACK，以及本地 ACK 写入成功但途中丢帧后的完整重投。全部是本轮隔离测试，没有业务数据库提交；具体契约见 [消费 channel / 手动 ACK](../docs/mq-consumer-channel.md)。
+
 P3.5.2.1 独立消费者基础连接、有界生命周期和双向故障隔离：
 
 ```powershell
@@ -7,7 +16,7 @@ go test -mod=readonly -race ./messaging/rabbitmq -run '^TestConsumerSession' -co
 go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQ(Publisher|Session|Supervisor|ConsumerSession)Integration$' -count=1 -v -timeout=10m
 ```
 
-测试观察真实 broker 上不同生产/消费连接，验证生产 Write 背压、双方响应黑洞、独立关闭和只读拓扑漂移拒绝。消费者目前只提供连接/核验/关闭，测试读回和 ACK 来自 fixture 控制连接，不代表消费者 delivery/ACK 业务已接入。覆盖与拆分见 [独立消费者连接](../docs/mq-consumer-session.md)。
+此连接 suite 观察真实 broker 上不同生产/消费连接，验证生产 Write 背压、双方响应黑洞、独立关闭和只读拓扑漂移拒绝；其测试读回/ACK 来自 fixture 控制连接。真正的消费者 API delivery/ACK 验证由上方新增 suite 提供，业务提交后 ACK 仍未接入。覆盖见 [独立消费者连接](../docs/mq-consumer-session.md)。
 
 P3.4.2 supervisor 的退避、epoch、拓扑阻断和 broker 重启验收：
 

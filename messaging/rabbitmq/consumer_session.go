@@ -12,16 +12,16 @@ var (
 	ErrConsumerConfig      = errors.New("invalid RabbitMQ consumer connection configuration")
 	ErrConsumerTopology    = errors.New("consumer connection topology did not verify")
 	ErrConsumerUnavailable = errors.New("RabbitMQ consumer connection is unavailable")
-	ErrConsumerBusy        = errors.New("RabbitMQ consumer topology verification is already in progress")
+	ErrConsumerBusy        = errors.New("RabbitMQ consumer operation is busy")
 )
 
 // ConsumerSession owns a fresh, consumer-only TCP/AMQP connection. This initial
-// lifecycle API verifies topology but does not yet subscribe, expose channels,
-// ACK deliveries, publish messages or redial after failure.
+// lifecycle API never publishes messages or redials after failure.
 type ConsumerSession struct {
 	owner  *connectionOwner
 	verify func(context.Context, *amqp.Connection) error
 	gate   chan struct{}
+	opened bool // Protected by owner.mu; one consumption channel per session.
 }
 
 func (*ConsumerSession) String() string { return "RabbitMQ owned consumer session" }

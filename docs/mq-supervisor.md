@@ -1,6 +1,6 @@
 # RabbitMQ publisher 重连、epoch 与拓扑就绪
 
-P3.4.2 在 P3.4.1 owned session 上增加单一 supervisor：有界失败退避、每次尝试独立 epoch、旧 session 停止/回收，以及新连接复核后接单。当前仍是独立库与隔离验收，未接入 HTTP/旧业务入口。P3.5.1 已提供 [应用配置](mq-application-config.md)，P3.5.2.1 已有独立的 [消费者基础连接](mq-consumer-session.md)；消费 channel / ACK、应用装配与整体 readiness 继续按 P3.5 后续小点实施。
+P3.4.2 在 P3.4.1 owned session 上增加单一 supervisor：有界失败退避、每次尝试独立 epoch、旧 session 停止/回收，以及新连接复核后接单。当前仍是独立库与隔离验收，未接入 HTTP/旧业务入口。P3.5.1 已提供 [应用配置](mq-application-config.md)，P3.5.2 已有独立的 [消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)；应用装配与整体 readiness 继续按 P3.5 后续小点实施。
 
 ## 调用
 

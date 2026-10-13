@@ -53,14 +53,15 @@ type wirePublish struct {
 	body    []byte
 }
 type sessionPeer struct {
-	socket    *observedSocket
-	done      chan struct{}
-	received  chan wirePublish
-	ready     chan struct{}
-	dialCalls atomic.Int32
-	modes     string
-	slots     int
-	server    net.Conn
+	socket          *observedSocket
+	done            chan struct{}
+	received        chan wirePublish
+	ready           chan struct{}
+	dialCalls       atomic.Int32
+	modes           string
+	slots           int
+	server          net.Conn
+	consumerMethods chan wireFrame
 }
 
 func testSessionOptions() SessionOptions {
@@ -76,7 +77,7 @@ func testSessionOptions() SessionOptions {
 func newSessionPeer(t *testing.T, mode string, slots int) *sessionPeer {
 	t.Helper()
 	client, server := net.Pipe()
-	p := &sessionPeer{socket: &observedSocket{Conn: client, closed: make(chan struct{}), writeEvents: make(chan struct{}, 1)}, done: make(chan struct{}), received: make(chan wirePublish, 16), ready: make(chan struct{}), modes: mode, slots: slots, server: server}
+	p := &sessionPeer{socket: &observedSocket{Conn: client, closed: make(chan struct{}), writeEvents: make(chan struct{}, 1)}, done: make(chan struct{}), received: make(chan wirePublish, 16), ready: make(chan struct{}), modes: mode, slots: slots, server: server, consumerMethods: make(chan wireFrame, 32)}
 	go func() { defer close(p.done); defer server.Close(); p.serve(server) }()
 	t.Cleanup(func() {
 		p.socket.Close()
@@ -153,6 +154,54 @@ func (p *sessionPeer) serve(conn net.Conn) {
 			}
 			class, method := binary.BigEndian.Uint16(f.payload), binary.BigEndian.Uint16(f.payload[2:])
 			switch {
+			case class == 60 && method == 10:
+				p.consumerMethods <- f
+				if p.modes == "consumer_silent_qos" {
+					<-p.socket.closed
+					return
+				}
+				if wireMethod(conn, f.channel, 60, 11, nil) != nil {
+					return
+				}
+			case class == 60 && method == 20:
+				p.consumerMethods <- f
+				if p.modes == "consumer_silent_consume" {
+					<-p.socket.closed
+					return
+				}
+				reader := bytes.NewReader(f.payload[6:])
+				if _, err := consumerWireShort(reader); err != nil {
+					return
+				}
+				tag, err := consumerWireShort(reader)
+				if err != nil || wireMethod(conn, f.channel, 60, 21, wireShort(tag)) != nil {
+					return
+				}
+				if p.modes == "consumer_cancel" {
+					if wireMethod(conn, f.channel, 60, 30, append(wireShort(tag), 0)) != nil {
+						return
+					}
+				} else if p.modes != "consumer_idle" {
+					count := 2
+					if p.modes == "consumer_blocked_ack" || p.modes == "consumer_bad_tag" {
+						count = 1
+					}
+					for i := 1; i <= count; i++ {
+						sequence := uint64(i)
+						if p.modes == "consumer_bad_tag" {
+							sequence = 0
+						}
+						if consumerWireDelivery(conn, f.channel, tag, sequence) != nil {
+							return
+						}
+					}
+					if p.modes == "consumer_blocked_ack" {
+						<-p.socket.closed
+						return
+					}
+				}
+			case class == 60 && (method == 80 || method == 90 || method == 31):
+				p.consumerMethods <- f
 			case class == 20 && method == 10:
 				if p.modes == "silent_channel_open" {
 					<-p.socket.closed

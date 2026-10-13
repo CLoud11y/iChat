@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0.1—P0.6、P1 和 P2 仓储范围已验收收口；P3.1—P3.4.2 已完成固定版本、正式拓扑/可靠 DLX、有界 publisher/I/O、unknown 与 supervisor 抖动退避/单调 epoch/新连接只读复核，真实 broker 重启恢复及无自动重发已验收；P3.5.1 已完成应用配置；P3.5.2.1 已完成每实例独立的连接内核、消费者基础生命周期/只读核验/有界关闭及双向故障隔离。下一项为 P3.5.2.2 有界消费 channel / 手动 ACK 的传输所有权。新事务与 publisher 尚未接入旧入口、HTTP 202 或消费任务，不代表端到端可靠性改造完成。旧 worker 仍依赖不自动过期的单消费者注册及人工恢复，依赖共享 Redis 保留锁状态。** 原总清单的 RabbitMQ 测试 vhost 已按既定安排在 P3.1 完成。以下各小点的“当前”“未覆盖”等表述是当时的历史记录，最新结论以文末对应实施记录为准。
+当前总进度：**P0.1—P0.6、P1 和 P2 仓储范围已验收收口；P3.1—P3.4.2 已完成固定版本、正式拓扑/可靠 DLX、有界 publisher/I/O、unknown 与 supervisor 抖动退避/单调 epoch/新连接只读复核，真实 broker 重启恢复及无自动重发已验收；P3.5.1 已完成应用配置；P3.5.2 已完成独立消费者连接、每 worker 有界消费 channel/prefetch、顺序 delivery、原 channel 单条手动 ACK/Reject，以及真实重投/ACK 丢帧/故障隔离。下一项为 P3.5.3 运行模式与依赖装配，开始前继续细分。新事务与 publisher 尚未接入旧入口、HTTP 202 或业务消费任务，不代表端到端可靠性改造完成。旧 worker 仍依赖不自动过期的单消费者注册及人工恢复，依赖共享 Redis 保留锁状态。** 原总清单的 RabbitMQ 测试 vhost 已按既定安排在 P3.1 完成。以下各小点的“当前”“未覆盖”等表述是当时的历史记录，最新结论以文末对应实施记录为准。
 
 ## 开发拆分
 
@@ -1776,3 +1776,51 @@ P3.4 的现阶段独立库验收已收口：有界 I/O/关闭、unknown、退避
 建议 commit message：`feat(mq): add independently owned bounded consumer sessions`
 
 下一小点：**P3.5.2.2：有界消费 channel / 手动 ACK 的传输所有权与隔离验证**。开始前按 channel 创建、prefetch、delivery 生命周期和关闭范围继续细分，保持每次一个可审查小点；业务事务提交后 ACK 仍按 P4 实施。本轮不继续下一小点、不自动提交。
+
+## P3.5.2.2：有界消费 channel、顺序 delivery 与手动 ACK/Reject
+
+状态：2026-10-14（Australia/Sydney）完成实现、自审、专项及最终全仓库 race、静态检查、真实消费传输验收与全部 MQ 回归。代码基线为用户提交的 P3.5.2.1 `01aab6b`；本轮只完成传输接口，不接入业务事务、HTTP 或旧链路。
+
+### 改动
+
+- 每个 ConsumerSession 生命周期最多创建一个消费 channel/订阅；多 worker 使用多个独立长连接 session。只允许主/隔离队列，prefetch=1—256，qos count/global=false、consume autoAck/exclusive/noLocal/noWait=false 并等待 broker 回复。channel.open/qos/consume 共用 operation 上限和 socket 中断 watchdog。
+- 新增 ConsumerChannel.Next/Done/Close 和 ConsumerDelivery.Ack/Reject。每个 channel 最多向顺序 worker 交付一条未完成记录；pending 或并发读取/处置立即 busy，客户端其余未确认缓存由 broker prefetch 限制。Next 只有有界等待，没有自动 ACK，空闲 timeout/取消不退役健康连接。
+- 公开消息体、headers 和属性不包含原始 AMQP Acknowledger。私有 handle 保存原 channel/tag/一次处置记录；修改 metadata 或复制 handle 不能改确认目标、重复确认或确认后一条消息。旧 session handle 不得确认新 session 复用的 tag=1。
+- ACK 固定 multiple=false；Reject 固定 basic.reject 单条，支持主队列 requeue 与可靠 DLX。隔离队列没有下一跳 DLX，禁止 Reject(false)，保持审计责任。零写入拒绝不伤害其他在途工作；已开始写入的失败/超时/取消/关闭竞争返回脱敏 ErrConsumerDispositionUnknown，退役自己的连接，不自动重试处置。
+- 单个容量 1 原始 NotifyClose / NotifyCancel 接收 monitor 处理 broker cancellation/channel failure；父 session Close 先停止 admission/join monitor，再有界关闭并等待在途 Next/处置。网络 I/O 不持有 delivery mutex，socket Close 能释放实际阻塞 Write。关闭不代替 worker ACK/Reject，未确认和预取消息交回 broker 重投。
+- 消費 ACK 没有 broker 确认回复，Ack 的 nil 仅表示本地发送完成。真实代理仅在 ACK-loss 场景解析上行协议并丢弃一条 basic.ack，证明 nil 后仍可重投；其他 proxy 场景保留原 io.Copy 上行。没有打印/保存 payload 或修改网络全局规则。
+- 更新 [消费 channel / 手动 ACK](mq-consumer-channel.md)、连接/session/supervisor、README、测试入口和阶段清单。ErrConsumerBusy 文本泛化为 consumer operation busy，errors.Is 身份保持原变量；最终纯测试覆盖此次文本及补充的 idle Next/并发处置用例。
+
+### 自审和故障证据
+
+- 检查唯一 channel 预留、初始化 failure/EOF/关闭的竞争、setup context 不自动取消成功订阅、raw 通知单接收者、monitor join、调用计数归零，以及所有零写入错误不会中断其他在途调用。
+- 受控真实 AMQP 客户端/wire peer 检查 qos count=2/size=0/global=false、consume 各 flags=false、body/持久化属性、ACK tag=1/multiple=false、Reject tag=2/requeue=true；metadata 改成 tag=999 仍只发送原 tag，复制/重复 handle 不会再写帧。
+- 原 channel.open、qos、consume 回复缺失均及时中断；ACK/Reject 实际进入 net.Pipe Write 后阻塞，由写期限或并发 Close 释放为 unknown。并发第二处置不进入 Write。broker cancel、wire tag=0、空闲 Next 取消/超时与并发 Close 均不留遗弃的调用/monitor；关闭释放未确认责任。
+- 真实主队列 ready=1、unacknowledged=2 证明 prefetch=2；API 顺序接收/单条 ACK 三个完整 attempt 后队列清空。管理统计字段采用指针，未返回字段不能冒充 0。
+- 同样的三条消息中，持有一条且另一条已预取时关闭旧订阅；新 session 完整收到全部原文/属性/attempt，原持有记录标 redelivered，tag 从 1 重新开始；对旧 handle ACK 被拒绝，不能误确认新 tag=1。
+- 主队列单条 Reject(true) 后同 attempt redelivered，再 Reject(false) 通过可靠 DLX 进入隔离；原文/属性/x-death 保留，隔离 Reject(false) 被拒绝；仅在隔离 fixture 中显式手动 ACK 后两个队列为空，不冒充数据库审计已保存。
+- 截获真实 publisher confirm 后，该发布仍 pending；独立消费者实际 Next/Ack/正常关闭，控制连接确认无遗留消息，生产者显式取消得 unknown。生产者确认背压没有阻塞消费 ACK。
+- 另一场景中消费者 Ack 返回 nil，但代理确认只丢弃一条真实 basic.ack；关闭后新的 session 获得同原文/attempt 的 redelivery。证据明确消费 ACK 不是恰好一次证明；业务必须提交后 ACK 并使用数据库幂等处理重投。
+
+### 验证
+
+环境：Windows amd64、Go 1.27.1、GCC/race、Docker Engine 28.4.0、RabbitMQ 4.3.6 / amqp091-go v1.15.0。沿用仓库 GOCACHE 与不存在的 ICHAT_CONFIG_FILE，配置显式构造；未读取开发 `.env`、未启动业务主程序或修改共享数据。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./messaging/rabbitmq -run '^TestConsumerChannel' -count=1 -v -timeout=30s` | 专项通过，2.933s；后续追加的并发/idle 等 cases 进入最终全仓库回归 |
+| `go test -mod=readonly -race ./... -count=1` | 最终全部通过；主包=10.404s，rabbitmq=6.618s，config=2.271s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过，最终补充用例后复核 |
+| `go test -mod=readonly -tags=integration ./tests/testenv -run '^$'` | 集成标签编译通过 |
+| 五个真实 suites 集中回归（命令见消费 channel 文档） | 全部 21 个真实子场景通过；channel=45.10s、consumer session=41.01s、publisher=21.83s、session=22.61s、supervisor=58.82s，包=191.826s |
+| gofmt、`git diff --check`、新增文件空白检查 | 通过 |
+
+本轮 runId：channel=`074e4ec91d05c49d76d2f92b92f9c276`、consumer session=`151cf907a4efc6207201c611969d51b6`、publisher=`12694eaef46bd7c5fc144548ed525b02`、session=`17087fb25784b8f60db28902619832ae`、supervisor=`7eabca7756166985375e3e18f6187705`；五轮 cleanup 均成功。supervisor 回归重启观察到 AMQP 64680→61031、management 64679→61032 的端口分配变化，既有 fixture override 恢复原 endpoint，不改变产品 URL。
+
+### 后续边界
+
+P3.5.2 的独立连接与消费传输库级范围收口。多个 worker 连接的应用配置/数量上限与运行模式、主程序生命周期、consumer 自动恢复、接受 health/readiness/持续拓扑核验、HTTP 202 和业务事务仍未装配。prefetch 只保证未确认消息数量，P4 继续负责协议校验、权限/幂等事务、数据库故障退避与提交后 ACK/持久隔离。本轮不宣称生产资源告警、DB COMMIT 不确定、三节点或端到端验收完成。
+
+建议 commit message：`feat(mq): add bounded consumer channels and fenced manual dispositions`
+
+下一项：**P3.5.3：运行模式与依赖装配**。开始前根据配置、角色能力、后台恢复和关闭范围继续拆成可审查小点。HTTP 202 按 P3.6、消费事务按 P4 接入；本轮不继续下一项、不自动提交。

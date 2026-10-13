@@ -743,13 +743,13 @@ P2.1—P2.7 的协议、schema、幂等、权限、seq/消息/Outbox 原子提�
 - [x] P3.4.2 supervisor 抖动退避、单调 epoch、旧 session 回收与新连接只读拓扑复核；连接自动恢复，命令不自动重发。
 - [x] P3.5.1 应用 publisher/management 配置与环境覆盖、默认兼容及脱敏严格校验；纯构造不联网，不启用 MQ。
 - [x] P3.5.2.1 复用每实例独立的有界连接内核、消费者基础生命周期/只读核验与关闭；受控 Write 背压、真实响应黑洞及双向故障隔离已验收。
-- [ ] P3.5.2.2 有界消费 channel / 手动 ACK 的传输所有权与隔离验证；实际业务提交后 ACK 仍归 P4。
+- [x] P3.5.2.2 单个长连接 worker 的有界消费 channel/prefetch、顺序 delivery 与原 channel 单条手动 ACK/Reject；重投、旧 handle 隔离及真实 ACK 丢帧已验收。实际业务提交后 ACK 仍归 P4。
 - [ ] P3.5.3—P3.5.4 运行模式装配、接受 readiness 与持续拓扑核验；拓扑不匹配保持未就绪。
 - [ ] 接受入口切换为新的 DTO 和 202 语义；MQ 首先独立测试，未完成 consumer 时只使用隔离环境积压。
 
 验收：return+ACK 调度反转不误报 accepted；确认丢失重试安全；网络黑洞超时有界；旧 ACK 不污染新请求；拓扑错误不触发自动删队列。
 
-P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2.1 见 [独立消费者连接](mq-consumer-session.md)。现有业务入口保持旧链路，尚不代表消费 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。下一项为 P3.5.2.2 有界消费 channel / 手动 ACK 的传输所有权；开始前仍可继续细分。
+P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)。现有业务入口保持旧链路，尚不代表业务提交后 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。下一项为 P3.5.3 运行模式与依赖装配；开始前继续细分。
 
 ### P4：持久化 consumer、失败隔离与恢复
 

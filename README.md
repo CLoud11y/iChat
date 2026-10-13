@@ -30,7 +30,7 @@ RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔�
 
 ## 使用 Docker Compose 启动依赖
 
-P3.5.2.1 的 [独立消费者连接](docs/mq-consumer-session.md) 已提供有界握手、只读拓扑核验和关闭；生产/消费分别持有连接。消费 channel / ACK 与主程序装配仍待后续小点。
+P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消费 channel / 手动 ACK](docs/mq-consumer-channel.md) 已完成库级隔离验证，生产/消费分别持有连接。运行模式、主程序装配和业务事务消费仍待后续小点。
 
 项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 

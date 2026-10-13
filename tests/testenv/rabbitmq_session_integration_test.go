@@ -233,19 +233,21 @@ func TestRabbitMQSessionIntegration(t *testing.T) {
 // broker and the owned publisher session; neither development traffic nor
 // credentials are logged. Shutdown joins the acceptor and both copying tasks.
 type sessionProxy struct {
-	address         string
-	listener        net.Listener
-	upstreamAddress string
-	mu              sync.Mutex
-	stopped         bool
-	connections     []net.Conn
-	wg              sync.WaitGroup
-	mode            atomic.Uint32
-	onlyFirst       atomic.Bool
-	accepted        atomic.Uint64
-	framesDropped   atomic.Uint64
-	dropped         chan struct{}
-	closeOnce       sync.Once
+	address             string
+	listener            net.Listener
+	upstreamAddress     string
+	mu                  sync.Mutex
+	stopped             bool
+	connections         []net.Conn
+	wg                  sync.WaitGroup
+	mode                atomic.Uint32
+	onlyFirst           atomic.Bool
+	accepted            atomic.Uint64
+	framesDropped       atomic.Uint64
+	dropConsumerAcks    atomic.Bool // Enable before dialing the ACK-loss test connection.
+	consumerAcksDropped atomic.Uint64
+	dropped             chan struct{}
+	closeOnce           sync.Once
 }
 
 func startSessionProxy(t *testing.T, upstream string) *sessionProxy {
@@ -284,7 +286,16 @@ func (p *sessionProxy) serve() {
 		p.connections = append(p.connections, client, broker)
 		p.wg.Add(2)
 		p.mu.Unlock()
-		go func() { defer p.wg.Done(); defer client.Close(); defer broker.Close(); io.Copy(broker, client) }()
+		go func() {
+			defer p.wg.Done()
+			defer client.Close()
+			defer broker.Close()
+			if p.dropConsumerAcks.Load() {
+				p.upstreamWithoutConsumerAcks(client, broker)
+			} else {
+				io.Copy(broker, client)
+			}
+		}()
 		go func() {
 			defer p.wg.Done()
 			defer client.Close()
