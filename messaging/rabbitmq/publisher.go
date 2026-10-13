@@ -97,6 +97,10 @@ type Publisher struct {
 	slots           []*publisherSlot
 	done            chan struct{}
 	connectionEpoch uint64
+	// Set only by an owned, bounded session. Plain NewPublisher callers still
+	// own their transport and must provide their own interruption policy.
+	interrupt    func()
+	closeTimeout time.Duration
 }
 
 func NewPublisher(connection *amqp.Connection, options PublisherOptions) (*Publisher, error) {
@@ -182,6 +186,10 @@ func (p *Publisher) Publish(ctx context.Context, command messaging.Command, rece
 	r.DeliveryTag = s.nextTag
 	message := amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, MessageId: command.CommandID, CorrelationId: envelope.PublishAttemptID, Body: body}
 	r.Outcome = PublishUnknown // Set before handing control to a network write.
+	if p.interrupt != nil {
+		stop := watchCancellation(ctx, p.interrupt)
+		defer stop()
+	}
 	if err := s.channel.PublishWithContext(ctx, CommandsExchange, SubmitRoutingKey, true, false, message); err != nil {
 		p.retire(s)
 		return publishFailure(r, ErrPublisherWrite)
@@ -315,7 +323,19 @@ func (p *Publisher) retire(s *publisherSlot) {
 		p.live--
 	}
 	p.mu.Unlock()
-	s.closeOnce.Do(func() { s.channel.Close() })
+	p.closeSlot(s)
+}
+
+func (p *Publisher) closeSlot(s *publisherSlot) {
+	s.closeOnce.Do(func() {
+		if p.interrupt != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), p.closeTimeout)
+			defer cancel()
+			stop := watchCancellation(ctx, p.interrupt)
+			defer stop()
+		}
+		s.channel.Close()
+	})
 }
 
 // Close stops admission before closing channels and leaves the connection to its
@@ -324,6 +344,15 @@ func (p *Publisher) Close() {
 	if p == nil {
 		return
 	}
+	p.stopAdmission()
+	for _, s := range p.slots {
+		p.closeSlot(s)
+	}
+}
+
+// stopAdmission performs no AMQP RPC. A transport watchdog must use this before
+// closing the socket, rather than waiting for Close to acquire client I/O locks.
+func (p *Publisher) stopAdmission() {
 	p.mu.Lock()
 	if !p.closed {
 		p.closed = true
@@ -336,7 +365,4 @@ func (p *Publisher) Close() {
 	}
 	p.live = 0
 	p.mu.Unlock()
-	for _, s := range p.slots {
-		s.closeOnce.Do(func() { s.channel.Close() })
-	}
 }
