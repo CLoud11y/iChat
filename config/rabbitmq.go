@@ -20,19 +20,22 @@ var (
 // RabbitMQConfig is preparation for explicit publisher assembly. Loading it
 // does not enable MQ, start workers, or change the legacy message transport.
 type RabbitMQConfig struct {
-	URL                string
-	VHost              string
-	ManagementURL      string
-	ManagementUsername string
-	ManagementPassword string
-	PublisherSlots     int
-	PublishTimeout     time.Duration
-	ConnectTimeout     time.Duration
-	WriteTimeout       time.Duration
-	CloseTimeout       time.Duration
-	Heartbeat          time.Duration
-	RetryMin           time.Duration
-	RetryMax           time.Duration
+	URL                      string
+	VHost                    string
+	ManagementURL            string
+	ManagementUsername       string
+	ManagementPassword       string
+	PublisherSlots           int
+	PublishTimeout           time.Duration
+	ConsumerWorkers          int
+	ConsumerPrefetch         int
+	ConsumerOperationTimeout time.Duration
+	ConnectTimeout           time.Duration
+	WriteTimeout             time.Duration
+	CloseTimeout             time.Duration
+	Heartbeat                time.Duration
+	RetryMin                 time.Duration
+	RetryMax                 time.Duration
 }
 
 func (RabbitMQConfig) String() string {
@@ -83,6 +86,7 @@ func loadRabbitMQ(v *viper.Viper) (RabbitMQConfig, error) {
 		"url": true, "vhost": true, "managementurl": true, "managementusername": true, "managementpassword": true,
 		"publisherslots": true, "publishtimeout": true, "connecttimeout": true, "writetimeout": true,
 		"closetimeout": true, "heartbeat": true, "retrymin": true, "retrymax": true,
+		"consumerworkers": true, "consumerprefetch": true, "consumeroperationtimeout": true,
 	}
 	var section map[string]interface{}
 	if v.IsSet("RABBITMQ") {
@@ -128,20 +132,30 @@ func loadRabbitMQ(v *viper.Viper) (RabbitMQConfig, error) {
 		*field.target = value
 	}
 	defaults := rabbitmq.DefaultSupervisorOptions()
-	switch value := read("publisherSlots", defaults.Session.Publisher.Slots).(type) {
-	case int:
-		c.PublisherSlots = value
-	case string:
-		n, err := strconv.Atoi(value)
-		if err != nil {
-			return RabbitMQConfig{}, invalid("publisherSlots")
+	for _, field := range []struct {
+		key           string
+		fallback, max int
+		target        *int
+	}{
+		{"publisherSlots", defaults.Session.Publisher.Slots, rabbitmq.MaxPublisherSlots, &c.PublisherSlots},
+		{"consumerWorkers", 4, MaxConsumerWorkers, &c.ConsumerWorkers},
+		{"consumerPrefetch", 16, rabbitmq.MaxConsumerPrefetch, &c.ConsumerPrefetch},
+	} {
+		switch value := read(field.key, field.fallback).(type) {
+		case int:
+			*field.target = value
+		case string:
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return RabbitMQConfig{}, invalid(field.key)
+			}
+			*field.target = n
+		default:
+			return RabbitMQConfig{}, invalid(field.key)
 		}
-		c.PublisherSlots = n
-	default:
-		return RabbitMQConfig{}, invalid("publisherSlots")
-	}
-	if c.PublisherSlots < 1 || c.PublisherSlots > rabbitmq.MaxPublisherSlots {
-		return RabbitMQConfig{}, invalid("publisherSlots")
+		if *field.target < 1 || *field.target > field.max {
+			return RabbitMQConfig{}, invalid(field.key)
+		}
 	}
 	for _, field := range []struct {
 		key      string
@@ -149,6 +163,7 @@ func loadRabbitMQ(v *viper.Viper) (RabbitMQConfig, error) {
 		target   *time.Duration
 	}{
 		{"publishTimeout", defaults.Session.OperationTimeout, &c.PublishTimeout},
+		{"consumerOperationTimeout", rabbitmq.DefaultConnectionOptions().OperationTimeout, &c.ConsumerOperationTimeout},
 		{"connectTimeout", defaults.Session.ConnectTimeout, &c.ConnectTimeout},
 		{"writeTimeout", defaults.Session.WriteTimeout, &c.WriteTimeout},
 		{"closeTimeout", defaults.Session.CloseTimeout, &c.CloseTimeout},

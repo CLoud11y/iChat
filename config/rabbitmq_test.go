@@ -13,7 +13,7 @@ import (
 	"iChat/messaging/rabbitmq"
 )
 
-var mqKeys = []string{"url", "vhost", "managementURL", "managementUsername", "managementPassword", "publisherSlots", "publishTimeout", "connectTimeout", "writeTimeout", "closeTimeout", "heartbeat", "retryMin", "retryMax"}
+var mqKeys = []string{"url", "vhost", "managementURL", "managementUsername", "managementPassword", "publisherSlots", "publishTimeout", "connectTimeout", "writeTimeout", "closeTimeout", "heartbeat", "retryMin", "retryMax", "consumerWorkers", "consumerPrefetch", "consumerOperationTimeout"}
 
 func mqConfigFile(t *testing.T, yaml string) string {
 	t.Helper()
@@ -98,6 +98,7 @@ func TestRabbitMQEnvironmentOnlyAndOverrides(t *testing.T) {
 				"managementURL": "https://broker.example:15671", "managementUsername": "env-observer", "managementPassword": "env-management",
 				"publisherSlots": "3", "publishTimeout": "6s", "connectTimeout": "7s", "writeTimeout": "4s", "closeTimeout": "8s",
 				"heartbeat": "3s", "retryMin": "2s", "retryMax": "40s",
+				"consumerWorkers": "7", "consumerPrefetch": "23", "consumerOperationTimeout": "9s",
 			}
 			for key, value := range values {
 				t.Setenv("ICHAT_RABBITMQ_"+strings.ToUpper(key), value)
@@ -118,6 +119,12 @@ func TestRabbitMQEnvironmentOnlyAndOverrides(t *testing.T) {
 			if p.Options != want || p.URL != values["url"] || p.VHost != values["vhost"] || c.RABBITMQ.ManagementURL != values["managementURL"] ||
 				c.RABBITMQ.ManagementUsername != values["managementUsername"] || c.RABBITMQ.ManagementPassword != values["managementPassword"] {
 				t.Fatal("MQ environment settings were dropped or did not override YAML")
+			}
+			consumer, err := c.RABBITMQ.Consumer()
+			if err != nil || consumer.Workers != 7 || consumer.Prefetch != 23 || consumer.Options.OperationTimeout != 9*time.Second ||
+				consumer.Options.ConnectTimeout != 7*time.Second || consumer.Options.WriteTimeout != 4*time.Second ||
+				consumer.Options.CloseTimeout != 8*time.Second || consumer.Options.Heartbeat != 3*time.Second || consumer.Management == nil {
+				t.Fatal("consumer environment settings were dropped or mapped to publisher timeout", err)
 			}
 		})
 	}

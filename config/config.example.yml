@@ -38,6 +38,9 @@ RABBITMQ:
   managementPassword: ""
   publisherSlots: 8
   publishTimeout: 5s
+  consumerWorkers: 4
+  consumerPrefetch: 16
+  consumerOperationTimeout: 5s
   connectTimeout: 5s
   writeTimeout: 3s
   closeTimeout: 3s

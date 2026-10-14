@@ -1,5 +1,7 @@
 # RabbitMQ 应用配置（P3.5.1）
 
+P3.5.3.2.1 已追加 [消费者参数与按角色生成 MQ 依赖计划](mq-runtime-parameters.md)，提供 Consumer/MQRuntime 纯构造结果；当前仍未将 MQ 连接装配进业务主程序。
+
 本小点提供 `config.Load()` 的配置入口，以及纯构造器 `Config.RABBITMQ.Publisher()`。两者不解析 DNS、不拨号、不请求管理 API、不启动后台任务。当前主程序仍使用旧消息链路；填写这些字段不会启动 MQ 或切换发送入口。[运行模式](mq-runtime-modes.md) 已有配置与启动检查，独立连接的应用装配、readiness 和 HTTP 202 仍待后续小点。
 
 ## 缺省与配置来源
@@ -31,6 +33,9 @@ URI 的 `%2Fichat` 表示 vhost **`/ichat`**；URI `/ichat` 表示 **`ichat`**�
 | --- | --- | --- |
 | `publisherSlots` | 8 | 整数 1—64，映射 publisher 有界 slots |
 | `publishTimeout` | 5s | `Session.OperationTimeout`，涵盖 setup 和单次发布操作 |
+| `consumerWorkers` | 4 | 持久化消费者 1—32 个独立 session，审计另固定 1 个 |
+| `consumerPrefetch` | 16 | 每订阅 1—256 条未确认消息，拒绝无限制 0 |
+| `consumerOperationTimeout` | 5s | 消费者独立 OperationTimeout，不改变发布者的 publishTimeout |
 | `connectTimeout` | 5s | TCP/TLS/AMQP 握手期限 |
 | `writeTimeout` | 3s | socket Write 期限 |
 | `closeTimeout` | 3s | session / supervisor 关闭期限 |
@@ -44,7 +49,7 @@ AMQP URI 要求显式非空用户名与密码、合法端口、无 query/fragmen
 
 `RABBITMQ` 拒绝未知字段、错误类型和无效值，错误仅包含脱敏 sentinel 与已知字段名。未配置连接时，已有 timing / slots 字段仍须合法。`RabbitMQConfig` / `PublisherConfig` 的常用 fmt 格式（`%v`、`%+v`、`%#v`，含整个 Config 的嵌套格式）会隐藏 MQ 凭证；不要直接日志输出 `.URL` 或 `.ManagementPassword`。语法解析错误也不回显原始配置文本。其他旧配置字段的日志习惯不在本次 MQ 脱敏范围内。
 
-MQ 配置目前只加入已接入库的 publisher 参数；consumer workers / prefetch / broker ack timeout、Outbox 和消息入口切换参数尚未加入。运行模式字段位于独立 `RUNTIME` 节，有明确的未装配启动拒绝，不能填写后就假定新角色运行。
+MQ 配置已有 publisher 与 consumer 参数及按角色生成的纯依赖计划；broker ack timeout、Outbox 和消息入口切换参数尚未加入。运行模式字段位于独立 `RUNTIME` 节，有明确的未装配启动拒绝，不能填写后就假定新角色运行。
 
 ## 使用纯构造结果
 

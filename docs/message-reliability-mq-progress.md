@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0.1—P0.6、P1 和 P2 仓储范围已验收收口；P3.1—P3.4.2 已完成固定版本、正式拓扑/可靠 DLX、有界 publisher/I/O、unknown 与 supervisor 抖动退避/单调 epoch/新连接只读复核，真实 broker 重启恢复及无自动重发已验收；P3.5.1 已完成应用配置；P3.5.2 已完成独立消费者连接、每 worker 有界消费 channel/prefetch、顺序 delivery、原 channel 单条手动 ACK/Reject，以及真实重投/ACK 丢帧/故障隔离；P3.5.3.1 已完成严格运行模式、纯角色计划和外部连接前的未装配启动拒绝。下一项为 P3.5.3.2 MQ 运行参数与受控依赖构造，开始前继续细分。当前业务主程序仅运行 legacy；新事务与 publisher 尚未接入旧入口、HTTP 202 或业务消费任务，不代表端到端可靠性改造完成。旧 worker 仍依赖不自动过期的单消费者注册及人工恢复，依赖共享 Redis 保留锁状态。** 原总清单的 RabbitMQ 测试 vhost 已按既定安排在 P3.1 完成。以下各小点的“当前”“未覆盖”等表述是当时的历史记录，最新结论以文末对应实施记录为准。
+当前总进度：**P0.1—P0.6、P1 和 P2 仓储范围已验收收口；P3.1—P3.4.2 已完成固定版本、正式拓扑/可靠 DLX、有界 publisher/I/O、unknown 与 supervisor 抖动退避/单调 epoch/新连接只读复核，真实 broker 重启恢复及无自动重发已验收；P3.5.1 已完成应用配置；P3.5.2 已完成独立消费者连接、每 worker 有界消费 channel/prefetch、顺序 delivery、原 channel 单条手动 ACK/Reject，以及真实重投/ACK 丢帧/故障隔离；P3.5.3.1 已完成严格运行模式/角色计划/启动检查；P3.5.3.2.1 已完成消费者有界参数、独立操作超时和按角色生成的无 I/O MQ 依赖计划。下一项为 P3.5.3.2.2 按角色受控创建 MQ 连接与失败清理，开始前继续细分。当前业务主程序仅运行 legacy；新事务与 publisher 尚未接入旧入口、HTTP 202 或业务消费任务，不代表端到端可靠性改造完成。旧 worker 仍依赖不自动过期的单消费者注册及人工恢复，依赖共享 Redis 保留锁状态。** 原总清单的 RabbitMQ 测试 vhost 已按既定安排在 P3.1 完成。以下各小点的“当前”“未覆盖”等表述是当时的历史记录，最新结论以文末对应实施记录为准。
 
 ## 开发拆分
 
@@ -15,7 +15,7 @@
 | P0 | P0.1 安全单元测试入口；P0.2 独立 MySQL/Redis 测试资源与归属校验；P0.3 用本轮 fixture 恢复旧集成测试和 benchmark；P0.4 核验并固定 Go 工具链；P0.5 独立迁移命令与失败退出；P0.6 完善依赖注入、缺失依赖处理和 bootstrap 测试。MQ 测试 vhost 在 P3 引入 broker 时创建 |
 | P1 | P1.1 入队接受顺序及错误语义；P1.2 有界读取和队首原子核对；P1.3 DB 幂等及坏记录隔离；P1.4 worker 启用约束和防重入；P1.5 鉴权发送身份；P1.6 历史完整性、群权限和媒体类型；P1.7 PubSub 生命周期；P1.8 补齐 L1—L12 回归及跨系统崩溃测试 |
 | P2 | P2.1 DTO、规范化和身份/hash；P2.2 schema 与唯一约束；P2.3 幂等命令结果；P2.4 权限事务和锁顺序；P2.5 seq、消息和 Outbox 原子提交；P2.6 状态仓储；P2.7 同步/历史仓储 |
-| P3 | P3.1 核验 broker/client 版本和隔离 vhost；P3.2 本地拓扑及可靠 DLX；P3.3 有界 publisher 和 confirm/return 关联；P3.4.1 I/O/关闭硬界与 unknown；P3.4.2 supervisor 退避重连、单调 epoch 和拓扑复核；P3.5.1 应用配置与纯构造；P3.5.2.1 连接内核与独立消费者基础生命周期；P3.5.2.2 有界消费 channel / 手动 ACK 传输所有权；P3.5.3.1 模式配置/角色计划/启动检查；P3.5.3.2 MQ 运行参数与受控依赖构造；P3.5.3.3 生命周期装配与角色能力核验；P3.5.4 接受 readiness 与持续拓扑核验；P3.6 隔离环境接入 HTTP 202 |
+| P3 | P3.1 核验 broker/client 版本和隔离 vhost；P3.2 本地拓扑及可靠 DLX；P3.3 有界 publisher 和 confirm/return 关联；P3.4.1 I/O/关闭硬界与 unknown；P3.4.2 supervisor 退避重连、单调 epoch 和拓扑复核；P3.5.1 应用配置与纯构造；P3.5.2.1 连接内核与独立消费者基础生命周期；P3.5.2.2 有界消费 channel / 手动 ACK 传输所有权；P3.5.3.1 模式配置/角色计划/启动检查；P3.5.3.2.1 消费者参数与纯 MQ 依赖计划；P3.5.3.2.2 受控 MQ 连接创建/失败清理；P3.5.3.3 生命周期装配与角色能力核验；P3.5.4 接受 readiness 与持续拓扑核验；P3.6 隔离环境接入 HTTP 202 |
 | P4 | P4.1 消费事务与提交后 ACK；P4.2 错误分类和数据库故障退避；P4.3 可靠隔离转移；P4.4 隔离审计 worker；P4.5 受控重放 CLI；P4.6 提交不确定和退出恢复 |
 | P5 | P5.1 Outbox lease 领取；P5.2 token 条件完成和重试；P5.3 通知协议与内容授权；P5.4 WS 订阅及慢客户端处理；P5.5 session fencing；P5.6 ACK 持久化与确认 |
 | P6 | P6.1 状态接口契约；P6.2 会话列表及补拉/历史接口；P6.3 模拟客户端发送恢复；P6.4 本地幂等和连续游标；P6.5 重连及周期同步；P6.6 分页/乱序/本地清空测试；P6.7 前端接入文档 |
@@ -1862,3 +1862,43 @@ P3.5.2 的独立连接与消费传输库级范围收口。多个 worker 连接�
 建议 commit message：`feat(runtime): add validated mode plans and reject unassembled roles`
 
 下一小点：**P3.5.3.2：MQ 运行参数与受控依赖构造**。开始前按 producer/consumer 选取、worker 上限和构造/失败清理范围继续细分；未完成角色不得静默降级。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.2.1：消费者有界参数与按角色生成 MQ 依赖计划
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查。代码基线为用户提交的 P3.5.3.1 `6ab1588`。将 P3.5.3.2 再拆成参数与纯依赖计划、实际连接创建与失败清理两点；本轮不创建 MQ 会话或启用新模式。
+
+### 改动
+
+- RABBITMQ 增加 consumerWorkers（默认 4，上限 32）、consumerPrefetch（默认 16，1—256）和独立 consumerOperationTimeout（默认 5s，正字符串不超过 60s）。三个字段支持省略 YAML 时的显式环境覆盖、空值拒绝及严格类型校验；共用已有 connect/write/close/heartbeat，发布者仍使用 publishTimeout。
+- 新增 `RabbitMQConfig.Consumer()` 的纯构造结果，校验消费者直接 Go 配置、URI/vhost/传输期限与管理凭证。将 DialConsumer 原检查提取为 `ValidateConsumerOptions`，连接层和配置层复用相同无 I/O 校验；拨号/拓扑/关闭行为不变，没有 broker ACK timeout 等未生效配置。
+- 新增 `Config.MQRuntime()`：legacy 不构造 MQ 输入；api 仅 command publisher；worker 仅持久化/隔离 consumer groups；all 为两者。持久化组按 consumerWorkers、隔离审计另固定 1 个独立 session，使用相同 prefetch 与消费者期限；最大消费者连接输入数量为 33。
+- 新模式必需依赖缺失返回明确错误，不使用旧链路/default 账号降级。all 的后项校验失败返回空计划；计划只包含构造输入，没有连接、订阅、worker、Outbox 或 readiness。直接 Go 配置只构造选中依赖，Load 仍校验文件所有支持字段。
+- ConsumerConfig/MQRuntimePlan 的 fmt/GoString 及 groups 嵌套格式隐藏凭证，错误仅有脱敏 sentinel 与已知字段/角色信息。计划不修改源配置、旧全局 config.Conf 或模式启动检查。
+- 更新模板、README、[消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)、MQ 配置/运行模式文档和阶段拆分。现有 api/worker/all 仍在业务 bootstrap 外部连接前明确失败。
+
+### 自审与验证
+
+- 核对 consumerWorkers=1—32、prefetch=1—256 与 audit=1 的数量边界；这是准入上限，不是测得的吞吐容量。consumerOperationTimeout 与发布期限独立，不冒充 DB 事务期限或 broker consumer ACK timeout。
+- 测试默认值、1/32 workers 和 1/256 prefetch、消费者操作时间上界、所有 MQ 环境字段映射、重复加载、空覆盖/负数/浮点/null/布尔/无单位时间/溢出等拒绝和错误脱敏；直接 Go 构造也不可绕过消费者核心校验。
+- 对各模式验证 publisher/group/固定队列选择、持久化 4 个及审计 1 个实例输入、新旧角色互斥、source/global 不变。worker 不构造 command publisher，api 不构造 consumer；缺失依赖和 all 的部分失败不返回半份计划。
+- 启用两个本机 TCP listener 作为 AMQP/management 地址，Load、Consumer 和 api/worker/all MQRuntime 执行后 Accept 只超时，未接到任何连接。格式化消费者设置、计划及 consumers 列表不泄漏测试凭证。
+- 原默认 legacy bootstrap、模式未装配拒绝、迁移 CLI 和 MQ 传输库回归继续通过；未改变测试预期或放开默认单元测试访问开发配置。
+
+环境：Windows amd64、Go 1.27.1、GCC/race，沿用仓库 GOCACHE 与不存在的 ICHAT_CONFIG_FILE；仅临时文件/本机 listener，未启动 Docker 或业务服务、未访问开发配置/.env 或共享数据。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./config -run 'Test(MQRuntime\|RabbitMQEnvironment)' -count=1 -v` | 专项通过，2.286s |
+| `go test -mod=readonly -race ./... -count=1` | 最终全仓库通过；主包=10.112s、config=2.632s、rabbitmq=6.501s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| gofmt、`git diff --check`、新增文件空白检查 | 通过 |
+
+本轮只抽取原消费者配置校验，没有变动 AMQP 方法/通知/确认状态机；纯构造零 I/O 由 listener 观测覆盖，没有重复 Docker 故障矩阵或将旧结果计为本轮实测。
+
+### 后续边界
+
+MQRuntimePlan 是输入描述，不是资源管理器、服务实例或角色就绪证明。实际 producer/consumer 连接创建、部分失败回收、总体构造/退出上限和生命周期所有权在下一小点；consumer 自动恢复、进程退出、主程序能力检查、readiness、HTTP 202、业务事务/审计/Outbox 继续按后续阶段实现。当前主程序仅 legacy，新模式启动拒绝保留。
+
+建议 commit message：`feat(config): add bounded consumer settings and role-specific MQ plans`
+
+下一小点：**P3.5.3.2.2：按角色受控创建 MQ 连接与失败清理**。开始前根据实例数量、总构造期限、无订阅的准备阶段与部分失败的回收继续细分；未完成业务 consumer 不得提前消费/ACK。本轮不继续下一小点、不自动提交。

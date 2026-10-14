@@ -30,16 +30,28 @@ func (*ConsumerSession) String() string { return "RabbitMQ owned consumer sessio
 // connection against management's read-only local topology contract. The ctx
 // controls initialization; after success, the caller explicitly owns Close.
 func DialConsumer(ctx context.Context, address string, management *Management, vhost string, options ConnectionOptions) (*ConsumerSession, error) {
-	if ctx == nil || management == nil || management.client == nil || !validConnectionOptions(address, options) {
+	if ctx == nil || management == nil || management.client == nil {
 		return nil, ErrConsumerConfig
 	}
-	uri, err := amqp.ParseURI(address)
-	if err != nil || vhost == "" || uri.Vhost != vhost {
-		return nil, ErrConsumerConfig
+	if err := ValidateConsumerOptions(address, vhost, options); err != nil {
+		return nil, err
 	}
 	return dialConsumer(ctx, address, options, (&net.Dialer{}).DialContext, func(ctx context.Context, conn *amqp.Connection) error {
 		return verifyNewConnection(ctx, conn, management, vhost)
 	})
+}
+
+// ValidateConsumerOptions shares DialConsumer's endpoint/transport validation
+// without resolving a hostname, opening sockets or starting client tasks.
+func ValidateConsumerOptions(address, vhost string, options ConnectionOptions) error {
+	if !validConnectionOptions(address, options) {
+		return ErrConsumerConfig
+	}
+	uri, err := amqp.ParseURI(address)
+	if err != nil || vhost == "" || uri.Vhost != vhost {
+		return ErrConsumerConfig
+	}
+	return nil
 }
 
 func dialConsumer(ctx context.Context, address string, options ConnectionOptions, dial func(context.Context, string, string) (net.Conn, error), verify func(context.Context, *amqp.Connection) error) (*ConsumerSession, error) {
