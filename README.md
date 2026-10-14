@@ -32,7 +32,7 @@ RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔�
 
 P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消费 channel / 手动 ACK](docs/mq-consumer-channel.md) 已完成库级隔离验证，生产/消费分别持有连接。[运行模式](docs/mq-runtime-modes.md) 已提供严格配置、角色计划和启动检查；当前主程序只支持默认 `legacy`，`api`/`worker`/`all` 尚未装配，选择它们会在外部连接建立前明确退出。新业务链路仍待后续小点。
 
-[消费者运行参数与 MQ 依赖计划](docs/mq-runtime-parameters.md) 已支持有界 worker 数量、prefetch 和独立操作超时，按角色生成无网络 I/O 的构造输入。配置和计划不会创建消费订阅，实际连接创建与失败清理在下一小点实现。
+[消费者运行参数与 MQ 依赖计划](docs/mq-runtime-parameters.md) 已支持有界 worker 数量、prefetch 和独立操作超时，按角色生成无网络 I/O 的构造输入。[MQ 连接准备与清理](docs/mq-runtime-resources.md) 可显式创建 publisher/各 worker 独立连接，提供总准备期限、部分失败回滚和有界关闭；准备阶段没有消费订阅。主程序生命周期及新业务角色仍待后续装配。
 
 项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 

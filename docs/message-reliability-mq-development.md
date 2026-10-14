@@ -746,13 +746,14 @@ P2.1—P2.7 的协议、schema、幂等、权限、seq/消息/Outbox 原子提�
 - [x] P3.5.2.2 单个长连接 worker 的有界消费 channel/prefetch、顺序 delivery 与原 channel 单条手动 ACK/Reject；重投、旧 handle 隔离及真实 ACK 丢帧已验收。实际业务提交后 ACK 仍归 P4。
 - [x] P3.5.3.1 严格模式配置、纯角色计划和启动检查；默认 legacy 兼容，未装配新模式在外部连接前失败，不混用旧 worker。
 - [x] P3.5.3.2.1 消费者有界运行参数、全字段环境覆盖与按角色生成的纯 MQ 依赖计划；构造不联网。
-- [ ] P3.5.3.2.2—P3.5.3.3 按角色受控创建 MQ 连接、失败清理、生命周期和角色能力核验。
+- [x] P3.5.3.2.2 按角色受控创建 publisher/独立消费者连接，总构造期限、无订阅准备、部分失败回滚与整组有界关闭。
+- [ ] P3.5.3.3 生命周期装配和角色能力核验。
 - [ ] P3.5.4 接受 readiness 与持续拓扑核验；拓扑不匹配保持未就绪。
 - [ ] 接受入口切换为新的 DTO 和 202 语义；MQ 首先独立测试，未完成 consumer 时只使用隔离环境积压。
 
 验收：return+ACK 调度反转不误报 accepted；确认丢失重试安全；网络黑洞超时有界；旧 ACK 不污染新请求；拓扑错误不触发自动删队列。
 
-P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)。现有业务入口保持旧链路，尚不代表业务提交后 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。下一项为 P3.5.3.2.2 按角色受控创建 MQ 连接与失败清理；开始前继续细分。
+P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)。现有业务入口保持旧链路，尚不代表业务提交后 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。下一项为 P3.5.3.3 生命周期装配与角色能力核验；开始前继续细分。
 
 ### P4：持久化 consumer、失败隔离与恢复
 

@@ -243,6 +243,7 @@ type sessionProxy struct {
 	mode                atomic.Uint32
 	onlyFirst           atomic.Bool
 	accepted            atomic.Uint64
+	stallAfter          atomic.Uint64 // Set before dialing: later handshakes receive no replies.
 	framesDropped       atomic.Uint64
 	dropConsumerAcks    atomic.Bool // Enable before dialing the ACK-loss test connection.
 	consumerAcksDropped atomic.Uint64
@@ -290,7 +291,9 @@ func (p *sessionProxy) serve() {
 			defer p.wg.Done()
 			defer client.Close()
 			defer broker.Close()
-			if p.dropConsumerAcks.Load() {
+			if limit := p.stallAfter.Load(); limit != 0 && index > limit {
+				io.Copy(io.Discard, client) // Leave this real AMQP handshake pending.
+			} else if p.dropConsumerAcks.Load() {
 				p.upstreamWithoutConsumerAcks(client, broker)
 			} else {
 				io.Copy(broker, client)

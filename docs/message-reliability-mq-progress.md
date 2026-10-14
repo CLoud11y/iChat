@@ -1902,3 +1902,51 @@ MQRuntimePlan 是输入描述，不是资源管理器、服务实例或角色就
 建议 commit message：`feat(config): add bounded consumer settings and role-specific MQ plans`
 
 下一小点：**P3.5.3.2.2：按角色受控创建 MQ 连接与失败清理**。开始前根据实例数量、总构造期限、无订阅的准备阶段与部分失败的回收继续细分；未完成业务 consumer 不得提前消费/ACK。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.2.2：按角色准备独立 MQ 连接、有界失败回滚与关闭
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、全仓库 race、静态检查与隔离 Docker 实测。代码基线为用户提交的 P3.5.3.2.1 `3b5be6c`。本轮覆盖连接构造和显式资源所有权，不装配业务角色或启用新运行模式。
+
+### 改动
+
+- 新增 application 包的 `PrepareMQ` / `MQResources`，重新从 Config 验证 MQ 输入后才调用角色工厂。legacy 不创建 MQ；api 一个异步 publisher Supervisor；worker 按 consumerWorkers 创建独立持久化连接并另建一个隔离审计连接；all 合并两者。消费者最大 33 个，不借用其他 worker/publisher 连接。
+- 消费者只通过 DialConsumer 建连并只读验证版本/vhost/拓扑；准备没有 QoS/Consume/Next/ACK/Reject、队列修复或迁移。固定队列、prefetch 和连接能力以列表副本返回，调用方修改副本不会改内部清理清单。
+- MQOptions 提供整次 SetupTimeout（默认 30s）与整组 CloseTimeout（默认 5s），均正值且不超过 60s；是 Go 装配输入，不增加 YAML/env 字段。所有 consumer 共用总 deadline，并保留各 session 更短的 I/O 期限。
+- publisher lifetime 由资源组拥有；准备期间的 watcher 转发 setup 取消，成功移交前停止并 join watcher。setup context 取消/超时不能在成功返回后意外停止 publisher 恢复或关闭 idle consumer；调用方必须显式 Close。
+- 部分失败返回 nil 资源，回收所有已返回 handle（包括 handle+error），nil/typed nil 被拒绝；回滚独立于已取消的 setup context。Close 先停能力访问/取消 publisher，再共享一个总期限并发关闭所有 handle，全部 join；expired context 也触达全部 child Close，清理错误与原始错误都保留。并发等待有各自期限，关闭失败可重试，不假称超时 owner 已退出。
+- Error/fmt 隐藏原始 transport/factory 错误和凭证，errors.Is 保留类别/取消/期限。文档说明解包后原始 cause 不应记录，成功准备不等于 MQ/接受 readiness。
+- 更新 README、参数/模式/阶段说明、测试说明，新增 [MQ 连接准备与失败清理](mq-runtime-resources.md)。业务 bootstrap 原 guard 不变；未完成的 api/worker/all 仍在连接前明确拒绝。
+
+### 自审与验证
+
+- 10 个单元测试组覆盖选中/未选中工厂、legacy 缺省兼容、33 消费者上限、源配置/全局不变、列表所有权、坏模式/新旧冲突/缺配置/选项/工厂缺失的零 I/O 拒绝。
+- 每一资源构造阶段注入 handle+error，全部旧 handle 与出错返回 handle 均关闭；nil/typed nil 不逃逸。总 setup deadline 不按 worker 重置，失败回滚不继承取消；工厂成功与 setup 取消竞争时不移交半份资源。
+- 成功准备后的 setup 取消和期限不影响 publisher lifetime；另用自有本机 TCP peer 拒绝实际 AMQP 握手，证明 api 返回未就绪的异步 publisher，并在 setup 取消后继续恢复，Close 等待结束。
+- 多连接共用 close deadline，expired context 仍关闭所有资源；并发 Close 合并且等待者能提前取消，所有 closer goroutine join，失败可重试，关闭异常不吞掉或泄漏凭证。
+- 真实 broker 四种模式的 app 连接数（含 fixture 控制连接）依次为 1/2/4/5，证明 publisher 与 2 个持久化/1 个审计消费者独立建连。取消成功 setup 后 publisher 仍 WaitReady、消费者仍 Verify；Close 后只剩控制连接。
+- 主/隔离各预放一条持久消息，所有阶段管理 API consumers 列表为空，两个队列 ready=1、unacknowledged=0、consumers=0。仅 fixture 最后读取/ACK，完整核对规范命令身份/hash/正文/attempt 和审计原文/持久属性，未提前领取或丢失责任。
+- 代理透传第一（worker）/前二（all）连接，再让后续握手缺少实际 AMQP 回复。回滚前观察到已建立连接，总 8s 到期释放真实阻塞握手，所有已创建连接归零到控制基线；没有订阅/消息领取或拓扑修复。
+
+环境：Windows amd64、Go 1.27.1、GCC/race、Docker Engine 28.4.0、RabbitMQ 4.3.6 / amqp091-go v1.15.0。沿用仓库 GOCACHE 与不存在的 ICHAT_CONFIG_FILE。真实资源全部由独立 fixture 创建/核验标签/清理；不访问开发 .env/config、不运行业务主程序或修改共享数据。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./application -count=1 -v` | 首轮 8 组专项通过，2.372s；新增离线/并发组纳入最终全仓库回归 |
+| `go test -mod=readonly -race ./... -count=1` | 全部通过；主包=9.926s，application=2.720s，config=3.117s，rabbitmq=6.830s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./tests/testenv -run '^$'` | 集成标签编译通过 |
+| `TestMQPreparationIntegration`（完整命令见资源文档） | 6 个真实场景全部通过；suite=60.51s、包=63.135s，两个实际握手超时均=8.02s |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQSessionIntegration$' -count=1 -v -timeout=4m` | 共享代理原有 5 场景全部通过；suite=22.78s、包=25.366s |
+| gofmt、`git diff --check`、新增文件空白检查 | 通过 |
+
+最终准备测试 runId=`791a28d50e1dc08372083147f7a28fe5`，cleanup 成功。首次 sandbox 无 Docker pipe 权限，按环境要求提升后执行；前一真实 run=`ff6b529dcc215d38d31b8769e0434bb3` 的四角色通过，但两个 2s 超时场景无法在约 5s 的管理统计窗口中观察回滚前连接，测试失败且 cleanup 成功。将仅真实场景的期限改为 8s 后完整复测通过；产品默认和单元测试毫秒期限未放宽。
+
+共享 sessionProxy 新增默认关闭的 stallAfter 开关，后续连接的上行握手被吸收，已有 ACK 丢帧/下行故障分支不变；代理关闭仍 join 全部转发 goroutine。原 session 故障 suite 复测 runId=`52c3cdaed53e3d1615a40acd22397435`，cleanup 成功。本轮未改 AMQP 库实现，未重复其余 publisher/supervisor/consumer Docker suites，也不把旧结果计为本轮实测。
+
+### 后续边界
+
+当前实现是可显式调用的 MQ 依赖准备层，未接入业务 bootstrap，也未实现整体 readiness、进程信号/服务任务退出、consumer 自动恢复、HTTP 202、业务提交后 ACK、隔离审计或 Outbox。P3.5.3.2 现阶段参数与资源构造范围收口，P3/P3.5.3 整体尚未验收。
+
+建议 commit message：`feat(runtime): prepare role-specific MQ resources with bounded rollback`
+
+下一小点：**P3.5.3.3：生命周期装配与角色能力核验**。开始前按角色能力、service lifetime/退出与恢复范围继续细分，未完成业务角色不能提前订阅或静默降级。本轮不继续下一小点、不自动提交。

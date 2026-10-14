@@ -324,4 +324,5 @@ Compose 项目名用于区分不同环境的资源，相关行为见 [Docker 项
 - SyncMsg 断言：同步前数据库为空且队列有 3 条消息，同步后逐字段检查 3 条私聊/群聊及文本/图片/音频记录，队列为空；再次执行空队列同步不改变数据。直接断言任务返回值和数据库/队列状态，不依赖日志判断成功。
 - 已覆盖旧 worker 的显式启用、防重入、跨进程注册与人工恢复，以及消息/隔离提交后、Redis 确认前的真实进程崩溃和幂等重投；隔离失败与连续前缀推进另有集成回归。
 - RabbitMQ 版本、独立 vhost/账号、双环境同名资源隔离及基本 AMQP/quorum probe 已在 P3.1 验证；详细命令与源码边界见 [MQ 测试环境](../docs/mq-test-environment.md)。常规 fixture 仍不启用 MQ，测试必须显式调用 `StartWithRabbitMQ`。
-- 尚未包含：实际 COMMIT 响应丢失、在途事务强杀、受控隔离重放、正式 MQ 拓扑/可靠 DLX、生产 publisher、MQ 故障恢复、生产环境验收；其余故障窗口按开发规范后续小点推进。
+- 按角色准备 MQ 连接：`go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestMQPreparationIntegration$' -count=1 -v -timeout=6m`。验证 legacy/api/worker/all 的真实独立连接数量、无订阅/无消息领取、成功准备后的 context 取消隔离、部分初始化后握手超时与全资源回收；主/隔离队列待处理内容完整。详见 [MQ 资源准备](../docs/mq-runtime-resources.md)。publisher/consumer 传输和拓扑的其他实际故障范围见实施记录。
+- 尚未包含：实际 COMMIT 响应丢失、在途事务强杀、新 MQ 业务提交后 ACK/审计/Outbox、受控隔离重放、三节点与生产环境验收；其余故障窗口按开发规范后续小点推进。
