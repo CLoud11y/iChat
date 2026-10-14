@@ -65,4 +65,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestMQPrepa
 
 管理 API 的连接/队列统计有约 5s 采样延迟，真实超时场景使用 8s 总准备期限，以观察回滚前的连接；单元测试保留毫秒期限证明期限不按 worker 重置。统计缺失字段不视作零，订阅另直接检查 /api/consumers。测试不读取开发 .env/config，也不启用业务 bootstrap。
 
-后续：P3.5.3.3 生命周期装配与角色能力核验；consumer 自动恢复、readiness、HTTP 202、提交后 ACK 和 Outbox 继续按后续阶段完成。
+P3.5.3.3.1 [MQ 托管生命周期](mq-lifecycle.md) 已在此准备层之上增加 lifetime 取消后的自动关闭与 Done/Wait。PrepareMQ 本身仍只受 setup context 控制，成功后资源由调用方显式持有；使用 StartMQLifecycle 才转由 lifetime owner 管理。下一项 P3.5.3.3.2 角色能力门禁与服务退出装配；consumer 自动恢复、readiness、HTTP 202、提交后 ACK 和 Outbox 继续按后续阶段完成。

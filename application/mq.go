@@ -31,6 +31,10 @@ func DefaultMQOptions() MQOptions {
 	return MQOptions{SetupTimeout: 30 * time.Second, CloseTimeout: 5 * time.Second}
 }
 
+func validMQOptions(o MQOptions) bool {
+	return o.SetupTimeout > 0 && o.SetupTimeout <= time.Minute && o.CloseTimeout > 0 && o.CloseTimeout <= time.Minute
+}
+
 type MQPublisher interface {
 	Publish(context.Context, messaging.Command, time.Time) (rabbitmq.PublishResult, error)
 	WaitReady(context.Context) (uint64, error)
@@ -139,7 +143,7 @@ func PrepareMQ(ctx context.Context, c config.Config, o MQOptions) (*MQResources,
 }
 
 func prepareMQ(ctx context.Context, c config.Config, o MQOptions, f mqFactories) (result *MQResources, err error) {
-	if ctx == nil || o.SetupTimeout <= 0 || o.SetupTimeout > time.Minute || o.CloseTimeout <= 0 || o.CloseTimeout > time.Minute {
+	if ctx == nil || !validMQOptions(o) {
 		return nil, ErrMQOptions
 	}
 	plan, err := c.MQRuntime()

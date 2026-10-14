@@ -1950,3 +1950,46 @@ MQRuntimePlan 是输入描述，不是资源管理器、服务实例或角色就
 建议 commit message：`feat(runtime): prepare role-specific MQ resources with bounded rollback`
 
 下一小点：**P3.5.3.3：生命周期装配与角色能力核验**。开始前按角色能力、service lifetime/退出与恢复范围继续细分，未完成业务角色不能提前订阅或静默降级。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.3.1：MQ 资源托管生命周期与自动有界关闭
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查和隔离 Docker 实测。代码基线为用户提交的 P3.5.3.2.2 `86de2f9`。将 P3.5.3.3 先拆成 MQ 资源 lifetime owner、角色能力门禁与服务退出装配；本轮只完成前一小点。
+
+### 改动
+
+- 新增 `application.StartMQLifecycle` / `MQLifecycle`，调用既有 PrepareMQ 建立 idle 连接，再由一个 goroutine 持有整组资源的关闭责任。lifetime 取消或 Close 请求触发自动关闭，Done/Wait 提供完成通知及可观察结果；不启动业务订阅/任务/进程信号。
+- 保持 PrepareMQ 的 setup-only 语义：成功准备后的总 setup deadline 不会结束新的 lifetime；StartMQLifecycle 的显式 lifetime 取消才自动关闭。Wait 的 observer 取消不影响连接，Close 的 observer 即使已取消仍请求停止，并允许后续用新 observer join。
+- 自动关闭继承 MQResources 的整体 CloseTimeout，使用独立 context；取消的 lifetime/等待者不能夺走清理预算。已停止的 owner 不再通过访问器提供能力，消费者列表仍为副本，不暴露内部清理清单。
+- 关闭结果在 Done 之前发布且保持不可变，多等待者读取通过 channel 同步，无可变共享错误竞态。自动尝试失败明确报告；后续 Close 可在本次剩余预算内重试资源清理，但保留首次失败，不将已发生的异常擦掉。
+- 检查准备交接的最后一次 lifetime 取消；半完成、handle+error 或取消与成功竞争时返回 nil owner，并独立回滚资源。fmt/Error 脱敏，errors.Is 保留构造/清理/取消/期限信息。
+- 共用原 MQOptions 的纯校验，不改变默认值或添加 YAML/env 字段；AMQP 库和 broker 规则不变。更新 README、阶段/模式/资源/测试说明，新增 [MQ 托管生命周期](mq-lifecycle.md)。
+
+### 自审与验证
+
+- 9 个单元测试组验证四模式的自动取消、重复关闭与无效输入拒绝；nil/错误/取消交接、回滚错误传播和凭证脱敏；observer 与资源 lifetime 独立；准备期限结束后的连接继续存活。
+- 独立关闭预算覆盖 lifetime deadline、已取消 Close observer；短观察者先返回但唯一 owner 保持清理责任，之后可再次 join。受控真实超时使所有 child Close 返回期限错误，owner Done 只在全部调用 join 后关闭；Wait 保留失败，显式 Close 可重试。
+- 8 个并发 Close 合并至同一个 owner/资源组关闭尝试，所有 child 只关闭一次，无新监听 goroutine或结果竞态。首次专项在 deadline 用例中发现测试在 owner 启动后修改 fake.Close 的 race；改为交接之前配置 fake，最终专项/全仓库 race 均通过。
+- 真实 suite 保留原 6 个角色连接准备/后续握手超时场景，并增加 4 个 managed 场景：api、worker、all 取消自动关闭，all 的 expired Close observer 先返回后由 owner 独立完成。每次 Wait 加入后 app 连接回到唯一 fixture 控制连接，清理无错误。
+- 真实主/隔离队列各预存一条持久消息，整个准备/托管/回滚过程中 /api/consumers 为空、ready=1/unacknowledged=0/consumers=0；最终只用控制连接读取/ACK，完整命令身份/hash/正文/attempt 和审计原文/持久属性不变。
+- 自审明确区分连接 owner 与业务 task owner：真实业务装配先停接单/领取、限时 drain 提交与 ACK，再取消 MQ lifetime；本轮不将 signal context 直接接到 MQ 以冒充在途事务优雅退出。新模式 guard、既有 legacy bootstrap 和全局依赖保持原行为。
+
+环境：Windows amd64、Go 1.27.1、GCC/race、RabbitMQ 4.3.6 / amqp091-go v1.15.0。沿用仓库 GOCACHE 与不存在的 ICHAT_CONFIG_FILE；真实资源使用独立 Docker fixture，标签核验后清理本轮容器/卷/网络，不读取开发 .env/config、不运行主程序或修改共享数据。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./application -run '^TestMQLifecycle' -count=1 -v` | 修正测试交接 race 后 8 组专项通过，2.362s；后加准备期限/回滚清理错误覆盖纳入最终全仓库回归 |
+| `go test -mod=readonly -race ./... -count=1` | 全部通过；主包=10.342s，application=3.330s，config=2.993s，rabbitmq=6.901s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./tests/testenv -run '^$'` | 集成标签编译通过 |
+| `TestMQPreparationIntegration`（完整命令见生命周期文档） | 10 个真实场景全部通过；suite=79.90s、包=82.594s，managed 四场景=3.95/5.00/5.00/5.01s |
+| gofmt、`git diff --check`、新增文件空白检查 | 通过 |
+
+本轮真实 runId=`69d68b6f1e37aca6d69b65763c5cc31b`，cleanup 成功。仍使用约 5s 管理统计观察窗口，两个原握手超时各=8.02s。没有变更共享 proxy/AMQP 库，没有重复其余 MQ Docker suites，也不把旧结果计为本轮实测。
+
+### 后续边界
+
+StartMQLifecycle 是显式可用的连接托管层，未接入业务 bootstrap；主程序仍只运行 legacy。Done 关闭且 Wait 返回错误时不能宣称所有 child 后台 owner 已退出；后续重试也不保证消除各 session 已缓存的关闭错误。本轮不覆盖实际业务在途事务/进程信号退出、角色能力核验、consumer 自动恢复、readiness、HTTP 202、隔离审计或 Outbox。P3.5.3.3/P3 整体尚未验收。
+
+建议 commit message：`feat(runtime): own MQ lifetimes and join bounded shutdown`
+
+下一小点：**P3.5.3.3.2：角色能力门禁与服务退出装配**。开始前按能力核验、停止准入/在途处理和进程信号继续细分，未完成业务角色不能提前订阅或静默降级。本轮不继续下一小点、不自动提交。

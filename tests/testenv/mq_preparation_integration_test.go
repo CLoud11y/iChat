@@ -234,6 +234,67 @@ func TestMQPreparationIntegration(t *testing.T) {
 			assertIdle(t)
 		})
 	}
+	for _, tc := range []struct {
+		name  string
+		mode  config.RuntimeMode
+		close bool
+	}{
+		{"managed_api_cancel", config.ModeAPI, false},
+		{"managed_worker_cancel", config.ModeWorker, false},
+		{"managed_all_cancel", config.ModeAll, false},
+		{"managed_all_expired_close_observer", config.ModeAll, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conf := c
+			conf.RUNTIME.Mode = tc.mode
+			lifetime, cancelLifetime := context.WithCancel(ctx)
+			defer cancelLifetime()
+			owner, err := application.StartMQLifecycle(lifetime, conf, o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := owner.Close(context.Background()); err != nil {
+					t.Error(err)
+				}
+			})
+			count := 1 + len(owner.Consumers())
+			if publisher := owner.Publisher(); publisher != nil {
+				ready, cancelReady := context.WithTimeout(ctx, 10*time.Second)
+				defer cancelReady()
+				if _, err := publisher.WaitReady(ready); err != nil {
+					t.Fatal(err)
+				}
+				count++
+			}
+			waitCount(t, count)
+			assertIdle(t)
+			if tc.close {
+				observer, cancelObserver := context.WithCancel(ctx)
+				cancelObserver()
+				if err := owner.Close(observer); !errors.Is(err, context.Canceled) {
+					t.Fatal("expired observer did not return promptly", err)
+				}
+			} else {
+				cancelLifetime()
+			}
+			if owner.Publisher() != nil || len(owner.Consumers()) != 0 {
+				t.Fatal("stopping lifecycle exposed new capabilities")
+			}
+			wait, cancelWait := context.WithTimeout(ctx, 3*time.Second)
+			defer cancelWait()
+			if err := owner.Wait(wait); err != nil {
+				t.Fatal("automatic cleanup inherited cancelled context", err)
+			}
+			select {
+			case <-owner.Done():
+			default:
+				t.Fatal("cleanup owner was not joined")
+			}
+			waitCount(t, 1)
+			assertIdle(t)
+		})
+	}
 	// Only the fixture control connection consumes/ACKs, after all preparation
 	// tests finish. Verify complete pending contents survived every close/failure.
 	d := getTopologyDelivery(t, ctx, ch, rabbitmq.PersistQueue)
