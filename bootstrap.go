@@ -29,6 +29,8 @@ type startupDependencies struct {
 	serve       func(config.Config, *redis.Client, service.AccountUsers, service.ContactQueries, service.ContactWrites, service.MessageStore, service.MessageSubscriptions, router.StorageHealth) error
 }
 
+var ErrRuntimeNotAssembled = errors.New("requested runtime mode is not assembled yet")
+
 func defaultStartupDependencies() startupDependencies {
 	return startupDependencies{
 		loadConfig: config.Load,
@@ -86,6 +88,15 @@ func bootstrap(deps startupDependencies) (err error) {
 	conf, err := deps.loadConfig()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
+	}
+	plan, err := conf.RuntimePlan()
+	if err != nil {
+		return fmt.Errorf("resolve runtime roles: %w", err)
+	}
+	// Modern roles require the new routes and workers. Refuse them before any
+	// external I/O until the following assembly steps implement all their roles.
+	if plan.Mode != config.ModeLegacy {
+		return fmt.Errorf("bootstrap: %w: %s", ErrRuntimeNotAssembled, plan.Mode)
 	}
 	if conf.LEGACY_WORKER.Enabled && deps.startWorker == nil {
 		return errors.New("bootstrap: missing startup dependency for enabled legacy worker")

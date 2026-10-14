@@ -13,6 +13,7 @@ import (
 var Conf Config
 
 type Config struct {
+	RUNTIME RuntimeConfig `mapstructure:"-"`
 	// Decoded separately so RabbitMQ input errors cannot echo credentials.
 	RABBITMQ      RabbitMQConfig `mapstructure:"-"`
 	LEGACY_WORKER struct {
@@ -70,11 +71,19 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	runtime, err := loadRuntime(v)
+	if err != nil {
+		return Config{}, err
+	}
 	var conf Config
 	if err := v.Unmarshal(&conf); err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
 	conf.RABBITMQ = mq
+	conf.RUNTIME = runtime
+	if _, err := conf.RuntimePlan(); err != nil {
+		return Config{}, err
+	}
 	return conf, nil
 }
 

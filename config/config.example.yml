@@ -1,6 +1,10 @@
 APP:
   name: iChat
   version: 0.1
+RUNTIME:
+  # Current executable supports legacy. Modern api/worker/all roles are staged
+  # for later assembly and currently fail before opening external connections.
+  mode: legacy
 LEGACY_WORKER:
   # Enable on only one application instance while the legacy queue is in use.
   enabled: false

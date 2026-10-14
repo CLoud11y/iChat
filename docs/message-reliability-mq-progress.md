@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0.1—P0.6、P1 和 P2 仓储范围已验收收口；P3.1—P3.4.2 已完成固定版本、正式拓扑/可靠 DLX、有界 publisher/I/O、unknown 与 supervisor 抖动退避/单调 epoch/新连接只读复核，真实 broker 重启恢复及无自动重发已验收；P3.5.1 已完成应用配置；P3.5.2 已完成独立消费者连接、每 worker 有界消费 channel/prefetch、顺序 delivery、原 channel 单条手动 ACK/Reject，以及真实重投/ACK 丢帧/故障隔离。下一项为 P3.5.3 运行模式与依赖装配，开始前继续细分。新事务与 publisher 尚未接入旧入口、HTTP 202 或业务消费任务，不代表端到端可靠性改造完成。旧 worker 仍依赖不自动过期的单消费者注册及人工恢复，依赖共享 Redis 保留锁状态。** 原总清单的 RabbitMQ 测试 vhost 已按既定安排在 P3.1 完成。以下各小点的“当前”“未覆盖”等表述是当时的历史记录，最新结论以文末对应实施记录为准。
+当前总进度：**P0.1—P0.6、P1 和 P2 仓储范围已验收收口；P3.1—P3.4.2 已完成固定版本、正式拓扑/可靠 DLX、有界 publisher/I/O、unknown 与 supervisor 抖动退避/单调 epoch/新连接只读复核，真实 broker 重启恢复及无自动重发已验收；P3.5.1 已完成应用配置；P3.5.2 已完成独立消费者连接、每 worker 有界消费 channel/prefetch、顺序 delivery、原 channel 单条手动 ACK/Reject，以及真实重投/ACK 丢帧/故障隔离；P3.5.3.1 已完成严格运行模式、纯角色计划和外部连接前的未装配启动拒绝。下一项为 P3.5.3.2 MQ 运行参数与受控依赖构造，开始前继续细分。当前业务主程序仅运行 legacy；新事务与 publisher 尚未接入旧入口、HTTP 202 或业务消费任务，不代表端到端可靠性改造完成。旧 worker 仍依赖不自动过期的单消费者注册及人工恢复，依赖共享 Redis 保留锁状态。** 原总清单的 RabbitMQ 测试 vhost 已按既定安排在 P3.1 完成。以下各小点的“当前”“未覆盖”等表述是当时的历史记录，最新结论以文末对应实施记录为准。
 
 ## 开发拆分
 
@@ -15,7 +15,7 @@
 | P0 | P0.1 安全单元测试入口；P0.2 独立 MySQL/Redis 测试资源与归属校验；P0.3 用本轮 fixture 恢复旧集成测试和 benchmark；P0.4 核验并固定 Go 工具链；P0.5 独立迁移命令与失败退出；P0.6 完善依赖注入、缺失依赖处理和 bootstrap 测试。MQ 测试 vhost 在 P3 引入 broker 时创建 |
 | P1 | P1.1 入队接受顺序及错误语义；P1.2 有界读取和队首原子核对；P1.3 DB 幂等及坏记录隔离；P1.4 worker 启用约束和防重入；P1.5 鉴权发送身份；P1.6 历史完整性、群权限和媒体类型；P1.7 PubSub 生命周期；P1.8 补齐 L1—L12 回归及跨系统崩溃测试 |
 | P2 | P2.1 DTO、规范化和身份/hash；P2.2 schema 与唯一约束；P2.3 幂等命令结果；P2.4 权限事务和锁顺序；P2.5 seq、消息和 Outbox 原子提交；P2.6 状态仓储；P2.7 同步/历史仓储 |
-| P3 | P3.1 核验 broker/client 版本和隔离 vhost；P3.2 本地拓扑及可靠 DLX；P3.3 有界 publisher 和 confirm/return 关联；P3.4.1 I/O/关闭硬界与 unknown；P3.4.2 supervisor 退避重连、单调 epoch 和拓扑复核；P3.5.1 应用配置与纯构造；P3.5.2.1 连接内核与独立消费者基础生命周期；P3.5.2.2 有界消费 channel / 手动 ACK 传输所有权；P3.5.3 运行模式装配；P3.5.4 接受 readiness 与持续拓扑核验；P3.6 隔离环境接入 HTTP 202 |
+| P3 | P3.1 核验 broker/client 版本和隔离 vhost；P3.2 本地拓扑及可靠 DLX；P3.3 有界 publisher 和 confirm/return 关联；P3.4.1 I/O/关闭硬界与 unknown；P3.4.2 supervisor 退避重连、单调 epoch 和拓扑复核；P3.5.1 应用配置与纯构造；P3.5.2.1 连接内核与独立消费者基础生命周期；P3.5.2.2 有界消费 channel / 手动 ACK 传输所有权；P3.5.3.1 模式配置/角色计划/启动检查；P3.5.3.2 MQ 运行参数与受控依赖构造；P3.5.3.3 生命周期装配与角色能力核验；P3.5.4 接受 readiness 与持续拓扑核验；P3.6 隔离环境接入 HTTP 202 |
 | P4 | P4.1 消费事务与提交后 ACK；P4.2 错误分类和数据库故障退避；P4.3 可靠隔离转移；P4.4 隔离审计 worker；P4.5 受控重放 CLI；P4.6 提交不确定和退出恢复 |
 | P5 | P5.1 Outbox lease 领取；P5.2 token 条件完成和重试；P5.3 通知协议与内容授权；P5.4 WS 订阅及慢客户端处理；P5.5 session fencing；P5.6 ACK 持久化与确认 |
 | P6 | P6.1 状态接口契约；P6.2 会话列表及补拉/历史接口；P6.3 模拟客户端发送恢复；P6.4 本地幂等和连续游标；P6.5 重连及周期同步；P6.6 分页/乱序/本地清空测试；P6.7 前端接入文档 |
@@ -1824,3 +1824,41 @@ P3.5.2 的独立连接与消费传输库级范围收口。多个 worker 连接�
 建议 commit message：`feat(mq): add bounded consumer channels and fenced manual dispositions`
 
 下一项：**P3.5.3：运行模式与依赖装配**。开始前根据配置、角色能力、后台恢复和关闭范围继续拆成可审查小点。HTTP 202 按 P3.6、消费事务按 P4 接入；本轮不继续下一项、不自动提交。
+
+## P3.5.3.1：严格运行模式、角色计划与启动检查
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、专项和全仓库 race、静态检查。代码基线为用户提交的 P3.5.2.2 `be794b8`。P3.5.3 继续拆分；本轮不装配新角色或切换业务链路。
+
+### 改动
+
+- 新增 `RuntimeMode`、`RuntimeConfig` 和无 I/O 的 `Config.RuntimePlan()`，选择 legacy/api/worker/all 的 API、RabbitMQ publisher、持久化 consumer、隔离审计 consumer、Outbox 和旧 worker 角色。计划是值对象，不创建服务、连接或任务，也不改变配置/全局状态。
+- `config.Load` 严格读取 `RUNTIME.mode`：文件省略时 legacy，显式 `ICHAT_RUNTIME_MODE` 可覆盖省略键/文件值，空覆盖必须失败；拒绝错误类型、未知字段/模式、枚举大小写和空白变体。读取使用独立 Viper，不保留先前模式，不回显原始非法值。
+- 代码直接构造的零值 Mode 沿用 legacy，保持旧 bootstrap 注入构造器兼容。新模式与 LEGACY_WORKER.enabled=true 互斥，Load 和直接 RuntimePlan 都验证，不能同时启动旧队列 worker 和新角色。
+- bootstrap 在配置加载后、MySQL/Redis/worker/global binding/storage health/HTTP 之前解析角色计划并执行装配检查。当前业务程序仅 legacy 可启动；合法但未装配的新模式返回 `ErrRuntimeNotAssembled`，非法/冲突模式返回 `ErrRuntimeConfig`。不静默降级为旧 router，不运行部分新角色。
+- 更新默认 legacy 的模板、README、[运行模式配置与启动检查](mq-runtime-modes.md)、MQ 配置说明和阶段清单。将后续拆为 P3.5.3.2 MQ 运行参数/受控依赖构造，P3.5.3.3 生命周期/角色能力核验；开始前仍可细分。
+
+### 自审与验证
+
+- 角色检查证明 api 不选择持久化/隔离/Outbox worker，worker 不选择 API/publisher，all 选择两类角色，legacy 只按既有开关选择旧 worker。角色计划不解释 transport 凭证或主机配置；仓储和 MQ 的可用性校验留给各自构造器与装配层。
+- 测试默认与文件模式、大小写配置键、完全省略 YAML 的环境模式、覆盖/显式 legacy、空值/未知/错误类型/秘密字符串脱敏、重复加载，以及新旧 worker 冲突与直接零值配置。
+- bootstrap 注入工厂记录调用，api/worker/all、非法模式和冲突配置均只有配置加载事件；MySQL、Redis、legacy worker 和 HTTP 工厂都不运行，既有全局依赖身份不变。没有触发连接构造器、消费订阅或健康任务。
+- 原默认 legacy 的完整 bootstrap 生命周期、worker 启用/防重入/停止、缺失 factory、MySQL 离线 API 行为和迁移 CLI 回归继续通过。未通过改测试预期来容忍新角色误启动或吞掉错误。
+
+环境：Windows amd64、Go 1.27.1、GCC/race。沿用仓库 GOCACHE 与不存在的 ICHAT_CONFIG_FILE，配置测试仅使用临时文件/模板；无 Docker、开发配置/.env 或真实数据操作。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./config . -run 'Test(Runtime\|BootstrapRuntime)' -count=1 -v` | 专项通过；config=2.571s、主包=2.897s |
+| `go test -mod=readonly -race ./... -count=1` | 最终全仓库通过；主包=10.050s，config=2.546s，rabbitmq=6.508s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| gofmt、`git diff --check`、新增文件空白检查 | 通过 |
+
+本轮未改 AMQP 方法、确认状态机或测试 fixture，没有重复运行 Docker MQ 故障矩阵，也不计为本轮实测。启动拒绝的行为由直接执行 bootstrap、记录实际 factory 调用的测试覆盖。
+
+### 后续边界
+
+角色声明不表示角色服务已实现。当前主程序仅 legacy；api/worker/all 在外部连接前明确失败。consumer 参数/数量上限/后台恢复、MQ 资源装配、角色所需 schema/依赖核验、进程信号与优雅退出、整体 readiness、HTTP 202、业务事务和 Outbox 仍按后续小点接入。独立迁移命令可读取合法模式，但不会使用业务 bootstrap 的装配检查或新增 MQ 网络依赖。
+
+建议 commit message：`feat(runtime): add validated mode plans and reject unassembled roles`
+
+下一小点：**P3.5.3.2：MQ 运行参数与受控依赖构造**。开始前按 producer/consumer 选取、worker 上限和构造/失败清理范围继续细分；未完成角色不得静默降级。本轮不继续下一小点、不自动提交。
