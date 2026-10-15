@@ -35,6 +35,28 @@ func dialPeerConsumer(t *testing.T, peer *sessionPeer, options ConnectionOptions
 	return s
 }
 
+func TestConsumerRetiredCloseDoesNotWriteNewHandshake(t *testing.T) {
+	peer := newSessionPeer(t, "consumer_idle", 0)
+	s := dialPeerConsumer(t, peer, testSessionOptions().connectionOptions(), func(context.Context, *amqp.Connection) error { return nil })
+	// Hold the transport healthy while explicitly retiring admission: this
+	// deterministically exposes a close-handshake write after retirement.
+	s.owner.stopAdmission()
+	peer.socket.trackWrites.Store(true)
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-peer.socket.writeEvents:
+		t.Fatal("retired owner attempted a new AMQP close handshake")
+	default:
+	}
+	select {
+	case <-peer.socket.closed:
+	default:
+		t.Fatal("retired close did not abort its owned transport")
+	}
+}
+
 func TestConsumerSessionHandshakeAndSetupBounds(t *testing.T) {
 	for _, mode := range []string{"unread_handshake", "silent_handshake", "silent_channel_open"} {
 		t.Run(mode, func(t *testing.T) {

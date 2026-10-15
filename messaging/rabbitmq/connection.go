@@ -235,7 +235,7 @@ func (s *connectionOwner) Close(ctx context.Context) error {
 		}
 	}
 	s.closing = true
-	closeWork, conn := s.closeWork, s.connection
+	closeWork, conn, retired := s.closeWork, s.connection, s.closed
 	s.mu.Unlock()
 	s.stopAdmission()
 	stop := watchCancellation(closeCtx, s.abort)
@@ -243,7 +243,10 @@ func (s *connectionOwner) Close(ctx context.Context) error {
 		closeWork()
 	}
 	var err error
-	if conn != nil {
+	// A retired owner may have already aborted its socket while the AMQP
+	// reader has not published its closed state yet. Do not race that reader
+	// by writing a fresh graceful-close handshake to an unusable transport.
+	if conn != nil && !retired {
 		deadline, _ := closeCtx.Deadline()
 		if e := conn.CloseDeadline(deadline); e != nil && !errors.Is(e, amqp.ErrClosed) {
 			err = ErrSessionClose

@@ -34,7 +34,8 @@ type RuntimeService interface {
 	StopAdmission()
 	// Drain waits for admitted work to finish, including commit and ACK.
 	Drain(context.Context) error
-	// Close cancels remaining work and joins owned tasks within its context.
+	// Close is safe before Start and after a partially failed Start. It cancels
+	// remaining work and joins owned tasks within its context.
 	// It does not own the shared MQ group or shared storage dependency pools.
 	Close(context.Context) error
 	// Done reports service termination; Err is read after Done closes.

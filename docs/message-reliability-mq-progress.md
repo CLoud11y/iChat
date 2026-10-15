@@ -2034,3 +2034,55 @@ StartMQLifecycle 是显式可用的连接托管层，未接入业务 bootstrap�
 建议 commit message：`feat(runtime): validate required role factories and service assemblies`
 
 下一小点：**P3.5.3.3.2.2：受控服务构造、激活与分阶段退出编排**。开始前按构造回滚、生命周期和进程信号范围继续细分；未完成业务角色不能提前订阅或静默降级。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.3.2.2：受控服务构造、激活与分阶段退出执行器
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查与隔离 Docker 实测。代码基线为用户提交的 P3.5.3.3.2.1 `b4420bd`。本轮完成可显式调用的现代角色执行器及其失败/退出编排，未提供生产业务角色或接线默认主程序。
+
+### 改动
+
+- 新增 application.RunRuntime / RuntimeOptions。所选角色构造器与 MQ 参数在外部依赖前验证；拒绝 legacy 误走现代执行器。统一 StartupTimeout 覆盖 MQ 准备、全部服务构造及激活工作，另设独立 DrainTimeout/CloseTimeout，复用既有 MQOptions，不添加 YAML/env 字段。
+- 持有 PrepareMQ 的显式资源组，核验实际模式、publisher、消费者队列/数量/prefetch/非空能力，API 仅获 publisher，持久化/隔离只获对应连接组，Outbox 无 MQ 输入。服务不持有整个共享 MQ 资源组。
+- 所有服务构造完成并 ValidateServices 后才 Start；激活顺序 Outbox→隔离→持久化→API。收集每个非空返回 handle，包括 handle+error；拒绝 nil/typed nil 和可比较实例的跨角色复用，重复 handle 只清理一次。实例自身是否暗中共享资源仍由工厂契约约束。
+- Start 使用独立 setup/lifetime，成功后清除 setup 控制；监视稳定、非空 Done，只在关闭后读取 Err。异常退出（包括 nil Err）、nil Done 或 Done 发送值会失败并停止全组；启动中后台角色提前退出不继续激活 API。不自动重建服务或重放命令。
+- 正常取消先同步停止全部已尝试激活角色的准入，再共享期限并发 Drain；期间保留 role lifetime 与 MQ 通路，所有 Drain 返回后才取消 role lifetime。随后并发关闭全部已构造服务，最后在同一关闭预算内关闭 MQ，期限已耗尽也触达每个 MQ child Close。
+- 构造失败跳过激活/Drain，仍关闭全部已返回对象；Start 前即记录 attempted，失败 Start 也 StopAdmission/Drain。回滚和关闭使用独立 context，不继承已取消的启动/进程 context；所有调用 join，不丢弃 goroutine 伪装完成。回调适配器必须遵守期限、非阻塞访问器等接口契约。
+- errors.Is 保留启动、drain、服务关闭、MQ 关闭与取消/期限的独立原因；Error/fmt 只含固定阶段/已知角色，不输出原始依赖错误。成功激活后正常取消且清理成功返回 nil；启动中取消则报启动失败并回滚。
+- 更新 README、阶段清单、角色/模式/生命周期说明和测试说明，新增 [受控服务执行与退出](runtime-execution.md)。RunRuntime 直接持有资源，避免进程取消通过单独 MQLifecycle 提前切断 drain 通路；默认 bootstrap 未注册业务构造器，新模式仍拒绝。
+
+### 回归中修复的既有关闭竞态
+
+全仓库首轮在 TestConsumerChannelBrokerCancelAndMalformedDelivery 的 consumer_cancel 分支出现 ErrSessionClose；独立 20 轮复现 4 次（含坏 tag 分支）。owner.Done 在停止准入时关闭，可能早于 AMQP reader 发布连接 closed 状态；已经退役/中断的 transport 被 Close 再次写 graceful-close 握手，形成伪关闭失败。
+
+连接内核在 Close 首次进入锁时记录 retired；此前已退役的 owner 不再发新 AMQP 握手，仍 join 关闭工作、abort transport 并等待自有在途调用归零。健康 owner 保持原 CloseDeadline、关闭黑洞期限和错误行为。新增确定性 peer 回归先停止准入但保留 socket，断言 Close 不写新握手且确实关闭 transport；该测试与原 broker cancel/坏投递分支连续 50 轮全部通过，未放宽测试预期。
+
+### 自审与验证
+
+- 11 组执行器专项验证三种现代模式角色输入、全部构造先于激活/API 最后启动、全部准入停止先于 drain、role lifetime/MQ 在 drain 期间有效、所有服务 Close 返回后才关闭 MQ，以及服务生命周期恰好调用一次。
+- 逐构造器 handle+error、逐激活部分失败、nil/typed nil/实例复用、异常退出/Done 违约、整个启动工作期限、两个整组关闭阶段期限、成功返回与取消竞争、多个独立失败保留/脱敏、坏 MQ 快照和部分返回均有可执行测试。构造器与回调均为受控注入，未读取旧全局 manager。
+- 真实 RuntimeExecution suite 的 fixture 角色不订阅或执行业务事务；验证 process 已取消后的 Drain 中实际 Publish 仍获得 accepted/confirm，消费者实际 Verify 仍成功。构造器 handle+error、部分激活失败、drain 超时后所有角色关闭并回到 broker 唯一控制连接。
+- 主/隔离各预放一条持久原文，drain 另发布一条规范命令。全部过程无订阅、无 unacknowledged，最后仅控制连接读取/ACK，完整核对原文、持久属性、规范命令身份/hash/正文/attempt，未把 fixture ACK 冒充数据库提交后 ACK。
+- 共享连接关闭修复另实测原 session 5 个健康/确认与关闭响应黑洞场景，以及 ConsumerChannel 5 个 prefetch/手动 ACK、未确认重投/旧句柄、可靠隔离、publisher 背压隔离、ACK 本地成功但丢帧后重投场景，全部通过。
+
+环境：Windows amd64、Go 1.27.1、GCC/race、Docker Engine 28.4.0、RabbitMQ 4.3.6 / amqp091-go v1.15.0。沿用仓库 GOCACHE 与不存在的 ICHAT_CONFIG_FILE；只使用本轮独立 Docker project/vhost/账号/端口/卷，标签核验后清理，不读取开发 .env/config、不运行业务主程序或修改共享数据。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./application -run '^TestRunRuntime' -count=1 -timeout=30s` | 最终专项通过，11 组，2.577s |
+| `go test -mod=readonly -race ./messaging/rabbitmq -run '^TestConsumer(RetiredClose\|ChannelBrokerCancelAndMalformedDelivery)' -count=50 -timeout=60s` | 关闭竞态与确定性无写入回归 50 轮全部通过，2.542s |
+| `go test -mod=readonly -race ./... -count=1` | 关闭修复后最终全部通过；主包=10.757s，application=3.008s，config=3.211s，rabbitmq=6.969s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终通过，包含集成标签代码 |
+| `go test -mod=readonly -tags=integration ./tests/testenv -run '^$'` | 集成标签编译通过 |
+| `TestRabbitMQSessionIntegration` + `TestRuntimeExecutionIntegration`（完整命令见执行器文档） | 9 个真实场景全部通过；session=23.16s，runtime=39.88s，包=65.639s |
+| `TestRabbitMQConsumerChannelIntegration` | 5 个真实场景全部通过；suite=45.81s，包=48.765s |
+| gofmt、`git diff --check`、新增文件空白检查 | 通过 |
+
+真实 runId：session=`fd89bfefef5eb5acd0a14c8549b60619`、runtime=`e8d3805b2bfabb08dcd25d0d970fdf18`、consumer channel=`0941bba2c2e6111fce4ead5cb279817e`；三轮 cleanup 均成功。首次实测因 Docker 未运行在资源发现阶段失败（run=`e587fab6c7e23ed98d29b5b93b46408d`，尚未创建 fixture）。后台启动 Desktop 后曾遇 WSL 0x800705aa 资源不足，后续引擎恢复并确认版本后完成实测；未终止其他应用/WSL、重置数据或修改系统内存配置。
+
+### 后续边界
+
+P3.5.3.3.2 的结构检查与受控执行基础范围收口；主程序仍只运行 legacy，现代业务工厂未实现/注册。真实业务在途事务、COMMIT 不确定、隔离审计/Outbox、consumer 自动恢复和整体 readiness 未由本轮 fixture 证明。回调必须遵守期限；Close 报错/超时时不能假称其内部全部任务已退出。P3.5.3.3/P3 整体尚未验收。
+
+建议 commit message：`feat(runtime): orchestrate role startup and phased shutdown`
+
+下一小点：**P3.5.3.3.3：进程信号与运行入口接线**。开始前按入口、信号和 legacy 兼容范围继续细分；缺失现代角色仍须在连接前拒绝，不能用 fixture 冒充生产处理器。本轮不继续下一小点、不自动提交。

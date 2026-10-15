@@ -749,13 +749,14 @@ P2.1—P2.7 的协议、schema、幂等、权限、seq/消息/Outbox 原子提�
 - [x] P3.5.3.2.2 按角色受控创建 publisher/独立消费者连接，总构造期限、无订阅准备、部分失败回滚与整组有界关闭。
 - [x] P3.5.3.3.1 MQ 托管 lifecycle owner，取消后有界自动关闭、Done/Wait 和清理错误保留；不启动业务任务。
 - [x] P3.5.3.3.2.1 所选业务角色构造器检查、全部缺失诊断和激活前服务实例检查；bootstrap 拒绝前不联网、不执行构造器。
-- [ ] P3.5.3.3.2.2 受控服务构造、激活与分阶段退出编排；开始前按构造回滚、停止准入/在途处理和进程信号继续细分。
+- [x] P3.5.3.3.2.2 受控服务构造/全部实例检查/后台角色先激活，失败回滚及停止准入→drain→关闭服务→关闭 MQ 的有界执行器；未提供业务角色实现。
+- [ ] P3.5.3.3.3 进程信号与运行入口接线，缺失现代业务工厂仍须在连接前拒绝；开始前按入口/信号和 legacy 兼容继续细分。
 - [ ] P3.5.4 接受 readiness 与持续拓扑核验；拓扑不匹配保持未就绪。
 - [ ] 接受入口切换为新的 DTO 和 202 语义；MQ 首先独立测试，未完成 consumer 时只使用隔离环境积压。
 
 验收：return+ACK 调度反转不误报 accepted；确认丢失重试安全；网络黑洞超时有界；旧 ACK 不污染新请求；拓扑错误不触发自动删队列。
 
-P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)，P3.5.3.3.1 见 [MQ 托管生命周期](mq-lifecycle.md)，P3.5.3.3.2.1 见 [角色构造器与服务实例检查](runtime-assembly.md)。现有业务入口保持旧链路，尚不代表业务提交后 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。下一项为 P3.5.3.3.2.2 受控服务构造、激活与分阶段退出编排；开始前继续细分。
+P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)，P3.5.3.3.1 见 [MQ 托管生命周期](mq-lifecycle.md)，P3.5.3.3.2.1 见 [角色构造器与服务实例检查](runtime-assembly.md)，P3.5.3.3.2.2 见 [服务执行与退出编排](runtime-execution.md)。现有业务入口保持旧链路，尚不代表业务提交后 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。下一项为 P3.5.3.3.3 进程信号与运行入口接线；开始前继续细分。
 
 ### P4：持久化 consumer、失败隔离与恢复
 
