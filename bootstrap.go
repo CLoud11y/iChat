@@ -40,34 +40,22 @@ func defaultStartupDependencies() startupDependencies {
 		openRedis:  utils.OpenRedis,
 		startWorker: func(store scheduledtasks.MessageStore, rds *redis.Client) (func(), error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			owner, err := database.AcquireLegacyWorker(ctx, rds)
+			worker, err := startLegacyWorker(ctx, store, rds, defaultLegacyWorkerOptions())
 			cancel()
-			if err != nil {
+			if worker == nil {
 				return nil, err
 			}
-			release := func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := owner.Release(ctx); err != nil {
-					utils.Logger().WithError(err).Error("release legacy worker ownership failed; operator recovery may be required")
+			// Preserve the legacy stop contract: do not release shared storage
+			// until jobs AND the bounded release attempt have actually joined.
+			// The future signal owner uses the explicit Drain/Close/Wait API.
+			return func() {
+				drainCtx, cancel := context.WithTimeout(context.Background(), defaultLegacyWorkerOptions().JobTimeout)
+				drainErr := worker.Drain(drainCtx)
+				cancel()
+				if stopErr := errors.Join(drainErr, worker.Close(context.Background())); stopErr != nil {
+					utils.Logger().WithError(stopErr).Error("stop legacy worker failed; operator recovery may be required")
 				}
-			}
-			store = scheduledtasks.OwnedMessages{MessageStore: store, Owner: owner}
-			stop, err := startLegacyCron("@every 60s", func() {
-				defer func() {
-					if recovered := recover(); recovered != nil {
-						utils.Logger().WithField("panic", recovered).Error("sync messages panicked")
-					}
-				}()
-				if err := scheduledtasks.SyncMsg(context.Background(), store); err != nil {
-					utils.Logger().WithError(err).Error("sync messages failed")
-				}
-			})
-			if err != nil {
-				release()
-				return nil, err
-			}
-			return func() { stop(); release() }, nil
+			}, err
 		},
 		serve: func(conf config.Config, rds *redis.Client, users service.AccountUsers, contacts service.ContactQueries, writes service.ContactWrites, messages service.MessageStore, subscriptions service.MessageSubscriptions, storage router.StorageHealth) error {
 			tokens, err := utils.NewTokenService(conf, utils.NewRedisTokenBlacklist(rds))

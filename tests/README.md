@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.5.3.3.3.2.2.1 legacy cron 生命周期与注册释放：
+
+```powershell
+go test -mod=readonly -race . -run '^TestLegacyWorker' -count=50 -timeout=60s
+go test -mod=readonly -race -tags=integration . -run '^TestLegacyWorkerLifecycleIntegration$' -count=1 -v -timeout=5m
+```
+
+默认测试使用真实 cron/受控 owner/store，不连接 DB/Redis；实际 suite 使用 NewLegacyFixture 的独立 MySQL/Redis，覆盖真实提交屏障后的 graceful/forced 退出、原始前缀重放幂等、旧 owner 不删除 successor、默认工厂重复 stop 后共享存储仍可用。完整 OS 信号退出仍待整体入口装配，详见 [worker 生命周期](../docs/legacy-worker-lifecycle.md)。
+
 P3.5.3.3.3.2.1 legacy HTTP/WebSocket 生命周期适配器：
 
 ```powershell

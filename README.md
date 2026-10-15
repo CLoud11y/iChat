@@ -36,6 +36,8 @@ P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消�
 
 [MQ 托管生命周期](docs/mq-lifecycle.md) 在 lifetime 取消时自动关闭整组资源，提供 Done/Wait、短等待后再次加入清理及错误保留。[角色构造器与服务实例检查](docs/runtime-assembly.md) 可列出所选模式的全部缺失角色，并在激活前拒绝缺失或多余服务。[运行时执行器](docs/runtime-execution.md) 已提供全部构造后再激活、API 最后启动，以及停止准入→drain→关闭服务→关闭 MQ 的有界编排。[进程入口](docs/runtime-process-entry.md) 已接入现代分支信号；[legacy HTTP/WebSocket 适配器](docs/legacy-http-lifecycle.md) 已能停止准入并等待全部当前及替换连接，尚未接入默认入口，下一项装配 cron 与整体退出。默认现代角色工厂仍为空，当前仍只可运行 legacy。
 
+[legacy cron 生命周期](docs/legacy-worker-lifecycle.md) 已由默认 worker 工厂复用：批次限时、停止准入、等待全部任务后一次释放注册，支持重复观察退出结果。真实 MySQL 提交后取消与 Redis 原始前缀重放已验证；下一项将 HTTP、worker、健康探测和存储统一接入信号退出。
+
 项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 
 1. 创建本地配置：

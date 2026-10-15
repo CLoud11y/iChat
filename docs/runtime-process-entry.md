@@ -20,7 +20,7 @@
 
 Unix 下 SIGINT/SIGTERM 请求退出。Windows 的 Ctrl+C/Ctrl+Break 经 Go 转为 os.Interrupt；控制台关闭、注销和关机可能产生 SIGTERM，但操作系统仍可能终止进程，不能承诺完整 drain 预算。平台行为以固定 Go 1.27.1 本地 `src/os/signal/doc.go` / `signal.go` 为依据。本轮没有向测试宿主或其他进程发送信号。
 
-P3.5.3.3.3.2.1 已提供[独立 HTTP/WebSocket 生命周期适配器](legacy-http-lifecycle.md)，显式持有并等待全部处理器，包括被替换的旧连接；它尚未替换默认 Gin.Run。当前仅现代分支订阅信号，legacy 保持原操作系统退出行为。下一小点 P3.5.3.3.3.2.2 完成 legacy cron 任务/所有权及整体退出装配，再接入信号；不能在 HTTP/任务尚未 join 时提前释放存储。
+P3.5.3.3.3.2.1 已提供[独立 HTTP/WebSocket 生命周期适配器](legacy-http-lifecycle.md)，显式持有并等待全部处理器，包括被替换的旧连接；它尚未替换默认 Gin.Run。P3.5.3.3.3.2.2.1 的[cron 生命周期](legacy-worker-lifecycle.md)已由默认 worker 工厂复用。当前仅现代分支订阅信号，legacy 保持原操作系统退出行为。下一小点 P3.5.3.3.3.2.2.2 完成 HTTP/worker/健康探测/存储的统一退出装配，再接入信号；不能在 HTTP/任务尚未 join 时提前释放存储。
 
 ## 验证
 

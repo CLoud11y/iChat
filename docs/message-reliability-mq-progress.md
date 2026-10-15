@@ -2168,3 +2168,48 @@ P3.5.3.3.3.1 范围收口，P3.5.3.3.3/P3 整体尚未验收。主程序已经�
 建议 commit message：`feat(runtime): own legacy HTTP and WebSocket shutdown lifecycles`
 
 下一小点：**P3.5.3.3.3.2.2：legacy cron 的有界停止、任务等待与所有权释放，以及整体退出接线**。开始前可按 worker 和入口继续细分；必须在任务退出后再关闭存储。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.3.3.2.2.1：Legacy cron 任务停止、等待与注册释放
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译和隔离 Docker 实测。代码基线为用户提交的 P3.5.3.3.3.2.1 `b742248`，开始时工作区干净。将 P3.5.3.3.3.2.2 拆为本轮 worker owner，以及下一小点的 HTTP/worker/健康探测/存储统一生命周期和信号接入。
+
+### 改动
+
+- 新增 startLegacyWorker/legacyCronWorker，先纯校验 schedule、job/release 期限与非空依赖，再沿用无 TTL 的 AcquireLegacyWorker。成功 setup 与独立 job lifetime 分离；注册结果未知仍不补偿 DEL/自动重试。
+- 同步准入 gate 拒绝停止后的排队 callback，running gate 跳过重叠；每次 SyncMsg 使用默认 30s context（正值、≤60s）。defer 在错误/panic 后归还 gate，后续排程可继续；仍使用 OwnedMessages 的逐条所有权检查与原子前缀确认。
+- StopAdmission 不执行 RPC/等待任务；Drain 停止调度并等待全部 callback，不取消在途任务、不释放锁；Close 停止/取消剩余任务并请求清理。过期 observer 也请求停止，但不是任务已经结束的证明。
+- 唯一 manager 只调用一次 cron.Stop，等其全部 callback 返回，再用独立 Background/default 5s ReleaseTimeout 进行一次比较 token 的释放。短等待者不会丢弃清理责任，多个 Close/Wait 共享 Done 发布前固定的结果；释放失败/超时不自动重试或擦掉错误。
+- setup 在已知 token 交接前取消时返回 handle+startup error，并自动请求关闭闲置 worker；调用方继续 join handle。nil/typed nil、非法排程/期限、预取消均在 acquire 前拒绝。错误 fmt 只含固定类别，errors.Is 保留 cause，panic 原值不写入兼容日志。
+- 默认 legacy startWorker 工厂已复用新 owner，仍保持旧 stop 的真实等待契约：独立 30s Drain 后取消/等待并释放，错误仍按旧接口记录日志；既有 bootstrap 先停止 worker 后恢复全局/关闭存储的顺序不变。未替换默认 Gin.Run 或为 legacy 注册进程信号。
+- 更新 README、开发勾选、入口/HTTP/恢复/测试说明，新增 [Legacy worker 生命周期](legacy-worker-lifecycle.md)。原注册 Lua、数据 schema、MQ 与配置/依赖版本不变；不新增 YAML/env。
+
+### 自审与验证
+
+- 7 组默认测试使用真实 cron 短排程，而非手工调用正在运行的 job 伪装 join；验证 drain 不取消任务/不释放锁、Close 即使 observer 过期仍取消工作、被取消的 job 清理屏障未结束前 manager 不能释放注册，以及已停止的排队 callback 不再读数据。
+- 顺序测试覆盖受控 commit → acknowledgement → Drain 返回 → Close/Release；job deadline、panic 后继续执行和始终不重叠；8 个并发 Close 的同一结果、独立 release deadline、保留首次错误/不重复释放；观察者取消不停止 worker、成功 setup 取消后 job lifetime 保留、已知 token 的交接取消自动回滚，以及输入/凭证脱敏边界。
+- 实际 suite 使用独立 MySQL/Redis 和既有真实消息仓储。在真实 DB 提交后暂停 job：graceful 仍能完成确认，Drain 后注册仍 Busy，Close 才释放；forced Close observer 过期后任务仍被取消，但 job 返回前注册仍 Busy。释放屏障后原始前缀保留，新 owner 重放不增加消息行并清空前缀。
+- 实际 stale_release 场景仅替换本轮 fixture token：旧 owner 的比较释放明确返回 ErrLegacyWorkerOwnership，不删除 successor；重复 Close 不重试 Release，首次错误保持。fixture 按自身 token 比较恢复，不使用共享 Redis/无条件 DEL。
+- 实际 default_factory_stop 验证默认生产工厂接线：注册存在时竞争失败，重复 stop 后新 owner 可取得锁，旧 stop 再次调用不删除新 owner，Redis PING/MySQL SELECT 仍成功；worker 不拥有共享存储的关闭责任。
+- 自审核对固定 cron v3.0.0 的 Stop/JobWaiter：只能在确认全部 callback 返回后释放 token，取消和超时不是数据库事务已结束的证据。默认 30s 是工作参数而非生产容量承诺；取消后确认失败可能暂停原 owner，旧人工恢复边界保留。兼容 stop 对不遵守 context 的回调继续等待，不能宣称整个进程有无条件 35s 上限。
+
+环境：Windows amd64、Go 1.27.1、GCC/race。沿用仓库 GOCACHE 和不存在的 ICHAT_CONFIG_FILE；默认测试只用受控 store/owner，不读开发 .env/config、不访问真实 DB/Redis。实际场景用 NewLegacyFixture 的独立 Docker project/schema/账号/随机 loopback 端口，标签核验后清理；未运行业务主程序、发送 OS 信号或修改共享数据。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race . -run '^TestLegacyWorker' -count=1 -v -timeout=45s` | 首轮 7 组通过，3.127s |
+| `go test -mod=readonly -race . -run '^TestLegacyWorker' -count=50 -timeout=60s` | 最终 7 组连续 50 轮通过，7.565s |
+| `go test -mod=readonly -race ./... -count=1` | 全部通过；主包=10.593s，application=2.795s，config=2.902s，rabbitmq=6.640s，无 race；最后增强的 setup 清理断言由最终 50 轮专项覆盖 |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库集成标签编译通过 |
+| `go test -mod=readonly -race -tags=integration . -run '^TestLegacyWorkerLifecycleIntegration$' -count=1 -v -timeout=5m` | 4 个真实场景全部通过，suite=21.78s、包=24.801s |
+| gofmt、`git diff --check`、新增文件空白/文档链接检查 | 全部通过 |
+
+实际 runId=`370d5ba80381122022e07f792fe4025f`，cleanup 成功。强制取消后的重放出现预期 MySQL duplicate-key 日志，随后完成既有内容一致性校验，最终行数仍为 1。首次 sandbox 无 Docker 配置/pipe 权限，在资源发现阶段失败（run=`88ac99b19f2bb145509296a7ddc693a3`，未创建 fixture）；提升后完成上述实测，没有自动审批拒绝或环境重置。本轮未改 MQ，不重复旧 MQ Docker suites，也不将旧结果计为本轮实测。
+
+### 后续边界
+
+P3.5.3.3.3.2.2.1 范围收口；默认启用的 legacy worker 已使用新生命周期，但 HTTP/Gin 与进程信号仍保持原行为。实际测试证明的是旧链路 MySQL 提交/Redis 确认与注册释放，不是 MQ 消费者提交后 ACK、端到端恢复或完整服务器信号退出。P3.5.3.3.3.2/P3 尚未整体验收。
+
+建议 commit message：`feat(runtime): drain legacy cron jobs before releasing ownership`
+
+下一小点：**P3.5.3.3.3.2.2.2：legacy HTTP/worker/健康探测/存储的统一生命周期与信号接入**。先停止各方准入，保留 drain 机会，确认 HTTP 和 job 全部 join 后再恢复全局并关闭存储；不能把 Close observer 超时误当作任务退出。本轮不继续下一小点、不自动提交。

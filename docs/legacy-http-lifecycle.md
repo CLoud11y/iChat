@@ -44,4 +44,4 @@ WebSocket 使用实际 `service.Chat` 和 Gin/Gorilla，经独占 loopback liste
 
 测试只使用本机独占临时端口、net.Pipe 和受控订阅，不读取开发 .env/config、不运行业务主程序、不访问共享数据库，也不使用 Docker。OS 信号投递、实际 Redis Pub/Sub/DB 在途事务、cron/注册锁释放和完整服务器信号退出不属于本项实测。
 
-下一小点 P3.5.3.3.3.2.2：legacy cron 的有界停止、任务等待与所有权释放，以及 HTTP/worker/健康探测/存储的整体退出接线；开始前可继续细分。P3.5.3.3.3.2/P3 整体尚未验收。
+P3.5.3.3.3.2.2.1 [legacy cron 生命周期](legacy-worker-lifecycle.md) 已完成并由默认 worker 工厂复用。下一小点 P3.5.3.3.3.2.2.2：HTTP/worker/健康探测/存储的统一生命周期与信号接入；HTTP 适配器尚未替换 Gin.Run。P3.5.3.3.3.2/P3 整体尚未验收。
