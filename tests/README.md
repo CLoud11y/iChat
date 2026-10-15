@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.5.3.3.3.2.1 legacy HTTP/WebSocket 生命周期适配器：
+
+```powershell
+go test -mod=readonly -race . -run '^TestLegacyHTTP' -count=1 -v -timeout=45s
+go test -mod=readonly -race . -run '^TestLegacyHTTP' -count=30 -timeout=60s
+```
+
+独占 loopback HTTP 服务配合实际 Gin/Gorilla/service.Chat 验证停止准入、普通请求 drain、活动及被替换 WebSocket 的 socket/订阅/任务等待、超时后再次 Close 和 Hijack 停止竞争；net.Pipe 验证部分 socket handle 清理。订阅为受控 fixture，不连接 Redis/DB，不读取开发配置或使用 Docker。适配器尚未接到默认入口，完整 legacy 退出仍待 cron/存储装配，详见 [生命周期边界](../docs/legacy-http-lifecycle.md)。
+
 P3.5.3.3.3.1 进程入口分流与现代运行时信号（默认单元测试，不使用 Docker）：
 
 ```powershell

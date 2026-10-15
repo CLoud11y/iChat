@@ -2127,3 +2127,44 @@ P3.5.3.3.3.1 范围收口，P3.5.3.3.3/P3 整体尚未验收。主程序已经�
 建议 commit message：`feat(runtime): dispatch process modes and wire modern shutdown signals`
 
 下一小点：**P3.5.3.3.3.2：legacy HTTP/WebSocket/cron 的退出适配与信号接入**。开始前可按停止准入、活动会话/任务 join 和整体期限继续细分；必须在业务任务退出后再关闭存储。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.3.3.2.1：Legacy HTTP/WebSocket 请求所有权与退出适配
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查和集成标签编译。代码基线为用户提交的 P3.5.3.3.3.1 `7b8d55a`，开始时工作区干净。将 legacy 退出拆为本轮 HTTP/WebSocket 请求 owner，以及后续 cron 任务/所有权和整体退出接线；本轮不提前为 legacy 接收进程信号。
+
+### 改动
+
+- 新增纯构造的 legacyHTTPServer，调用方显式交付 listener 后才 Serve。使用私有请求清单持有每个已准入处理器，覆盖普通 HTTP、hijacked WebSocket、同用户被替换但仍在退出的旧会话；不借用只保留当前会话的用户全局表。
+- StopAdmission 同步关业务准入，新请求获得 503/no-store；取消所有已登记的 hijacked 请求，普通在途 HTTP context 保留至 drain。取消与 socket I/O 均在登记锁外执行，不等待处理器或启动逐请求 watcher。
+- Drain 将同一调用方预算用于 net/http.Shutdown 和显式请求等待。只有处理器完整返回后才移除记录；service.Chat 已有的订阅、reader/writer/心跳 join 和 Offline 也因此被包含。net/http accept loop 结束或 socket 已关闭均不充当业务任务完成证明。
+- Close 取消全部请求，关闭 owned hijacked socket 并调用 net/http.Close 后继续等待。过期 observer 仍请求停止，超时保留 owner/活动记录，后续新 observer 和并发 Close 可继续等待；Close 失败不能授权上层提前释放共享存储。
+- Hijack 前后核对停止边界，关闭竞争中刚得到的 socket，取消请求并拒绝交付。底层 handle+error、nil connection/buffer 坏返回均清理已交付 handle；停止后再 Serve 时由 net/http 关闭交付 listener。
+- wrapper 透传 Unwrap、Hijacker、Flusher/FlushError、Pusher；自审核对固定 Gin 1.10.0 的 Stream/responseWriter 后保留条件式 CloseNotifier，仅底层支持时公开该能力，不创建虚假通知或额外等待任务。退出错误 fmt 脱敏，errors.Is 保留独立 cause。
+- 更新 README、阶段勾选、入口和测试说明，新增 [Legacy HTTP 生命周期](legacy-http-lifecycle.md)。未改原 bootstrap/Gin.Run/cron/进程信号行为，没有注册现代角色或修改协议/配置/依赖版本。
+
+### 自审与验证
+
+- 独占 loopback HTTP 服务中阻塞一个普通请求，StopAdmission 后新请求被拒绝而旧 context 仍有效；Drain 等待原请求成功完成。强制关闭场景先耗尽 drain，再以已取消 observer Close，验证仍取消请求/中断连接，但处理器清理屏障未释放时不能报告完成；释放后 8 个并发 Close 全部等待成功。
+- 真实 Gin/Gorilla/service.Chat 创建同 UID 旧/新连接及另一用户连接，各自实际收到推送帧。旧连接 reader 被可控日志屏障阻塞，替换后订阅虽已关闭仍保留 owner；停止后新连接和另一用户的订阅/socket 都关闭，Drain/Close 依然超时，直到旧 reader 释放。再次 Close 成功，两个当前用户各 Offline 一次，旧连接未清掉替换会话状态。
+- 受控 Hijacker 分别在调用前、底层返回前制造停止，证明不会调用已停止的底层或遗留晚返回 socket；net.Pipe 客户端读到 EOF。部分 handle 返回和坏快照同样核对 EOF，未以 fake 回调记录代替物理 socket 关闭证据。
+- 边界覆盖 nil handler/listener/context、构造前后无任务、空闲/重复关闭、关闭后再 Serve 的 listener 所有权、可选 CloseNotifier/不支持 Push/Hijack/Flush 的行为和 ResponseController unwrap，以及多个独立错误保留/格式化凭证脱敏。
+- 自审明确三层结束通知：Serve 结束只说明 accept loop 停止，socket 关闭只说明 transport 中断，显式请求清单清空才说明已准入处理器及其托管任务返回。future legacy owner 仍须同时 join Serve，管理 cron/健康探测并在任务退出后关闭存储；不能把本轮独立适配器当作默认程序已支持信号优雅退出。
+
+环境：Windows amd64、Go 1.27.1、GCC/race，沿用仓库 GOCACHE 和不存在的 ICHAT_CONFIG_FILE。测试仅使用独占 loopback 临时端口、net.Pipe 和受控订阅，不读取开发 .env/config、不启用业务主程序、不访问共享 DB/Redis、不发送 OS 信号。本轮没有 Docker，不复用旧真实 broker 结果冒充本轮实测。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race . -run '^TestLegacyHTTP' -count=1 -v -timeout=45s` | 首轮 5 组通过，3.058s；后加 writer 能力/部分 socket 边界纳入最终专项 |
+| `go test -mod=readonly -race . -run '^TestLegacyHTTP' -count=30 -timeout=60s` | 最终 7 组专项连续 30 轮全部通过，6.430s |
+| `go test -mod=readonly -race ./... -count=1` | 最终全部通过；主包=9.903s，application=2.696s，config=2.789s，rabbitmq=6.592s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库集成标签编译通过；未执行实际集成场景 |
+| gofmt、`git diff --check`、新增文件空白/文档链接检查 | 全部通过 |
+
+### 后续边界
+
+本轮 P3.5.3.3.3.2.1 范围收口，P3.5.3.3.3.2/P3 整体尚未验收。适配器显式可调用但尚未替换默认 Gin.Run；legacy 继续原 OS 信号行为。真实 Redis Pub/Sub、实际在途 DB 事务、cron 注册锁释放、整体信号退出不由受控订阅/日志屏障证明，现代生产业务角色仍缺失。
+
+建议 commit message：`feat(runtime): own legacy HTTP and WebSocket shutdown lifecycles`
+
+下一小点：**P3.5.3.3.3.2.2：legacy cron 的有界停止、任务等待与所有权释放，以及整体退出接线**。开始前可按 worker 和入口继续细分；必须在任务退出后再关闭存储。本轮不继续下一小点、不自动提交。
