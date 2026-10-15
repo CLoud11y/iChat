@@ -32,12 +32,12 @@ RuntimePlan 只返回 Mode/API/Publisher/PersistenceConsumer/QuarantineConsumer/
 
 ## 当前启动边界
 
-bootstrap 顺序为：检查必要 factory 存在 → 显式加载配置 → 解析角色计划 → 检查模式是否已装配 → 现有 legacy 依赖初始化。未装配的新模式返回可由 errors.Is 判断的 `ErrRuntimeNotAssembled`，只附已经校验的模式枚举；非法模式/混用返回配置错误。检查在旧全局依赖绑定、legacy cron、storage health 和 HTTP 服务启动之前完成。
+bootstrap 顺序为：检查必要 factory 存在 → 显式加载配置 → 解析角色并检查新业务构造器 → 模式执行器兜底检查 → 现有 legacy 依赖初始化。未装配的新模式返回可由 errors.Is 判断的 `ErrRuntimeNotAssembled`，附已经校验的模式及全部缺失角色；errors.As 可读取 RuntimeAssemblyError。非法模式/混用返回配置错误。检查在旧全局依赖绑定、legacy cron、storage health 和 HTTP 服务启动之前完成，详情见 [角色装配检查](runtime-assembly.md)。
 
 业务主程序当前的新模式错误示例：
 
 ```text
-bootstrap: requested runtime mode is not assembled yet: api
+resolve runtime assembly: requested runtime mode is not assembled yet: api (missing roles: api)
 ```
 
 配置加载/角色计划与启动支持分开：纯配置加载可以读取合法的新模式，便于迁移命令继续使用自己的依赖边界；业务主程序会执行装配检查。新增 mode 不会要求独立迁移命令连接 RabbitMQ。mqadmin 仍读取自己显式提供的 dotenv/env，不使用应用运行模式。
@@ -54,4 +54,4 @@ go vet -mod=readonly -tags=integration ./...
 
 模式测试覆盖默认/文件/省略键环境覆盖、显式空值、错误类型/枚举/未知字段、新旧 worker 冲突、纯角色边界、重复加载与直接零值配置。bootstrap 注入工厂记录实际调用，证明新模式/非法模式/混用只调用配置加载，不触发 DB、Redis、legacy worker 或 HTTP，也不修改既有全局状态；原 legacy 启动/退出与 MySQL 离线测试继续执行。没有 Docker、开发配置或真实数据操作。
 
-P3.5.3.1 模式配置/角色计划/启动检查、P3.5.3.2.1 [消费者参数与纯 MQ 依赖计划](mq-runtime-parameters.md)、P3.5.3.2.2 [受控 MQ 连接创建与失败清理](mq-runtime-resources.md)、P3.5.3.3.1 [MQ 托管生命周期](mq-lifecycle.md) 已完成。下一项 P3.5.3.3.2 角色能力门禁与服务退出装配，开始前仍可细分。PrepareMQ/StartMQLifecycle 是可显式调用的资源层，未接入业务 bootstrap；consumer 自动恢复、进程信号/在途事务退出、整体 readiness 与新业务入口仍待对应后续小点。
+P3.5.3.1 模式配置/角色计划/启动检查、P3.5.3.2.1 [消费者参数与纯 MQ 依赖计划](mq-runtime-parameters.md)、P3.5.3.2.2 [受控 MQ 连接创建与失败清理](mq-runtime-resources.md)、P3.5.3.3.1 [MQ 托管生命周期](mq-lifecycle.md)、P3.5.3.3.2.1 [角色构造器与服务实例检查](runtime-assembly.md) 已完成。下一项 P3.5.3.3.2.2 受控服务构造、激活与分阶段退出编排，开始前仍可细分。PrepareMQ/StartMQLifecycle 是可显式调用的资源层，未接入业务 bootstrap；consumer 自动恢复、进程信号/在途事务退出、整体 readiness 与新业务入口仍待对应后续小点。

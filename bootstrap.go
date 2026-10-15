@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iChat/application"
 	"iChat/config"
 	"iChat/database"
 	"iChat/health"
@@ -29,7 +30,8 @@ type startupDependencies struct {
 	serve       func(config.Config, *redis.Client, service.AccountUsers, service.ContactQueries, service.ContactWrites, service.MessageStore, service.MessageSubscriptions, router.StorageHealth) error
 }
 
-var ErrRuntimeNotAssembled = errors.New("requested runtime mode is not assembled yet")
+// Preserve the bootstrap sentinel identity for existing callers.
+var ErrRuntimeNotAssembled = application.ErrRuntimeNotAssembled
 
 func defaultStartupDependencies() startupDependencies {
 	return startupDependencies{
@@ -89,14 +91,16 @@ func bootstrap(deps startupDependencies) (err error) {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
-	plan, err := conf.RuntimePlan()
+	// No modern business factories are registered yet. Resolve all missing
+	// roles before constructing dependencies; MQ transport alone is not a role.
+	assembly, err := (application.RuntimeFactories{}).Check(conf)
 	if err != nil {
-		return fmt.Errorf("resolve runtime roles: %w", err)
+		return fmt.Errorf("resolve runtime assembly: %w", err)
 	}
 	// Modern roles require the new routes and workers. Refuse them before any
 	// external I/O until the following assembly steps implement all their roles.
-	if plan.Mode != config.ModeLegacy {
-		return fmt.Errorf("bootstrap: %w: %s", ErrRuntimeNotAssembled, plan.Mode)
+	if assembly.Mode() != config.ModeLegacy {
+		return fmt.Errorf("bootstrap: %w: %s", ErrRuntimeNotAssembled, assembly.Mode())
 	}
 	if conf.LEGACY_WORKER.Enabled && deps.startWorker == nil {
 		return errors.New("bootstrap: missing startup dependency for enabled legacy worker")

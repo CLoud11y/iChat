@@ -1993,3 +1993,44 @@ StartMQLifecycle 是显式可用的连接托管层，未接入业务 bootstrap�
 建议 commit message：`feat(runtime): own MQ lifetimes and join bounded shutdown`
 
 下一小点：**P3.5.3.3.2：角色能力门禁与服务退出装配**。开始前按能力核验、停止准入/在途处理和进程信号继续细分，未完成业务角色不能提前订阅或静默降级。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.3.2.1：必需角色构造器与激活前服务实例检查
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查。代码基线为用户提交的 P3.5.3.3.1 `cb9ed0c`。将 P3.5.3.3.2 拆为本轮的角色构造器/实例检查、下一小点的受控构造/激活/分阶段退出编排；本轮不激活新业务角色。
+
+### 改动
+
+- 新增 application.RuntimeFactories.Check，从 Config 重新解析模式、先验证新旧 worker 冲突，再检查所选业务角色的非空构造函数。api 要求 API，worker 要求持久化/隔离审计/Outbox，all 要求四者；legacy 沿用旧 bootstrap，不要求现代服务构造器。
+- 缺失构造器一次报告完整且稳定排序的角色列表，返回空 RuntimeAssembly，不交付半份结果。新增 RuntimeAssemblyError.Mode/MissingRoles 供 errors.As 读取，列表返回副本；共享 ErrRuntimeNotAssembled 与主包旧 sentinel 保持同一身份。
+- 成功检查只保留选中工厂函数值和私有模式/角色快照。外部不能修改内部选择，Roles 返回副本，未选中工厂不要求存在、不被保留或执行；Check 不检查 MQ URI、schema 或依赖在线状态。
+- 新增 RuntimeService 生命周期接口（Start 的 setup/lifetime、StopAdmission、Drain、Close、Done/Err）及 RuntimeFactory/RoleDependencies 的构造契约。只定义业务服务与 MQ 依赖的明确边界，不提供 API/消费者/Outbox 实现，不运行生命周期方法。
+- RuntimeAssembly.ValidateServices 提供激活前第二次纯检查，拒绝缺失/nil/typed nil、额外角色和未检查的零值装配。精确校验服务集合，不调用任何服务方法，不改调用方 map 或关闭 handle；失败时回滚责任仍由后续执行器承担。
+- bootstrap 配置加载后使用共享角色检查，错误包含具体缺失角色；保留新模式执行器兜底拒绝，不能只注册工厂就落入旧 router。未装配模式仍在 DB/Redis/worker/global binding/health/HTTP 之前失败；旧 legacy 行为不变。
+- 更新 README、阶段清单、运行模式实际错误示例及生命周期后续说明，新增 [角色构造器与服务实例检查](runtime-assembly.md)。
+
+### 自审与验证
+
+- 7 个 application 专项测试组覆盖四模式选择、只要求选中工厂、旧 worker/直接零值兼容、全部/逐个缺失及部分 API 已注册时 worker 仍缺失、稳定角色列表、函数快照/角色和错误列表副本、源配置与旧全局不变。
+- 非法 mode/新旧 worker 冲突先返回 ErrRuntimeConfig，不被缺失构造器掩盖。服务集合逐角色验证 missing/nil/typed nil，拒绝额外/未知服务和未检查的空装配；原 map/清理 handle 不变。
+- 所有测试构造器和六个生命周期方法均设为 panic，证明两层检查不隐式执行构造/Start/停止/Drain/Close/Done/Err；两个独占本机 TCP listener 检查 AMQP/management 地址零连接。错误格式化不泄漏测试凭证、非法 mode 或未知 map key。
+- 实际 bootstrap 专项复核 errors.Is 对原/共享 sentinel 兼容，errors.As 获取准确模式及完整缺失列表；调用记录仍只有 config，外部工厂与旧全局状态均不受影响。原 legacy 生命周期、关闭、MySQL 离线和迁移 CLI 回归继续通过。
+- 自审区分结构检查与业务证明：构造函数非空、实例实现接口不证明业务语义或 readiness。ValidateServices 不冻结调用方 map，后续执行器必须控制集合、回滚所有已返回 handle，并在任何激活之前完成检查；本轮没有把生命周期接口声明当作已经完成退出编排。
+
+环境：Windows amd64、Go 1.27.1、GCC/race，沿用仓库 GOCACHE 与不存在的 ICHAT_CONFIG_FILE。仅纯配置/本机 listener/受控 peer；没有 Docker、开发 .env/config、业务主程序启动或共享数据操作。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./application . -run 'Test(RuntimeAssembly\|BootstrapRuntime)' -count=1 -v` | 首轮专项通过；application=2.410s、主包=2.853s；增强 bootstrap 结构化诊断与 map 不变断言纳入最终全仓库回归 |
+| `go test -mod=readonly -race ./... -count=1` | 全部通过；主包=9.969s，application=2.451s，config=2.867s，rabbitmq=6.511s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过，包含集成标签代码的静态检查 |
+| gofmt、`git diff --check`、新增文件空白检查 | 通过 |
+
+本轮未更改 MQ 网络/AMQP/确认状态机或 Docker fixture，零 I/O 由实际 listener 与禁止调用工厂/方法的测试证明；没有重复 Docker 故障 suites 或把前轮结果计作本轮实测。
+
+### 后续边界
+
+主程序仍只运行 legacy。现代服务默认构造器集合为空，受控服务构造、部分失败回滚、激活顺序、停止准入/事务 drain/资源关闭编排、进程信号、consumer 自动恢复和整体 readiness 尚未完成；HTTP 202、业务提交后 ACK、隔离审计与 Outbox 继续按对应阶段接入。P3.5.3.3.2/P3 整体尚未验收。
+
+建议 commit message：`feat(runtime): validate required role factories and service assemblies`
+
+下一小点：**P3.5.3.3.2.2：受控服务构造、激活与分阶段退出编排**。开始前按构造回滚、生命周期和进程信号范围继续细分；未完成业务角色不能提前订阅或静默降级。本轮不继续下一小点、不自动提交。

@@ -59,4 +59,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestMQPrepa
 
 测试不读取开发 .env/config，不启动业务主程序，不访问共享数据。实际版本、runId、时长及 cleanup 见实施记录。本轮不计为业务提交后 ACK、进程信号/在途事务优雅退出或 consumer 恢复验收。
 
-下一小点：P3.5.3.3.2 角色能力门禁与服务退出装配，开始前可继续细分；HTTP 202、业务事务、隔离审计与 Outbox 仍按 P3.6/P4/P5 实现。
+P3.5.3.3.2.1 [角色构造器与服务实例检查](runtime-assembly.md) 已提供所选角色缺失检查和激活前实例检查，但没有调用生命周期方法。下一小点：P3.5.3.3.2.2 受控服务构造、激活与分阶段退出编排，开始前可继续细分；HTTP 202、业务事务、隔离审计与 Outbox 仍按 P3.6/P4/P5 实现。

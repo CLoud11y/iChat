@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"iChat/application"
 	"iChat/config"
 	"iChat/router"
 	scheduledtasks "iChat/scheduledTasks"
@@ -55,6 +56,21 @@ func TestBootstrapRuntimeGuardBeforeExternalDependencies(t *testing.T) {
 			err := bootstrap(deps)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("runtime startup error=%v", err)
+			}
+			if tc.want == ErrRuntimeNotAssembled {
+				var missing *application.RuntimeAssemblyError
+				if !errors.Is(err, application.ErrRuntimeNotAssembled) || !errors.As(err, &missing) || missing.Mode() != tc.mode {
+					t.Fatal("bootstrap did not use the shared role capability gate", err)
+				}
+				want := []application.RuntimeRole{application.RoleAPI}
+				if tc.mode == config.ModeWorker {
+					want = []application.RuntimeRole{application.RolePersistence, application.RoleQuarantine, application.RoleOutbox}
+				} else if tc.mode == config.ModeAll {
+					want = append(want, application.RolePersistence, application.RoleQuarantine, application.RoleOutbox)
+				}
+				if !reflect.DeepEqual(missing.MissingRoles(), want) {
+					t.Fatal("bootstrap hid missing roles", missing.MissingRoles())
+				}
 			}
 			if strings.Contains(err.Error(), "SECRET_TOKEN") {
 				t.Fatal("bootstrap error leaked config input")
