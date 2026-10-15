@@ -13,5 +13,5 @@ func main() {
 }
 
 func run() error {
-	return bootstrap(defaultStartupDependencies())
+	return runProcess(defaultProcessDependencies())
 }

@@ -2,7 +2,7 @@
 
 `application.RunRuntime(ctx, conf, factories, options)` 提供现代角色的阻塞式执行器：先检查全部必需构造器，再准备 MQ、构造全部服务、验证实例集合，最后激活。运行中等待进程 context 取消或服务意外退出；返回之前负责服务及 MQ 的有界清理。
 
-本轮提供执行器及注入契约，没有提供 API/落库/审计/Outbox 业务服务，也没有接线主程序或注册进程信号。默认程序仍只运行 legacy，新模式继续在连接前拒绝。Check/成功激活均不是 accepted/readiness 或业务提交后 ACK 的证明。
+本小点提供执行器及注入契约，没有提供 API/落库/审计/Outbox 业务服务。后续 P3.5.3.3.3.1 已将[主程序分流和现代进程信号](runtime-process-entry.md)接至此执行器；默认现代角色工厂仍为空，新模式继续在连接前拒绝。Check/成功激活均不是 accepted/readiness 或业务提交后 ACK 的证明。
 
 ## 构造与激活
 
@@ -22,7 +22,7 @@ API 仅获得命令 publisher；持久化获得 consumerWorkers 个主队列连�
 err := application.RunRuntime(processCtx, conf, roleFactories, application.DefaultRuntimeOptions())
 ```
 
-这是为后续入口使用的调用方式，当前没有可注册的完整业务 roleFactories。RunRuntime 自己持有 PrepareMQ 资源；没有把 processCtx 直接交给 StartMQLifecycle，以免停止请求先切断在途事务的 MQ 通路。
+主程序现代分支已采用这一调用方式，当前仍没有可注册的完整业务 roleFactories。RunRuntime 自己持有 PrepareMQ 资源；没有把 processCtx 直接交给 StartMQLifecycle，以免停止请求先切断在途事务的 MQ 通路。
 
 | 参数 | 默认 | 范围 | 约束 |
 | --- | --- | --- | --- |
@@ -72,4 +72,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 共享关闭内核另回归原 session 黑洞和消费者重投/ACK 丢帧 suites。版本、runId、时长与 cleanup 见实施记录。测试不读取开发 .env/config、不启用业务主程序、不修改共享数据。
 
-下一项 P3.5.3.3.3：进程信号与运行入口接线；默认现代业务工厂仍为空，必须继续拒绝缺失角色，不能用测试 fixture 充当生产处理器。接受 readiness、HTTP 202、提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。
+P3.5.3.3.3.1 [进程入口分流与现代信号](runtime-process-entry.md) 已完成；下一项 P3.5.3.3.3.2 是 legacy HTTP/WebSocket/cron 的退出适配与信号接入。默认现代业务工厂仍为空，必须继续拒绝缺失角色，不能用测试 fixture 充当生产处理器。接受 readiness、HTTP 202、提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。

@@ -54,7 +54,7 @@ resolve runtime assembly: requested runtime mode is not assembled yet: worker (m
 
 服务实例问题使用 ErrRuntimeServices。未知 map key 不回显，所有错误只包含已验证模式、已知角色名或固定原因，不输出凭证、消息正文、URL 或非法模式原值。第二层检查不接受未选中的额外服务，即使其值为 nil。
 
-默认程序没有注册新业务构造器，也未接入 [RunRuntime 执行器](runtime-execution.md)。bootstrap 的新模式兜底拒绝继续保留，避免未来只注册函数就落入旧 router/worker。Check 成功不是运行模式已获支持或 ready 的证明；迁移 CLI/mqadmin 不新增业务装配或 MQ 网络依赖。
+默认程序没有注册新业务构造器；[进程入口](runtime-process-entry.md)已提供到 [RunRuntime 执行器](runtime-execution.md)的现代分流和信号接线。legacy bootstrap 的新模式兜底拒绝继续保留，避免直接调用时落入旧 router/worker。Check 成功不是运行模式已获支持或 ready 的证明；迁移 CLI/mqadmin 不新增业务装配或 MQ 网络依赖。
 
 ## 验证与下一项
 
@@ -68,4 +68,4 @@ go vet -mod=readonly -tags=integration ./...
 
 实际执行 bootstrap 的测试验证结构化缺失角色、sentinel 兼容，且只出现配置加载事件，旧全局状态不变。默认 legacy 生命周期与全仓库回归继续执行。测试不访问 Docker、开发配置/.env 或共享数据；没有更改 AMQP 库或重复旧 Docker 结果。
 
-P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。下一项 P3.5.3.3.3 进程信号与运行入口接线；整体 readiness、业务处理器与 consumer 恢复仍待对应后续小点。
+P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。P3.5.3.3.3.1 已接入[现代入口与信号](runtime-process-entry.md)，下一项为 legacy 退出适配与信号接入；整体 readiness、业务处理器与 consumer 恢复仍待对应后续小点。

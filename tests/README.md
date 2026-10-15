@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.5.3.3.3.1 进程入口分流与现代运行时信号（默认单元测试，不使用 Docker）：
+
+```powershell
+go test -mod=readonly -race . -run 'Test(RunProcess|Bootstrap)' -count=1 -v -timeout=90s
+go test -mod=readonly -race . -run '^TestRunProcess' -count=20 -timeout=60s
+```
+
+覆盖配置单次加载、完整/部分缺失角色在连接和信号注册前拒绝、现代执行器参数转交、可控信号 context 取消后等待清理且保留错误，以及 legacy worker 先于存储关闭/全局恢复。另使用生产 RunRuntime 验证预取消的启动拒绝；没有业务工厂或 MQ I/O。取消测试不向宿主/其他进程发送实际信号，legacy 暂时保留旧信号行为，边界见 [进程入口](../docs/runtime-process-entry.md)。
+
 P3.5.2.2 有界消费 channel、顺序 delivery 与单条手动 ACK/Reject：
 
 ```powershell

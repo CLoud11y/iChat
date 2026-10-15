@@ -26,7 +26,7 @@ go test ./...
 
 默认单元测试不需要 MySQL/Redis。真实集成测试及 benchmark 的运行方式见 [测试说明](tests/README.md)。
 
-RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔离测试环境验证，详见 [MQ 测试环境](docs/mq-test-environment.md)。本地 Docker 服务与可靠死信见 [本地 MQ 拓扑](docs/mq-local-topology.md)；发布判定见 [MQ publisher](docs/mq-publisher.md)，有界 I/O/关闭见 [MQ session](docs/mq-session.md)，重连、epoch 和只读拓扑复核见 [MQ supervisor](docs/mq-supervisor.md)。[MQ 应用配置](docs/mq-application-config.md) 提供无网络 I/O 的读取、环境变量覆盖和参数校验；连接装配尚未接入主程序，当前业务服务仍运行旧消息链路。
+RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔离测试环境验证，详见 [MQ 测试环境](docs/mq-test-environment.md)。本地 Docker 服务与可靠死信见 [本地 MQ 拓扑](docs/mq-local-topology.md)；发布判定见 [MQ publisher](docs/mq-publisher.md)，有界 I/O/关闭见 [MQ session](docs/mq-session.md)，重连、epoch 和只读拓扑复核见 [MQ supervisor](docs/mq-supervisor.md)。[MQ 应用配置](docs/mq-application-config.md) 提供无网络 I/O 的读取、环境变量覆盖和参数校验；主程序已提供现代执行器分流，但生产业务构造器仍缺失，当前业务服务仍运行旧消息链路。
 
 ## 使用 Docker Compose 启动依赖
 
@@ -34,7 +34,7 @@ P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消�
 
 [消费者运行参数与 MQ 依赖计划](docs/mq-runtime-parameters.md) 已支持有界 worker 数量、prefetch 和独立操作超时，按角色生成无网络 I/O 的构造输入。[MQ 连接准备与清理](docs/mq-runtime-resources.md) 可显式创建 publisher/各 worker 独立连接，提供总准备期限、部分失败回滚和有界关闭；准备阶段没有消费订阅。主程序生命周期及新业务角色仍待后续装配。
 
-[MQ 托管生命周期](docs/mq-lifecycle.md) 在 lifetime 取消时自动关闭整组资源，提供 Done/Wait、短等待后再次加入清理及错误保留。[角色构造器与服务实例检查](docs/runtime-assembly.md) 可列出所选模式的全部缺失角色，并在激活前拒绝缺失或多余服务。[运行时执行器](docs/runtime-execution.md) 已提供全部构造后再激活、API 最后启动，以及停止准入→drain→关闭服务→关闭 MQ 的有界编排。主程序入口与业务角色尚未接线，当前仍运行 legacy。
+[MQ 托管生命周期](docs/mq-lifecycle.md) 在 lifetime 取消时自动关闭整组资源，提供 Done/Wait、短等待后再次加入清理及错误保留。[角色构造器与服务实例检查](docs/runtime-assembly.md) 可列出所选模式的全部缺失角色，并在激活前拒绝缺失或多余服务。[运行时执行器](docs/runtime-execution.md) 已提供全部构造后再激活、API 最后启动，以及停止准入→drain→关闭服务→关闭 MQ 的有界编排。[进程入口](docs/runtime-process-entry.md) 已接入模式分流和现代分支的退出信号；默认现代角色工厂仍为空，legacy 信号退出适配是下一项，当前仍只可运行 legacy。
 
 项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 

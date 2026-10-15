@@ -2086,3 +2086,44 @@ P3.5.3.3.2 的结构检查与受控执行基础范围收口；主程序仍只运
 建议 commit message：`feat(runtime): orchestrate role startup and phased shutdown`
 
 下一小点：**P3.5.3.3.3：进程信号与运行入口接线**。开始前按入口、信号和 legacy 兼容范围继续细分；缺失现代角色仍须在连接前拒绝，不能用 fixture 冒充生产处理器。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.3.3.1：进程入口分流与现代运行时信号
+
+状态：2026-10-15（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查和集成标签编译。代码基线为用户提交的 P3.5.3.3.2.2 `47e4802`，开始时工作区干净。将 P3.5.3.3.3 拆为本轮入口分流/现代信号，以及下一小点的 legacy HTTP/WebSocket/cron 退出适配与信号接入。
+
+### 改动
+
+- `main → run → runProcess` 只加载一次配置，先调用共享 RuntimeFactories.Check，再选择 legacy 或 application.RunRuntime。缺失角色、非法模式、新旧 worker 冲突先于外部 I/O、旧全局绑定和信号注册失败。
+- 现代分支只要求现代 runner/notifier 和所选工厂，纯校验 MQ 配置后使用 signal.NotifyContext 注册 os.Interrupt/SIGTERM，将同一配置、工厂和默认执行参数交给现有执行器。入口不自行准备 MQ/执行工厂，不把进程取消直接接到 MQ owner。
+- 执行器返回前一直保留信号订阅，重复取消合并，不提前退出或抢走独立 drain/close 预算；返回后 defer stop 注销。入口原样返回执行错误，不通过 errors.Is(context.Canceled) 抹掉启动取消或同时存在的清理失败，main 继续对非 nil 错误退出 1。
+- 原 bootstrap 提取接收已加载配置的 bootstrapLegacy，保留原加载入口与独立的新模式拒绝 fence；旧 HTTP、worker、健康探测、全局恢复及 Redis/MySQL 关闭顺序不变。legacy 不要求现代 runner/notifier，也不注册现代信号。
+- 默认生产业务工厂依然为空，新模式依然在连接前报告完整缺失列表；未注册 fixture/no-op 服务，也未将旧 router/worker 当成现代实现。
+- 更新 README、阶段勾选、模式/装配/执行器/连接生命周期及测试说明，新增 [进程入口分流与现代信号](runtime-process-entry.md)。未新增依赖、配置键或改变 Go/MQ 版本。
+
+### 自审与验证
+
+- 6 个入口测试组覆盖三现代模式的精确配置/工厂/参数/context 转交、仅要求所选工厂且不要求旧依赖、默认及部分缺失角色、非法模式/冲突、MQ 配置与注入边界错误、无效信号 context 的 stop handle 释放。
+- 可控信号 context 取消后，fixture runner 阻塞在清理屏障；验证入口不提前返回、不提前注销。重复取消后仍等待同一次执行，清理成功返回 nil，清理失败与 context.Canceled 的组合错误完整保留。该 runner 仅验证入口调用契约，不是生产业务角色或执行器内部阶段证明。
+- 保留默认生产 application.RunRuntime，在全部角色工厂可用且 signal context 预取消时实际执行；返回 context.Canceled 并注销信号 handle，没有连接 MQ 或调用任何角色工厂。
+- 零值/显式 legacy 通过实际 bootstrapLegacy 装配受控 SQL driver 和禁止联网的 Redis client；配置仅加载一次，worker 停止时存储仍可用，最后 Redis/MySQL 关闭且旧全局完整恢复。原 bootstrap 生命周期、MySQL 离线、cron 等回归继续通过。
+- 自审区分现代和旧 HTTP 所有权：legacy 当前 Gin.Run 没有停止入口，HTTP Shutdown 也不会代管 hijacked WebSocket。不能全局接收信号后只取消一个无监听者的 context，更不能借机提前关闭存储。因此 legacy 保留原 OS 退出行为，下一小点提供其完整停止/等待适配后再注册信号。
+- 信号平台边界核对固定 Go 1.27.1 本地 os/signal 源码/说明：Windows Ctrl+C/Break 可取消 context，但控制台关闭/注销/关机仍可能由 OS 强制终止，不承诺完整 drain。默认测试只注入信号 context，没有向宿主/其他进程发送实际 OS 信号。
+
+环境：Windows amd64、Go 1.27.1、GCC/race。沿用仓库 GOCACHE 和不存在的 ICHAT_CONFIG_FILE，不读取开发 .env/config、不启用业务主程序、不访问共享数据。本轮没有改 AMQP/业务服务，不重跑 Docker，不把前轮真实 broker 结果计为本轮实测。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race . -run 'Test(RunProcess\|Bootstrap)' -count=1 -v -timeout=90s` | 首轮全部通过，主包=2.985s |
+| `go test -mod=readonly -race . -run '^TestRunProcess' -count=20 -timeout=60s` | 6 组入口专项最终连续 20 轮通过，3.027s；清理屏障使用幂等关闭 |
+| `go test -mod=readonly -race ./... -count=1` | 最终全部通过；主包=10.282s，application=2.810s，config=2.918s，rabbitmq=6.877s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过，包含集成标签代码 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库集成标签编译通过，未执行真实集成场景 |
+| gofmt、`git diff --check`、新增文件空白/文档链接检查 | 全部通过 |
+
+### 后续边界
+
+P3.5.3.3.3.1 范围收口，P3.5.3.3.3/P3 整体尚未验收。主程序已经具备现代执行器接线，但现代业务工厂仍缺失，可运行模式仍仅 legacy；本轮不证明实际操作系统信号投递、legacy 优雅退出、真实业务 COMMIT/ACK、consumer 自动恢复或 readiness。
+
+建议 commit message：`feat(runtime): dispatch process modes and wire modern shutdown signals`
+
+下一小点：**P3.5.3.3.3.2：legacy HTTP/WebSocket/cron 的退出适配与信号接入**。开始前可按停止准入、活动会话/任务 join 和整体期限继续细分；必须在业务任务退出后再关闭存储。本轮不继续下一小点、不自动提交。

@@ -19,8 +19,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// Factories perform no work until bootstrap calls them. A successful opener
-// transfers ownership to bootstrap; a failing opener cleans up its own resources.
+// Factories perform no work until legacy bootstrap calls them. A successful
+// opener transfers ownership; a failing opener cleans up its own resources.
 // startWorker must return a stop function that waits for all running jobs.
 type startupDependencies struct {
 	loadConfig  func() (config.Config, error)
@@ -91,14 +91,23 @@ func bootstrap(deps startupDependencies) (err error) {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
-	// No modern business factories are registered yet. Resolve all missing
-	// roles before constructing dependencies; MQ transport alone is not a role.
+	return bootstrapLegacy(conf, deps)
+}
+
+// bootstrapLegacy uses the configuration already loaded by the process entry.
+// Keep its own role gate: direct callers must never enter the old HTTP/cron
+// path with a modern mode, even when modern factories exist elsewhere.
+func bootstrapLegacy(conf config.Config, deps startupDependencies) (err error) {
+	if deps.openMySQL == nil || deps.openRedis == nil || deps.serve == nil {
+		return errors.New("bootstrap: missing startup dependency")
+	}
+	// Only the process dispatcher can select the modern executor. This legacy
+	// path always checks against an empty modern factory set before any I/O.
 	assembly, err := (application.RuntimeFactories{}).Check(conf)
 	if err != nil {
 		return fmt.Errorf("resolve runtime assembly: %w", err)
 	}
-	// Modern roles require the new routes and workers. Refuse them before any
-	// external I/O until the following assembly steps implement all their roles.
+	// Keep an explicit legacy-only fence even if the shared gate later changes.
 	if assembly.Mode() != config.ModeLegacy {
 		return fmt.Errorf("bootstrap: %w: %s", ErrRuntimeNotAssembled, assembly.Mode())
 	}
