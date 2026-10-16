@@ -308,9 +308,17 @@ func TestRunProcessLegacyLifecycle(t *testing.T) {
 				return nil, errors.New("test forbids Redis network")
 			}, MaxRetries: -1})
 			defer rds.Close()
-			deps := processDependencies{factories: processTestFactories()}
-			// Modern options/runner/notifier may be absent in legacy mode.
+			deps := processDependencies{factories: processTestFactories(), legacyOptions: defaultLegacyRuntimeOptions()}
+			// The dispatcher still routes a single config snapshot; this test
+			// uses the old compatibility bootstrap as its injected legacy runner.
+			deps.runLegacy = func(_ context.Context, c config.Config, d startupDependencies, _ legacyRuntimeOptions) error {
+				return bootstrapLegacy(c, d)
+			}
+			deps.notifyContext = func(context.Context, ...os.Signal) (context.Context, context.CancelFunc) {
+				return context.WithCancel(context.Background())
+			}
 			deps.legacy = startupDependencies{
+				managed:    defaultLegacyRuntimeFactories(),
 				loadConfig: func() (config.Config, error) { events = append(events, "config"); return conf, nil },
 				openMySQL: func(got config.Config) (*gorm.DB, error) {
 					events = append(events, "mysql")

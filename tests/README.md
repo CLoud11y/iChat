@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.5.3.3.3.2.2.2 默认 legacy 统一生命周期与退出信号：
+
+```powershell
+go test -mod=readonly -race . ./health -run 'Test(LegacyRuntime|RunProcessLegacy|StorageStop)' -count=30 -timeout=60s
+go test -mod=readonly -race -tags=integration . -run '^TestLegacyRuntimeIntegration$' -count=1 -v -timeout=5m
+```
+
+默认测试验证共同阶段预算、回滚、超时后保留 owner/全局/存储、最终 join 后关闭及错误保留。真实独立 MySQL/Redis suite 运行默认 Gin 路由、JWT、WebSocket/Redis 订阅和实际提交屏障，覆盖正常取消、强制超时后的原文重放、注册 Busy 的失败回滚和 MySQL 离线存活。取消由注入的 NotifyContext context 触发，未向宿主发送 OS 信号；归属标签核验后清理本轮 fixture，详见 [统一生命周期](../docs/legacy-runtime-lifecycle.md)。
+
 P3.5.3.3.3.2.2.1 legacy cron 生命周期与注册释放：
 
 ```powershell
@@ -7,7 +16,7 @@ go test -mod=readonly -race . -run '^TestLegacyWorker' -count=50 -timeout=60s
 go test -mod=readonly -race -tags=integration . -run '^TestLegacyWorkerLifecycleIntegration$' -count=1 -v -timeout=5m
 ```
 
-默认测试使用真实 cron/受控 owner/store，不连接 DB/Redis；实际 suite 使用 NewLegacyFixture 的独立 MySQL/Redis，覆盖真实提交屏障后的 graceful/forced 退出、原始前缀重放幂等、旧 owner 不删除 successor、默认工厂重复 stop 后共享存储仍可用。完整 OS 信号退出仍待整体入口装配，详见 [worker 生命周期](../docs/legacy-worker-lifecycle.md)。
+默认测试使用真实 cron/受控 owner/store，不连接 DB/Redis；实际 suite 使用 NewLegacyFixture 的独立 MySQL/Redis，覆盖真实提交屏障后的 graceful/forced 退出、原始前缀重放幂等、旧 owner 不删除 successor、默认工厂重复 stop 后共享存储仍可用。整体入口已接线，OS 信号投递未实测，详见 [worker 生命周期](../docs/legacy-worker-lifecycle.md)。
 
 P3.5.3.3.3.2.1 legacy HTTP/WebSocket 生命周期适配器：
 
@@ -16,7 +25,7 @@ go test -mod=readonly -race . -run '^TestLegacyHTTP' -count=1 -v -timeout=45s
 go test -mod=readonly -race . -run '^TestLegacyHTTP' -count=30 -timeout=60s
 ```
 
-独占 loopback HTTP 服务配合实际 Gin/Gorilla/service.Chat 验证停止准入、普通请求 drain、活动及被替换 WebSocket 的 socket/订阅/任务等待、超时后再次 Close 和 Hijack 停止竞争；net.Pipe 验证部分 socket handle 清理。订阅为受控 fixture，不连接 Redis/DB，不读取开发配置或使用 Docker。适配器尚未接到默认入口，完整 legacy 退出仍待 cron/存储装配，详见 [生命周期边界](../docs/legacy-http-lifecycle.md)。
+独占 loopback HTTP 服务配合实际 Gin/Gorilla/service.Chat 验证停止准入、普通请求 drain、活动及被替换 WebSocket 的 socket/订阅/任务等待、超时后再次 Close 和 Hijack 停止竞争；net.Pipe 验证部分 socket handle 清理。订阅为受控 fixture，不连接 Redis/DB，不读取开发配置或使用 Docker。适配器已接到默认入口，详见 [生命周期边界](../docs/legacy-http-lifecycle.md)。
 
 P3.5.3.3.3.1 进程入口分流与现代运行时信号（默认单元测试，不使用 Docker）：
 
@@ -25,7 +34,7 @@ go test -mod=readonly -race . -run 'Test(RunProcess|Bootstrap)' -count=1 -v -tim
 go test -mod=readonly -race . -run '^TestRunProcess' -count=20 -timeout=60s
 ```
 
-覆盖配置单次加载、完整/部分缺失角色在连接和信号注册前拒绝、现代执行器参数转交、可控信号 context 取消后等待清理且保留错误，以及 legacy worker 先于存储关闭/全局恢复。另使用生产 RunRuntime 验证预取消的启动拒绝；没有业务工厂或 MQ I/O。取消测试不向宿主/其他进程发送实际信号，legacy 暂时保留旧信号行为，边界见 [进程入口](../docs/runtime-process-entry.md)。
+覆盖配置单次加载、完整/部分缺失角色在连接和信号注册前拒绝、现代执行器参数转交、可控信号 context 取消后等待清理且保留错误，以及 legacy worker 先于存储关闭/全局恢复。另使用生产 RunRuntime 验证预取消的启动拒绝；没有业务工厂或 MQ I/O。取消测试不向宿主/其他进程发送实际信号，legacy 也已接入统一退出，边界见 [进程入口](../docs/runtime-process-entry.md)。
 
 P3.5.2.2 有界消费 channel、顺序 delivery 与单条手动 ACK/Reject：
 

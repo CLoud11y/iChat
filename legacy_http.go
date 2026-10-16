@@ -49,6 +49,10 @@ func (s *legacyHTTPServer) StopAdmission() {
 	s.requests.stop(false)
 }
 
+// RequestsDone is distinct from Serve returning: hijacked handlers can still
+// be joining workers after the accept loop has stopped.
+func (s *legacyHTTPServer) RequestsDone() <-chan struct{} { return s.requests.done }
+
 // Drain shares the caller's single phase budget across net/http shutdown and
 // the explicit handler join. net/http alone does not wait for hijacked sockets.
 func (s *legacyHTTPServer) Drain(ctx context.Context) error {

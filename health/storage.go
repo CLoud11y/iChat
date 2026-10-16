@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -60,3 +61,28 @@ func (s *Storage) StorageReady() bool {
 
 // Stop cancels an in-flight probe and waits before the owner closes its pool.
 func (s *Storage) Stop() { s.cancel(); <-s.done }
+
+// StopContext requests stop even for an expired observer. A timed-out caller
+// can wait again; the probe still owns its pool until Done closes.
+func (s *Storage) StopContext(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("health: nil stop context")
+	}
+	s.cancel()
+	s.mu.Lock()
+	s.ready = false
+	s.mu.Unlock()
+	select {
+	case <-s.done:
+		return nil
+	default:
+	}
+	select {
+	case <-s.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Storage) Done() <-chan struct{} { return s.done }

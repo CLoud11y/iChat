@@ -751,15 +751,15 @@ P2.1—P2.7 的协议、schema、幂等、权限、seq/消息/Outbox 原子提�
 - [x] P3.5.3.3.2.1 所选业务角色构造器检查、全部缺失诊断和激活前服务实例检查；bootstrap 拒绝前不联网、不执行构造器。
 - [x] P3.5.3.3.2.2 受控服务构造/全部实例检查/后台角色先激活，失败回滚及停止准入→drain→关闭服务→关闭 MQ 的有界执行器；未提供业务角色实现。
 - [x] P3.5.3.3.3.1 主程序配置单次加载、legacy/现代执行器分流与现代信号 context；缺失现代业务工厂仍在连接前拒绝，不提前切断 MQ，不吞清理错误。
-- [x] P3.5.3.3.3.2.1 独立 legacy HTTP/WebSocket 生命周期适配器，按请求停止准入/取消 hijacked 连接、等待全部当前及替换会话，超时保留 owner 可再次等待；尚未替换默认 Gin.Run。
+- [x] P3.5.3.3.3.2.1 独立 legacy HTTP/WebSocket 生命周期适配器，按请求停止准入/取消 hijacked 连接、等待全部当前及替换会话，超时保留 owner 可再次等待。
 - [x] P3.5.3.3.3.2.2.1 legacy cron 停止准入、job deadline、Drain/取消后等待、一次有界注册释放及结果观察；默认 legacy 工厂复用，真实提交后取消/重放通过。
-- [ ] P3.5.3.3.3.2.2.2 legacy HTTP/worker/健康探测/存储的统一生命周期与信号接入；完成前保持 legacy 原信号行为，不声称全服务器优雅退出。
+- [x] P3.5.3.3.3.2.2.2 默认 legacy HTTP/worker/健康探测/存储统一生命周期与退出信号；共同 drain/close 预算、部分启动回滚、未 join 保留 globals/存储、真实完成后清理；OS 信号投递未实测。
 - [ ] P3.5.4 接受 readiness 与持续拓扑核验；拓扑不匹配保持未就绪。
 - [ ] 接受入口切换为新的 DTO 和 202 语义；MQ 首先独立测试，未完成 consumer 时只使用隔离环境积压。
 
 验收：return+ACK 调度反转不误报 accepted；确认丢失重试安全；网络黑洞超时有界；旧 ACK 不污染新请求；拓扑错误不触发自动删队列。
 
-P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)，P3.5.3.3.1 见 [MQ 托管生命周期](mq-lifecycle.md)，P3.5.3.3.2.1 见 [角色构造器与服务实例检查](runtime-assembly.md)，P3.5.3.3.2.2 见 [服务执行与退出编排](runtime-execution.md)，P3.5.3.3.3.1 见 [进程入口分流与现代信号](runtime-process-entry.md)。默认现代业务工厂仍为空，可运行的业务入口保持旧链路，尚不代表业务提交后 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。下一项为 P3.5.3.3.3.2 legacy 退出适配与信号接入；开始前可按 HTTP/WebSocket/cron 范围继续细分。
+P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)，P3.5.3.3.1 见 [MQ 托管生命周期](mq-lifecycle.md)，P3.5.3.3.2.1 见 [角色构造器与服务实例检查](runtime-assembly.md)，P3.5.3.3.2.2 见 [服务执行与退出编排](runtime-execution.md)，P3.5.3.3.3.1 见 [进程入口分流与现代信号](runtime-process-entry.md)，P3.5.3.3.3.2 见 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)。默认现代业务工厂仍为空，可运行的业务入口保持旧链路，尚不代表业务提交后 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。下一项为 P3.5.4 接受 readiness 与持续拓扑核验。
 
 ### P4：持久化 consumer、失败隔离与恢复
 

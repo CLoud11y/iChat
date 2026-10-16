@@ -23,6 +23,7 @@ import (
 // opener transfers ownership; a failing opener cleans up its own resources.
 // startWorker must return a stop function that waits for all running jobs.
 type startupDependencies struct {
+	managed     legacyRuntimeFactories
 	loadConfig  func() (config.Config, error)
 	openMySQL   func(config.Config) (*gorm.DB, error)
 	openRedis   func(context.Context, config.Config) (*redis.Client, error)
@@ -35,6 +36,7 @@ var ErrRuntimeNotAssembled = application.ErrRuntimeNotAssembled
 
 func defaultStartupDependencies() startupDependencies {
 	return startupDependencies{
+		managed:    defaultLegacyRuntimeFactories(),
 		loadConfig: config.Load,
 		openMySQL:  utils.NewMySQL,
 		openRedis:  utils.OpenRedis,

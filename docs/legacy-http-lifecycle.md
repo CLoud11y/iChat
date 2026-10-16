@@ -2,7 +2,7 @@
 
 `legacy_http.go` 提供显式的 `legacyHTTPServer`，统一持有普通 HTTP 和已 hijack 的 WebSocket 处理器。它按请求记录所有权，包括已被同用户新连接替换、仍在退出中的旧连接；不依赖只保留当前会话的全局用户表。
 
-本项完成可调用的适配器及真实本机 HTTP/WebSocket 验证，尚未替换默认 Gin.Run，也未将 legacy 接到进程信号。cron 的停止/等待、存储关闭条件和整体退出入口在下一小点装配，当前默认 legacy 行为保持不变。
+本项提供可调用适配器及真实本机 HTTP/WebSocket 验证。后续 P3.5.3.3.3.2.2.2 已将它接入[默认 legacy 生命周期](legacy-runtime-lifecycle.md)，替代默认入口的 Gin.Run 并接收退出信号。
 
 ## 所有权和阶段
 
@@ -44,4 +44,4 @@ WebSocket 使用实际 `service.Chat` 和 Gin/Gorilla，经独占 loopback liste
 
 测试只使用本机独占临时端口、net.Pipe 和受控订阅，不读取开发 .env/config、不运行业务主程序、不访问共享数据库，也不使用 Docker。OS 信号投递、实际 Redis Pub/Sub/DB 在途事务、cron/注册锁释放和完整服务器信号退出不属于本项实测。
 
-P3.5.3.3.3.2.2.1 [legacy cron 生命周期](legacy-worker-lifecycle.md) 已完成并由默认 worker 工厂复用。下一小点 P3.5.3.3.3.2.2.2：HTTP/worker/健康探测/存储的统一生命周期与信号接入；HTTP 适配器尚未替换 Gin.Run。P3.5.3.3.3.2/P3 整体尚未验收。
+P3.5.3.3.3.2.2.1 [legacy cron 生命周期](legacy-worker-lifecycle.md)、P3.5.3.3.3.2.2.2 [默认 legacy 统一生命周期](legacy-runtime-lifecycle.md) 已完成。下一项是接受 readiness 与持续拓扑核验；现代业务角色仍缺失，P3 整体尚未验收。

@@ -72,4 +72,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 共享关闭内核另回归原 session 黑洞和消费者重投/ACK 丢帧 suites。版本、runId、时长与 cleanup 见实施记录。测试不读取开发 .env/config、不启用业务主程序、不修改共享数据。
 
-P3.5.3.3.3.1 [进程入口分流与现代信号](runtime-process-entry.md)、P3.5.3.3.3.2.1 [独立 legacy HTTP/WebSocket 生命周期适配器](legacy-http-lifecycle.md)、P3.5.3.3.3.2.2.1 [legacy cron 生命周期](legacy-worker-lifecycle.md) 已完成，默认 worker 工厂已复用新 owner；下一项是 HTTP/worker/健康探测/存储的统一生命周期与信号接入，HTTP 适配器尚未替换默认 Gin.Run。默认现代业务工厂仍为空，必须继续拒绝缺失角色，不能用测试 fixture 充当生产处理器。接受 readiness、HTTP 202、提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。
+P3.5.3.3 的[进程入口](runtime-process-entry.md)、[HTTP/WebSocket](legacy-http-lifecycle.md)、[cron](legacy-worker-lifecycle.md)及[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已完成基础装配和退出接线；默认入口通过 net/http owner 管理请求，收到信号后先 drain 再关闭，未 join 时保留存储。默认现代业务工厂仍为空，必须继续拒绝缺失角色，不能用测试 fixture 充当生产处理器。下一项是接受 readiness 与持续拓扑核验；HTTP 202、提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。

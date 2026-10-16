@@ -1,6 +1,6 @@
 # Legacy cron 任务生命周期与注册释放（P3.5.3.3.3.2.2.1）
 
-`startLegacyWorker(setup, store, redis, options)` 在原有注册协议之上提供 `legacyCronWorker`：先纯检查参数/排程，再取得无 TTL 的 Redis token，启动单个 cron，最后由一个 manager 持有停止、任务等待和释放责任。默认 legacy 工厂已复用此实现，HTTP/Gin 和进程信号接线保持原状。
+`startLegacyWorker(setup, store, redis, options)` 在原有注册协议之上提供 `legacyCronWorker`：先纯检查参数/排程，再取得无 TTL 的 Redis token，启动单个 cron，最后由一个 manager 持有停止、任务等待和释放责任。[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已使用此 owner，协调 HTTP、健康探测、存储与退出信号。
 
 ## 阶段与所有权
 
@@ -49,4 +49,4 @@ go test -mod=readonly -race -tags=integration . -run '^TestLegacyWorkerLifecycle
 
 默认测试不读开发 .env/config、不访问真实 DB/Redis。实际场景只触碰本轮 fixture，归属标签核验后清理；没有启动业务主程序或发送 OS 信号，也不把本轮 legacy 提交/确认测试当作 MQ/P4 验收。版本、runId、命令结果见实施记录。
 
-下一小点 P3.5.3.3.3.2.2.2：legacy HTTP/worker/健康探测/存储的统一生命周期与信号接入。必须先停止各方准入，保留 drain 机会，确认 HTTP 和 job 全部 join 后再恢复旧全局、关闭存储；P3.5.3.3.3.2/P3 尚未整体验收。
+P3.5.3.3.3.2.2.2 [统一生命周期与信号接入](legacy-runtime-lifecycle.md)已完成。先停止各方准入，保留 drain 机会，确认 HTTP 和 job 全部 join 后才恢复旧全局、关闭存储。下一项为接受 readiness 与持续拓扑核验，P3 尚未整体验收。

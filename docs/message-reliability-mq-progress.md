@@ -2213,3 +2213,48 @@ P3.5.3.3.3.2.2.1 范围收口；默认启用的 legacy worker 已使用新生命
 建议 commit message：`feat(runtime): drain legacy cron jobs before releasing ownership`
 
 下一小点：**P3.5.3.3.3.2.2.2：legacy HTTP/worker/健康探测/存储的统一生命周期与信号接入**。先停止各方准入，保留 drain 机会，确认 HTTP 和 job 全部 join 后再恢复全局并关闭存储；不能把 Close observer 超时误当作任务退出。本轮不继续下一小点、不自动提交。
+
+## P3.5.3.3.3.2.2.2：Legacy 统一生命周期与进程信号
+
+状态：2026-10-16（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译和隔离 Docker 实测。代码基线为用户提交的 P3.5.3.3.3.2.2.1 `ff425b7`，开始时工作区干净。本轮完成既定统一接线范围，不再拆分或推进下一项，不自动提交。
+
+### 改动
+
+- 默认 main 经 runProcess 分流到 runLegacyRuntime；legacy 与 modern 均在所选依赖纯检查通过后注册 os.Interrupt/SIGTERM。现代业务工厂仍为空，缺失角色继续在信号注册和连接前拒绝。旧 bootstrap/serve 保留兼容用途，默认 legacy 已使用 managed HTTP，不再调用 Gin.Run。
+- 新 lifecycle owner 在共同 startup context 内创建惰性 MySQL pool、Redis、旧全局绑定、健康探测、HTTP、listener 和可选 worker。全部成功才启动 Serve；工厂部分返回 handle+error、交接取消和 typed nil 均受控处理，失败由同一 owner 回滚全部已交付资源。未启用 worker 时无需其工厂或参数。
+- 停止时先同步停止 HTTP/worker 准入，再用共同 Background/DrainTimeout 并行 drain；随后用另一个共同 CloseTimeout 关闭 HTTP/worker/健康探测并等待 accept loop。默认 startup/drain/close 为 30s/10s/10s，保留原 PORT 语义，不新增配置键。
+- 健康探测新增 StopContext/Done：过期 observer 仍发起取消并立即撤销 readiness，正在运行的 probe 由 owner 等待。HTTP 新增 RequestsDone，区分 accept loop 返回与请求/WebSocket handler 全部退出。
+- Result 发布有界退出尝试，Wait/Done 发布实际最终清理。关闭期限耗尽仍有任务时返回 pending，但同一 owner 继续持有 globals/Redis/MySQL，待所有实际完成信号后收集 worker 释放结果、恢复全局并关闭存储。晚到错误由 Wait 返回，已发布 Result 不改写；不重复释放 worker 注册。
+- 正常激活后的取消和成功清理返回 nil；启动失败、意外 Serve 返回（包括 nil/http.ErrServerClosed）、独立清理错误均保留 errors.Is，格式化只输出固定阶段，避免泄露 cause 中的凭证。新增 [Legacy 统一生命周期与进程退出](legacy-runtime-lifecycle.md)，同步入口、组件、恢复和测试文档。
+
+### 自审与验证
+
+- 默认测试验证全部 StopAdmission 先于任一 Drain、各阶段参与者共享同一 context、可选 worker、12 类部分启动回滚、未启用 Serve 的 listener 清理、预检查零 I/O/零信号注册、启动期限、异常 accept-loop、多个独立错误及格式化脱敏。
+- pending 测试用受控屏障验证 Result 超时并不关闭池或恢复全局；过期 Close observer 仍请求停止，全部任务真正结束后才清理。晚到 worker 释放错误保留在 Wait，Result 保持不变。健康探测专项覆盖过期 observer 与实际 probe join。
+- 实际 signal_graceful 场景通过 runProcess 注入 NotifyContext 取消，使用默认 Gin/JWT/WebSocket/真实 Redis 订阅及 worker。在真实 MySQL COMMIT 后阻塞 job，退出先关闭 WebSocket，而 worker drain 期间仍可使用存储且保留注册；放行后完成确认、释放、关池和信号注销。
+- 实际 forced_pending_after_commit 场景使用 40ms drain/close；有界 Result 返回时 globals/池/注册仍在。放行 job 后完成实际清理，原记录由新 owner 幂等重放，最终消息行数仍为 1、队列前缀清空。
+- 实际 busy_startup_rolls_back 场景验证已有 worker 锁导致启动失败且 Serve 未激活，listener/health/客户端全部回收，原持有者不受影响。mysql_offline_still_serves_liveness 仅停止本轮 fixture MySQL，实际默认装配仍提供 live=200、storage-ready=503，并能退出清理。
+- 首轮专项中两个失败来自测试对未交付 Redis client 的关闭断言；改为只检查已转移所有权的 client，生产关闭顺序无需改动。最终全仓库与 30 轮专项通过。Docker 实测编译后补充了 typed-nil listener 防护及专项用例；该防护不改变实测使用的非 nil listener 路径，并由最终全仓库与 30 轮测试覆盖。
+
+环境：Windows amd64、Go 1.27.1、GCC/race；沿用仓库 GOCACHE 和不存在的 ICHAT_CONFIG_FILE。默认测试不读取开发 .env/config、不连接真实依赖。实际场景由 NewLegacyFixture 创建独立 Docker project/schema/账号/随机 loopback 端口，核验标签后清理；JWT 使用 fixture runId 派生的测试值。未运行业务主程序或向宿主进程发送 OS 信号。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race . ./health -run 'Test(LegacyRuntime\|RunProcessLegacy\|StorageStop)' -count=30 -timeout=60s` | 最终连续 30 轮通过，主包=5.575s、health=1.333s |
+| `go test -mod=readonly -race ./... -count=1` | 全部通过；主包=10.107s、application=2.676s、config=2.896s、rabbitmq=6.515s、health=1.466s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库集成标签编译通过 |
+| `go test -mod=readonly -race -tags=integration . -run '^TestLegacyRuntimeIntegration$' -count=1 -v -timeout=5m` | 4 个真实场景全部通过，suite=25.21s、包=28.204s |
+| gofmt、`git diff --check`、新增文件空白/文档链接检查 | 全部通过 |
+
+实际 runId=`3f80ab3438942c545b560f5aacbd6580`，cleanup 成功。强制取消后重放的 duplicate-key 日志属于既有幂等校验路径，最终消息行数仍为 1。首次 Docker engine 未运行，资源创建前因缺少 dockerDesktopLinuxEngine pipe 失败（run=`20fce38c50ac78e39539afd8dfb1bbd1`）；隐藏启动 Docker Desktop 后 server=28.4.0，完成上述实测。无自动审批拒绝、共享数据变更、进程强杀或环境重置。本轮未改 MQ，不重复旧 MQ Docker suites，也不将旧结果计为本轮实测。
+
+### 后续边界
+
+P3.5.3.3 的基础装配与入口范围收口；P3 尚未整体验收。信号测试证明注入取消后的真实装配行为，未实测 OS 信号投递。callback 必须遵守 context；实际任务未退出时不能凭 observer 超时提前关闭存储，也不能对任意不响应的 callback/closer 承诺硬退出上限。默认 main 收到 pending 错误仍会按既有逻辑退出 1，可能留下注册，继续按旧人工恢复步骤处理；嵌入者可保留 handle 等待最终清理。
+
+默认现代业务工厂仍为空，api/worker/all 继续拒绝。HTTP 202、业务消费者提交后 ACK、审计、Outbox 和端到端恢复仍按对应后续阶段实施。
+
+建议 commit message：`feat(runtime): wire legacy process signals and phased cleanup`
+
+下一项：**P3.5.4：接受 readiness 与持续拓扑核验**。开始前按状态来源、拓扑复核与生命周期范围细分，拓扑不匹配必须保持未就绪。本轮不继续下一项、不自动提交。

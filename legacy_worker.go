@@ -48,13 +48,12 @@ func startLegacyWorker(setup context.Context, store scheduledtasks.MessageStore,
 }
 
 func startOwnedLegacyWorker(setup context.Context, store scheduledtasks.MessageStore, options legacyWorkerOptions, acquire func(context.Context) (legacyWorkerOwnership, error)) (*legacyCronWorker, error) {
-	valid := func(d time.Duration) bool { return d > 0 && d <= time.Minute }
-	if setup == nil || nilLegacyWorkerDependency(store) || acquire == nil || !valid(options.JobTimeout) || !valid(options.ReleaseTimeout) {
+	if setup == nil || nilLegacyWorkerDependency(store) || acquire == nil {
 		return nil, errLegacyWorkerInput
 	}
-	schedule, err := cron.ParseStandard(options.Schedule)
+	schedule, err := parseLegacyWorkerOptions(options)
 	if err != nil {
-		return nil, legacyWorkerError(errLegacyWorkerInput, err)
+		return nil, err
 	}
 	if err := setup.Err(); err != nil {
 		return nil, legacyWorkerError(errLegacyWorkerStart, err)
@@ -77,6 +76,18 @@ func startOwnedLegacyWorker(setup context.Context, store scheduledtasks.MessageS
 	w.cron.Start() // sets running synchronously before Stop can be requested
 	go w.manage()
 	return w, nil
+}
+
+func parseLegacyWorkerOptions(options legacyWorkerOptions) (cron.Schedule, error) {
+	valid := func(d time.Duration) bool { return d > 0 && d <= time.Minute }
+	if !valid(options.JobTimeout) || !valid(options.ReleaseTimeout) {
+		return nil, errLegacyWorkerInput
+	}
+	schedule, err := cron.ParseStandard(options.Schedule)
+	if err != nil {
+		return nil, legacyWorkerError(errLegacyWorkerInput, err)
+	}
+	return schedule, nil
 }
 
 func nilLegacyWorkerDependency(value any) bool {

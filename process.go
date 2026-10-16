@@ -16,6 +16,8 @@ import (
 // checks. Signal registration belongs to the process entry, not MQ or services.
 type processDependencies struct {
 	legacy        startupDependencies
+	legacyOptions legacyRuntimeOptions
+	runLegacy     func(context.Context, config.Config, startupDependencies, legacyRuntimeOptions) error
 	factories     application.RuntimeFactories
 	options       application.RuntimeOptions
 	runRuntime    func(context.Context, config.Config, application.RuntimeFactories, application.RuntimeOptions) error
@@ -24,7 +26,9 @@ type processDependencies struct {
 
 func defaultProcessDependencies() processDependencies {
 	return processDependencies{
-		legacy: defaultStartupDependencies(),
+		legacy:        defaultStartupDependencies(),
+		legacyOptions: defaultLegacyRuntimeOptions(),
+		runLegacy:     runLegacyRuntime,
 		// No production business roles are implemented yet. Do not substitute
 		// transport-only or test services for these required factories.
 		factories:     application.RuntimeFactories{},
@@ -46,19 +50,25 @@ func runProcess(deps processDependencies) error {
 	if err != nil {
 		return fmt.Errorf("resolve runtime assembly: %w", err)
 	}
-	if assembly.Mode() == config.ModeLegacy {
-		// Legacy still owns blocking Gin HTTP and hijacked WebSockets. Until
-		// their stop/join adapter exists, retain the OS's signal behavior;
-		// swallowing an interrupt here would leave the old server running.
-		return bootstrapLegacy(conf, deps.legacy)
+	legacy := assembly.Mode() == config.ModeLegacy
+	if deps.notifyContext == nil {
+		return errors.New("process: missing signal dependency")
 	}
-	if deps.runRuntime == nil || deps.notifyContext == nil {
-		return errors.New("process: missing modern runtime dependency")
-	}
-	// Pure MQ validation precedes process-wide signal registration as well as
-	// all external I/O. RunRuntime revalidates its own inputs and owns cleanup.
-	if _, err := conf.MQRuntime(); err != nil {
-		return err
+	if legacy {
+		if deps.runLegacy == nil {
+			return errors.New("process: missing legacy runtime dependency")
+		}
+		if err := checkLegacyRuntime(conf, deps.legacy, deps.legacyOptions); err != nil {
+			return err
+		}
+	} else {
+		if deps.runRuntime == nil {
+			return errors.New("process: missing modern runtime dependency")
+		}
+		// Pure MQ validation precedes process-wide signal registration and I/O.
+		if _, err := conf.MQRuntime(); err != nil {
+			return err
+		}
 	}
 	ctx, stop := deps.notifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	if stop != nil {
@@ -68,6 +78,9 @@ func runProcess(deps processDependencies) error {
 	}
 	if ctx == nil || stop == nil {
 		return errors.New("process: invalid signal context")
+	}
+	if legacy {
+		return deps.runLegacy(ctx, conf, deps.legacy, deps.legacyOptions)
 	}
 	// Return every error, including shutdown failures joined with cancellation.
 	// Only RunRuntime can classify cancellation after successful activation as
