@@ -2,7 +2,7 @@
 
 RunRuntime 现在为每次现代运行实例创建一个只读 Health capability，通过 RoleDependencies.Health 传给选中的服务工厂。它组合运行阶段、业务能力和当前 MQ 状态，不把 Start 成功或一个可连接的 publisher 当作业务接受就绪。
 
-默认现代业务工厂仍为空，api/worker/all 继续在外部 I/O 前拒绝。默认 legacy Router 继续返回接受未配置；本页完成的是汇总和接线基础，尚未提供生产 HTTP 202 handler、Redis 鉴权监控器或业务消费者。
+P3.6.2 已装配[生产 API 与 Redis GET 鉴权监控](api-runtime-lifecycle.md)，显式 api 模式可运行确认式接受入口。worker/all 仍因缺失后台业务角色在外部 I/O 前拒绝；默认 legacy Router 继续返回接受未配置。
 
 ## 状态来源
 
@@ -11,7 +11,7 @@ RunRuntime 现在为每次现代运行实例创建一个只读 Health capability
 | Acceptance | api/all 模式；全部选中服务成功激活；API 显式 RuntimeAcceptance 能力；AcceptanceReady 与 AuthenticationReady 为真；publisher State=ready、Ready=true 且 epoch 非零；运行未退出 | MySQL 在线、本地消费者在线或远程 worker 的状态 |
 | Consumers | worker/all 模式；全部选中服务成功激活；每个已准备消费者连接 Done 非 nil 且未关闭；持久化/隔离角色显式 ConsumerReady 为真；运行未退出 | publisher 或 API 鉴权是否在线 |
 
-RuntimeAcceptance 的 AcceptanceReady 必须表示新的确认式接受 handler 已装配且仍接单；AuthenticationReady 必须包括 Redis 鉴权依赖的有时效缓存状态，不能只表示 JWT key 已配置。生产 API 需要在 P3.6 实现这些能力及实际 handler。缺少接口、方法返回 false 都保持未就绪。
+RuntimeAcceptance 的 AcceptanceReady 必须表示新的确认式接受 handler 已装配且仍接单；AuthenticationReady 必须包括 Redis 鉴权依赖的有时效缓存状态，不能只表示 JWT key 已配置。生产 API 已实现这些能力及实际 handler。缺少接口、方法返回 false 都保持未就绪。
 
 RuntimeConsumerReadiness.ConsumerReady 必须包含本角色已激活订阅、业务准入和存储可用性。准备阶段的空闲 ConsumerSession 不足以证明业务消费就绪；缺少接口或任一连接关闭均不可 ready。消费者重连/暂停/周期核验仍由 P4 的业务角色实现，健康请求不会调用 Verify、OpenConsumer 或 ACK。
 
@@ -56,6 +56,6 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRuntime
 
 真实 suite 使用本轮隔离 MySQL/Redis/RabbitMQ、生产 RunRuntime、实际 Gin HTTP 和真实空队列订阅。四场景验证 Redis 探测客户端关闭后重建、发布绑定异常后的新 epoch 恢复、消费者连接关闭独立诊断、仅停止本轮 MySQL 时 storage/consumers=503 而 accept/live=200；进程取消后 drain 屏障内 accept/consumers=503，MQ/role lifetime 仍可用。
 
-这些角色显式声明 fixture 就绪能力，不是生产 HTTP accepted、JWT 黑名单校验或业务事务处理器。测试中的 Redis 故障是本轮客户端关闭/重建，没有停止 Redis 服务。健康监控复用有时效 Storage probe，实际 API 仍须实现自己的鉴权状态来源；不能用 fixture 冒充生产装配。MySQL 关闭期间的 EOF 日志属于本轮主动故障。
+这些角色显式声明 fixture 就绪能力，不是生产 HTTP accepted、JWT 黑名单校验或业务事务处理器。测试中的 Redis 故障是本轮客户端关闭/重建，没有停止 Redis 服务。健康监控复用有时效 Storage probe，实际 API 的 GET 鉴权状态来源已在 P3.6.2 装配；不能用 fixture 冒充生产装配。MySQL 关闭期间的 EOF 日志属于本轮主动故障。
 
-P3.5.4 的拓扑巡检和就绪装配基础范围收口；P3 尚未整体验收。P3.6.1 [独立确认式 HTTP 发送适配](command-submission.md)及客户端协议探测已完成隔离验证，下一项为 P3.6.2 生产 API 生命周期、Redis 鉴权探测与运行时装配。默认入口尚未切换，保持未实现角色门禁；业务提交后 ACK、消费者恢复、Outbox 和端到端验收仍在后续阶段。
+P3.5.4 的拓扑巡检和就绪装配基础范围收口；P3 尚未整体验收。P3.6.1 [独立确认式 HTTP 发送适配](command-submission.md)及客户端协议探测已完成隔离验证，P3.6.2 [生产 API 生命周期、Redis GET 鉴权探测与运行时装配](api-runtime-lifecycle.md)已完成，下一项为 P3 总体验收核对。默认入口尚未切换，保持未实现角色门禁；业务提交后 ACK、消费者恢复、Outbox 和端到端验收仍在后续阶段。

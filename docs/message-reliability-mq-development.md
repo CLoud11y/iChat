@@ -757,13 +757,13 @@ P2.1—P2.7 的协议、schema、幂等、权限、seq/消息/Outbox 原子提�
 - [x] P3.5.4 接受 readiness 汇总/接口装配与持续拓扑核验基础；拓扑不匹配保持未就绪，默认缺失业务能力仍不就绪。
   - [x] P3.5.4.1 publisher 已就绪连接周期只读复核，失败/超时退休 epoch、撤销准入；旧检查 join 后才恢复，不修复拓扑或重发。
   - [x] P3.5.4.2 接受就绪状态汇总及运行时/健康接口接线；显式 API/鉴权/消费能力、阶段门禁、publisher 当前状态与消费者独立诊断；真实故障/恢复和 drain 已验证，未提供生产业务角色。
-- [ ] P3.6 接受入口切换为新的 DTO 和 202 语义；MQ 首先独立测试，未完成 consumer 时只使用隔离环境积压。
+- [x] P3.6 显式 api 模式使用新 DTO 和 202 语义；默认配置仍为 legacy，未完成 consumer 时只使用隔离环境积压。
   - [x] P3.6.1 独立确认式 HTTP handler/路由、Bearer 鉴权、共享 DTO/严格有界读取、发布结果映射及客户端协议探测；真实 202/unknown/429/Return+ACK/MySQL 离线已验证，默认入口未切换。
-  - [ ] P3.6.2 生产 API 角色的受控 HTTP 生命周期、Redis 鉴权探测与运行时装配；缺失后台业务角色继续拒绝。
+  - [x] P3.6.2 生产 API 角色的受控 HTTP 生命周期、Redis GET 鉴权探测与运行时装配；启动回滚、慢请求、正常/超时退出和实际依赖故障已验证，缺失后台业务角色继续拒绝。
 
 验收：return+ACK 调度反转不误报 accepted；确认丢失重试安全；网络黑洞超时有界；旧 ACK 不污染新请求；拓扑错误不触发自动删队列。
 
-P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)，P3.5.3.3.1 见 [MQ 托管生命周期](mq-lifecycle.md)，P3.5.3.3.2.1 见 [角色构造器与服务实例检查](runtime-assembly.md)，P3.5.3.3.2.2 见 [服务执行与退出编排](runtime-execution.md)，P3.5.3.3.3.1 见 [进程入口分流与现代信号](runtime-process-entry.md)，P3.5.3.3.3.2 见 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)。默认现代业务工厂仍为空，可运行的业务入口保持旧链路，尚不代表业务提交后 ACK、HTTP accepted、应用整体 readiness 或完整 P3 验收。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础，默认缺失业务能力仍不就绪；P3.6.1 [独立确认式 HTTP 发送适配](command-submission.md)及客户端协议探测已完成隔离验证；下一项为 P3.6.2 生产 API 生命周期、Redis 鉴权探测与运行时装配。
+P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)，P3.5.3.3.1 见 [MQ 托管生命周期](mq-lifecycle.md)，P3.5.3.3.2.1 见 [角色构造器与服务实例检查](runtime-assembly.md)，P3.5.3.3.2.2 见 [服务执行与退出编排](runtime-execution.md)，P3.5.3.3.3.1 见 [进程入口分流与现代信号](runtime-process-entry.md)，P3.5.3.3.3.2 见 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)。默认配置保持旧链路，显式 api 模式已装配确认式接受入口；尚不代表业务提交后 ACK、端到端恢复或完整 P3 验收。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础，默认缺失业务能力仍不就绪；P3.6.1 [独立确认式 HTTP 发送适配](command-submission.md)及客户端协议探测已完成隔离验证；P3.6.2 [生产 API 生命周期、Redis GET 鉴权探测与运行时装配](api-runtime-lifecycle.md)已完成；下一项为 P3 总体验收核对与文档收口。
 
 ### P4：持久化 consumer、失败隔离与恢复
 

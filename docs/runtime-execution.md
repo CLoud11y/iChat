@@ -2,7 +2,7 @@
 
 `application.RunRuntime(ctx, conf, factories, options)` 提供现代角色的阻塞式执行器：先检查全部必需构造器，再准备 MQ、构造全部服务、验证实例集合，最后激活。运行中等待进程 context 取消或服务意外退出；返回之前负责服务及 MQ 的有界清理。
 
-本小点提供执行器及注入契约，没有提供 API/落库/审计/Outbox 业务服务。后续 P3.5.3.3.3.1 已将[主程序分流和现代进程信号](runtime-process-entry.md)接至此执行器；默认现代角色工厂仍为空，新模式继续在连接前拒绝。Check/成功激活均不是 accepted/readiness 或业务提交后 ACK 的证明。
+本小点提供执行器及注入契约。[主程序分流和现代进程信号](runtime-process-entry.md)已接至此执行器，P3.6.2 已装配[生产 API](api-runtime-lifecycle.md)；落库、隔离及 Outbox 业务角色仍缺失，worker/all 继续在连接前拒绝。Check/成功激活均不是某次 accepted 或业务提交后 ACK 的证明。
 
 ## 构造与激活
 
@@ -73,4 +73,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 共享关闭内核另回归原 session 黑洞和消费者重投/ACK 丢帧 suites。版本、runId、时长与 cleanup 见实施记录。测试不读取开发 .env/config、不启用业务主程序、不修改共享数据。
 
-P3.5.3.3 的[进程入口](runtime-process-entry.md)、[HTTP/WebSocket](legacy-http-lifecycle.md)、[cron](legacy-worker-lifecycle.md)及[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已完成基础装配和退出接线；默认入口通过 net/http owner 管理请求，收到信号后先 drain 再关闭，未 join 时保留存储。默认现代业务工厂仍为空，必须继续拒绝缺失角色，不能用测试 fixture 充当生产处理器。[接受就绪汇总与健康接线](runtime-readiness.md)及周期拓扑复核已完成装配基础，下一项为 P3.6 HTTP 202 接受入口；HTTP 202、提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。
+P3.5.3.3 的[进程入口](runtime-process-entry.md)、[HTTP/WebSocket](legacy-http-lifecycle.md)、[cron](legacy-worker-lifecycle.md)及[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已完成基础装配和退出接线；默认入口通过 net/http owner 管理请求，收到信号后先 drain 再关闭，未 join 时保留存储。[生产 API](api-runtime-lifecycle.md) 已为显式 api 模式装配，仍拒绝缺失后台角色。[接受就绪汇总与健康接线](runtime-readiness.md)、周期拓扑复核及 P3.6 接受入口已完成；下一项为 P3 总体验收核对，提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。

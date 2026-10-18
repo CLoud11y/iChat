@@ -102,6 +102,9 @@ type legacyHTTPRequests struct {
 	stopped bool
 	active  map[*legacyHTTPRequest]struct{}
 	done    chan struct{}
+	// Optional rejection protocol for another explicitly assembled API. This
+	// changes no legacy business routes or default legacy response behavior.
+	rejected http.Handler
 }
 
 func (s *legacyHTTPRequests) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +114,10 @@ func (s *legacyHTTPRequests) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.stopped {
 		s.mu.Unlock()
 		cancel()
+		if s.rejected != nil {
+			s.rejected.ServeHTTP(w, r)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 		return

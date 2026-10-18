@@ -26,17 +26,17 @@ go test ./...
 
 默认单元测试不需要 MySQL/Redis。真实集成测试及 benchmark 的运行方式见 [测试说明](tests/README.md)。
 
-RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔离测试环境验证，详见 [MQ 测试环境](docs/mq-test-environment.md)。本地 Docker 服务与可靠死信见 [本地 MQ 拓扑](docs/mq-local-topology.md)；发布判定见 [MQ publisher](docs/mq-publisher.md)，有界 I/O/关闭见 [MQ session](docs/mq-session.md)，重连、epoch 和只读拓扑复核见 [MQ supervisor](docs/mq-supervisor.md)。[MQ 应用配置](docs/mq-application-config.md) 提供无网络 I/O 的读取、环境变量覆盖和参数校验；主程序已提供现代执行器分流，但生产业务构造器仍缺失，当前业务服务仍运行旧消息链路。
+RabbitMQ 4.3.6（镜像 digest 固定）与 amqp091-go 1.15.0 已在 Docker 隔离测试环境验证，详见 [MQ 测试环境](docs/mq-test-environment.md)。本地 Docker 服务与可靠死信见 [本地 MQ 拓扑](docs/mq-local-topology.md)；发布判定见 [MQ publisher](docs/mq-publisher.md)，有界 I/O/关闭见 [MQ session](docs/mq-session.md)，重连、epoch 和只读拓扑复核见 [MQ supervisor](docs/mq-supervisor.md)。[MQ 应用配置](docs/mq-application-config.md) 提供无网络 I/O 的读取、环境变量覆盖和参数校验；主程序已装配确认式 API，默认配置仍运行旧消息链路，后台业务角色尚未实现。
 
 ## 使用 Docker Compose 启动依赖
 
-P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消费 channel / 手动 ACK](docs/mq-consumer-channel.md) 已完成库级隔离验证，生产/消费分别持有连接。[运行模式](docs/mq-runtime-modes.md) 已提供严格配置、角色计划和启动检查；当前主程序只支持默认 `legacy`，`api`/`worker`/`all` 尚未装配，选择它们会在外部连接建立前明确退出。新业务链路仍待后续小点。
+P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消费 channel / 手动 ACK](docs/mq-consumer-channel.md) 已完成库级隔离验证，生产/消费分别持有连接。[运行模式](docs/mq-runtime-modes.md) 提供严格配置、角色计划和启动检查；默认 `legacy` 保持原行为，显式 `api` 已支持新 DTO/202；`worker`/`all` 缺失持久化、隔离及 Outbox 角色，继续在外部连接建立前明确退出。未完成 consumer 时只在独立测试环境积压。
 
 [消费者运行参数与 MQ 依赖计划](docs/mq-runtime-parameters.md) 已支持有界 worker 数量、prefetch 和独立操作超时，按角色生成无网络 I/O 的构造输入。[MQ 连接准备与清理](docs/mq-runtime-resources.md) 可显式创建 publisher/各 worker 独立连接，提供总准备期限、部分失败回滚和有界关闭；准备阶段没有消费订阅。主程序生命周期及新业务角色仍待后续装配。
 
-[MQ 托管生命周期](docs/mq-lifecycle.md) 在 lifetime 取消时自动关闭整组资源，提供 Done/Wait、短等待后再次加入清理及错误保留。[角色构造器与服务实例检查](docs/runtime-assembly.md) 可列出所选模式的全部缺失角色，并在激活前拒绝缺失或多余服务。[运行时执行器](docs/runtime-execution.md) 已提供全部构造后再激活、API 最后启动，以及停止准入→drain→关闭服务→关闭 MQ 的有界编排。[进程入口](docs/runtime-process-entry.md)已将 legacy 与现代分支接入退出信号；[默认 legacy 生命周期](docs/legacy-runtime-lifecycle.md)统一管理 HTTP/WebSocket、worker、健康探测和存储，未退出任务继续持有资源。默认现代角色工厂仍为空，当前仍只可运行 legacy。
+[MQ 托管生命周期](docs/mq-lifecycle.md) 在 lifetime 取消时自动关闭整组资源，提供 Done/Wait、短等待后再次加入清理及错误保留。[角色构造器与服务实例检查](docs/runtime-assembly.md) 可列出所选模式的全部缺失角色，并在激活前拒绝缺失或多余服务。[运行时执行器](docs/runtime-execution.md) 已提供全部构造后再激活、API 最后启动，以及停止准入→drain→关闭服务→关闭 MQ 的有界编排。[进程入口](docs/runtime-process-entry.md)已将 legacy 与现代分支接入退出信号；[默认 legacy 生命周期](docs/legacy-runtime-lifecycle.md)统一管理 HTTP/WebSocket、worker、健康探测和存储，未退出任务继续持有资源。[生产 API 生命周期](docs/api-runtime-lifecycle.md)同样保留尚未退出请求和探针所需的私有存储客户端。
 
-[legacy cron 生命周期](docs/legacy-worker-lifecycle.md) 已由默认入口复用：批次限时、停止准入、等待全部任务后一次释放注册，支持重复观察退出结果。真实 WebSocket/DB 提交后的正常退出、超时后保留存储与原始前缀重放已验证。[Publisher 周期拓扑复核](docs/mq-topology-monitor.md)已补上空闲连接的只读巡检，失败/超时撤销就绪，不修复拓扑或重发命令；[接受就绪汇总与健康接口](docs/runtime-readiness.md)已接线，显式区分鉴权、publisher、消费者和退出状态；默认缺失业务能力仍不就绪。[独立确认式 HTTP 发送适配](docs/command-submission.md)与 loadtest 新协议探测已完成隔离验证，默认入口尚未切换；下一项为 P3.6.2 生产 API 生命周期、鉴权探测与运行时装配。
+[legacy cron 生命周期](docs/legacy-worker-lifecycle.md) 已由默认入口复用：批次限时、停止准入、等待全部任务后一次释放注册，支持重复观察退出结果。真实 WebSocket/DB 提交后的正常退出、超时后保留存储与原始前缀重放已验证。[Publisher 周期拓扑复核](docs/mq-topology-monitor.md)已补上空闲连接的只读巡检，失败/超时撤销就绪，不修复拓扑或重发命令；[接受就绪汇总与健康接口](docs/runtime-readiness.md)显式区分鉴权、publisher、消费者和退出状态。[确认式 HTTP 发送适配](docs/command-submission.md)、loadtest 新协议探测和[生产 API 装配](docs/api-runtime-lifecycle.md)已完成隔离验证；api 角色目前仅提供新发送及健康路由。下一项为 P3 总体验收核对与文档收口。
 
 项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 
@@ -120,7 +120,7 @@ P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消�
 
 `/auth/contact/` 下的 `addFriend`、`createGroup`、`joinGroup`、`deleteGroup` 也使用显式传入的仓储和请求 context。存储故障返回 HTTP 503，不暴露 SQL 错误；目标用户不存在、添加自己、关系重复及群不存在/无权删除返回 HTTP 200、`code: -1`。入群/删群拒绝零、负数和溢出的群 ID。建群记录和创建者成员关系使用同一个事务，双向好友关系也在事务中写入；删群只有实际删除自己的群后才返回成功。
 
-业务进程使用延迟连接的 MySQL 连接池，MySQL 离线不会阻止 HTTP 启动；Redis 启动检查仍须成功。访问 MySQL 的接口在连接失败时返回 503，后续操作会由连接池重新尝试连接。API 连接设置了 3 秒拨号超时、5 秒读/写超时，这些不是整个请求的总超时。当前按项目 MySQL 8 环境跳过服务端版本探测；独立迁移命令仍立即连接并检查数据库，不会因 API 的延迟连接而跳过迁移错误。隔离集成测试已验证真实 MySQL 离线启动及两次恢复，详情见 [测试说明](tests/README.md)；尚未覆盖网络黑洞或 API 进程崩溃，当前不代表实现了 MQ accepted 语义。
+默认 legacy 进程使用延迟连接的 MySQL 连接池，MySQL 离线不会阻止 HTTP 启动；Redis 启动检查仍须成功。访问 MySQL 的接口在连接失败时返回 503，后续操作会由连接池重新尝试连接。MySQL 连接设置了 3 秒拨号超时、5 秒读/写超时，这些不是整个请求的总超时。当前按项目 MySQL 8 环境跳过服务端版本探测；独立迁移命令仍立即连接并检查数据库，不会因延迟连接而跳过迁移错误。隔离集成测试已验证真实 MySQL 离线启动及两次恢复，详情见 [测试说明](tests/README.md)；尚未覆盖网络黑洞或 API 进程崩溃。该 legacy 路径不提供 MQ accepted；现代 api 角色支持 Redis/MySQL 离线时 HTTP 存活启动，接受仍要求实际 Redis 鉴权与 MQ 确认，见 [API 生命周期](docs/api-runtime-lifecycle.md)。
 
 无需 JWT 的健康检查接口：
 

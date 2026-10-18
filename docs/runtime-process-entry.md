@@ -1,6 +1,6 @@
 # 进程入口分流与现代运行时信号（P3.5.3.3.3.1）
 
-`main → run → runProcess` 现在按配置选择 legacy bootstrap 或 `application.RunRuntime`。配置只加载一次，所选角色全部通过纯检查后才允许进入相应路径。默认现代业务构造器仍为空，api/worker/all 继续在外部连接前报出全部缺失角色；本项没有实现或注册生产处理器。
+`main → run → runProcess` 按配置选择 legacy 生命周期或 `application.RunRuntime`。配置只加载一次，所选角色全部通过纯检查后才允许进入相应路径。P3.6.2 已为显式 api 模式注册[生产 API 工厂](api-runtime-lifecycle.md)，其配置也在信号和 I/O 前校验；worker/all 继续在外部连接前报出缺失的持久化、隔离、Outbox 角色。默认模式仍为 legacy。
 
 ## 分流与所有权
 
@@ -36,4 +36,4 @@ go test -mod=readonly -tags=integration ./... -run '^$'
 
 信号取消测试使用可控 context，不是实际操作系统中断实测；运行时内部阶段与真实 MQ 的既有验证见 [执行器](runtime-execution.md)，本轮不重复 Docker，也不将旧结果计为本轮实测。测试不读取开发 .env/config、不运行实际业务主程序、不修改共享数据。
 
-入口接线和 legacy 退出装配已完成；默认仍只有 legacy 可运行。[接受就绪汇总与健康接线](runtime-readiness.md)及周期拓扑复核已完成装配基础，下一项为 P3.6 HTTP 202 接受入口；现代生产业务工厂、MQ 业务 COMMIT/ACK、consumer 恢复、HTTP 202、审计和 Outbox 继续按后续小点实现。legacy Docker 验证及信号投递限制见统一生命周期说明。
+入口接线、legacy 退出及[生产 API 生命周期](api-runtime-lifecycle.md)已完成；显式 api 支持新 DTO/202 与真实鉴权探测。缺失后台角色继续拒绝；MQ 业务 COMMIT/ACK、consumer 恢复、审计和 Outbox 仍归后续阶段。legacy Docker 验证及信号投递限制见统一生命周期说明。

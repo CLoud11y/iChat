@@ -2393,3 +2393,48 @@ P3.6.1 范围收口，P3.6/P3 尚未整体验收。当前是可显式注册的�
 建议 commit message：`feat(api): add confirmed command submission and protocol probe`
 
 下一小点：**P3.6.2：生产 API 角色的受控 HTTP 生命周期、Redis 鉴权探测与运行时装配**。完整管理 ingress 期限/停止准入/drain/存储归属，选中未完成后台角色仍须在 I/O 前拒绝。未完成 consumer 时仅在独立测试环境积压，本轮不继续下一小点、不自动提交。
+
+## P3.6.2：生产 API 生命周期、鉴权探测与运行时装配
+
+状态：2026-10-18（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译和隔离 Docker 实测。代码基线为用户提交的 P3.6.1 `7ec70eb`，开始时工作区干净。本轮完整完成既定范围，不再拆分或推进下一项，不自动提交。
+
+### 实现
+
+- 新增 apiService / apiAssembly：构造 idle，Start 才创建独立、延迟连接的 MySQL/Redis、真实 TokenService、两个监控器及 HTTP；不迁移 schema 或绑定旧全局。
+- 独立 Gin engine 只提供新发送和四个健康路由。复用受控 HTTP transport owner 的活动请求跟踪，给新 API 配置停止准入的固定 JSON 503；默认 legacy 行为保持。
+- 增加头/正文读取、写、空闲和头大小上限，请求 deadline 包含 Redis 鉴权及发布。真实 TCP 慢头/慢正文受到服务器期限约束，不因 handler deadline 无法中断正文读取而泄漏连接。
+- 鉴权探针实际 GET 每实例随机 key，Redis.Nil 视为健康，其余错误保持未就绪；复用有新鲜度的探针缓存，健康请求无网络 I/O，每次发送仍实际检查黑名单。Redis 断连可在同一客户端上恢复。
+- 单一 cleanup owner 管理所有部分启动、正常退出和意外 accept loop 退出。停止准入不取消在途发布；Drain 不释放存储；强制关闭时取消工作并停止探针，只有 HTTP 请求、探针、accept loop 全部真实退出后才关闭一次客户端。
+- Close observer 过期返回 pending；同一 owner 继续保留资源并允许再次等待，Done 表示实际清理完成。执行器独立预算可能先结束并关闭共享 MQ，API 不会把 observer 超时当作已 join。
+- 默认 runProcess 为显式 api 模式补入真实生产工厂，纯角色/MQ/API 校验后才注册信号和联网；已有注入工厂仍保留。worker/all 完整报告缺失后台角色。配置默认 legacy 未切换，没有启用业务主程序或修改开发数据。
+- 新增 [API 生命周期](api-runtime-lifecycle.md)，更新 README、开发清单、进程/模式/装配/执行器/就绪/发送及测试说明。P3.6 范围收口；P3 整体验收留待下一项核对。
+
+### 验证与自审
+
+- 默认专项覆盖 idle 构造、成功 setup 取消隔离、Redis GET 失败恢复、停止准入保留已进入的发布、正常 drain 不关闭客户端、关闭 deadline 后请求和探针继续持有存储、各阶段 handle+error/nil/typed nil 回滚、启动中关闭、意外 listener 退出和关闭后拒绝重启。
+- 配置测试覆盖模式/监听/HTTP 期限/大小、JWT、Redis 地址与池、MySQL、依赖/角色输入，证明纯检查不调用 opener。进程测试证明默认 API 工厂实际选择、idle 服务关闭、worker/all 后台缺失以及配置失败先于信号/执行器。
+- 实际 Docker suite 从 defaultProcessDependencies 的真实 API 工厂进入 RunRuntime，没有 fixture/no-op 业务服务。receipt barrier 只在实际 publisher 完整确认后延迟返回，不制造接受结果。测试使用可控进程 context，没有向宿主投递 OS 信号。
+- 5 个场景：Redis 初始离线仍 live、恢复接受、再断连撤销接受后同客户端恢复；真实 confirm 后进程取消仍 drain 成功返回 202；强制关闭超时后进程报告 shutdown failure，挂起 handler 仍持有可用 Redis/SQL，解除屏障后真实 join/关闭；端口占用回滚；核验归属后停止本次 MySQL，storage 503 而 accept/live 200、实际发送 202。
+- 202 的 commandId / publishAttemptId 与真实队列信封匹配；强制退出时已确认命令仍在队列。没有业务 consumer，最终控制 Get/ACK 只用于 fixture 核验，不代表事务提交后 ACK。旧全局快照未变化。
+- 初次编译发现既有 RedisTokenBlacklist 构造器接收具体 *redis.Client，改为 API 内部注入 token factory，保留既有鉴权公开 API；集成测试初次标签编译修正 AMQP Dial 参数和扁平信封字段。之后全部检查通过。首次 Docker 后加强进程错误、信号注销及具体客户端已关闭断言，重新实测通过。
+
+固定 Go 1.27.1；GOROOT 清空、GOCACHE 指向仓库 .gocache；ICHAT_CONFIG_FILE 指向不存在的单元配置文件。没有读取开发 .env/config，也没有更改依赖或配置文件。
+
+```powershell
+go test -mod=readonly -race . -run 'Test(API|RunProcess|LegacyHTTP)' -count=1 -timeout=60s
+go test -mod=readonly -race . -run 'Test(API|RunProcess|LegacyHTTP)' -count=30 -timeout=120s
+go test -mod=readonly -race ./... -count=1 -timeout=90s
+go vet -mod=readonly -tags=integration ./...
+go test -mod=readonly -tags=integration ./... -run '^$'
+go test -mod=readonly -race -tags=integration . -run '^TestProductionAPIIntegration$' -count=1 -v -timeout=7m
+```
+
+结果：专项 PASS（3.288s）；30 次专项 PASS（14.292s）；全仓库 race 全绿（主包 11.889s、rabbitmq 7.477s，其余包通过或无测试）；vet / 标签编译通过。Docker 首轮 PASS（主包 39.468s），加强断言后最终 PASS（主包 26.345s，suite 23.43s）。
+
+两轮独立 runId：`f732ab8bee55924c96a23a10ea3a469f`、`154d7f88f6ea0837332cda78e69d908f`；RabbitMQ 4.3.6 / amqp091-go v1.15.0。每轮 fixture 清理均成功，Redis 故障仅作用于本次 loopback 代理连接，MySQL 控制及最终清理均先检查项目/run 标签，没有访问共享环境。
+
+### 边界与下一项
+
+P3.6 的确认式 handler、客户端协议探测和生产 API 装配范围完成。API 当前没有新登录、WebSocket、状态/同步/历史适配；默认配置仍为 legacy，未完成 consumer 时仅在独立测试环境积压。真实 broker NACK 的 HTTP 路径、OS 信号投递、吞吐/容量、业务提交后 ACK、隔离/Outbox、三节点与端到端恢复不在本轮验收范围。
+
+下一项：**P3 总体验收核对与文档收口**。核对已有证据与阶段要求，区分库级、生产 API 和后续业务消费范围，再进入 P4；本轮不继续下一项、不自动提交。

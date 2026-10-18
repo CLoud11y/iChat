@@ -46,7 +46,7 @@ RoleDependencies 承载本角色的 MQ 能力以及只读 Health 观察。执行
 
 缺失构造器使用 `application.ErrRuntimeNotAssembled`。原主包 ErrRuntimeNotAssembled 保留为同一 sentinel，现有 errors.Is 调用继续有效。可以使用 errors.As 读取 RuntimeAssemblyError.Mode/MissingRoles；缺失列表按 API、持久化、隔离、Outbox 稳定排序，返回副本。
 
-当前 bootstrap 使用空的新业务构造器集合，因此新模式在任何外部构造器前拒绝，例：
+兼容 bootstrap 仍使用空的新业务构造器集合并拒绝现代模式；默认 runProcess 已装配生产 API，worker/all 仍在任何外部构造器前拒绝，例：
 
 ```text
 resolve runtime assembly: requested runtime mode is not assembled yet: worker (missing roles: persistence_consumer, quarantine_consumer, outbox)
@@ -54,7 +54,7 @@ resolve runtime assembly: requested runtime mode is not assembled yet: worker (m
 
 服务实例问题使用 ErrRuntimeServices。未知 map key 不回显，所有错误只包含已验证模式、已知角色名或固定原因，不输出凭证、消息正文、URL 或非法模式原值。第二层检查不接受未选中的额外服务，即使其值为 nil。
 
-默认程序没有注册新业务构造器；[进程入口](runtime-process-entry.md)已提供到 [RunRuntime 执行器](runtime-execution.md)的现代分流和信号接线。legacy bootstrap 的新模式兜底拒绝继续保留，避免直接调用时落入旧 router/worker。Check 成功不是运行模式已获支持或 ready 的证明；迁移 CLI/mqadmin 不新增业务装配或 MQ 网络依赖。
+默认程序已为显式 api 模式注册[生产 API 构造器](api-runtime-lifecycle.md)；[进程入口](runtime-process-entry.md)提供到 [RunRuntime 执行器](runtime-execution.md)的现代分流和信号接线。legacy bootstrap 的新模式兜底拒绝继续保留，避免直接调用时落入旧 router/worker。Check 成功不是 ready 的证明；迁移 CLI/mqadmin 不新增业务装配或 MQ 网络依赖。
 
 ## 验证与下一项
 
@@ -68,4 +68,4 @@ go vet -mod=readonly -tags=integration ./...
 
 实际执行 bootstrap 的测试验证结构化缺失角色、sentinel 兼容，且只出现配置加载事件，旧全局状态不变。默认 legacy 生命周期与全仓库回归继续执行。测试不访问 Docker、开发配置/.env 或共享数据；没有更改 AMQP 库或重复旧 Docker 结果。
 
-P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；默认现代业务工厂仍为空。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础；下一项为 P3.6 HTTP 202 接受入口，业务处理器与 consumer 恢复仍待对应后续小点。
+P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；[生产 API](api-runtime-lifecycle.md) 已为显式 api 模式装配，后台业务角色仍缺失。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础；P3.6 接受入口与 API 生命周期已完成，下一项为 P3 总体验收核对；后台业务处理器与 consumer 恢复仍待后续阶段。

@@ -64,6 +64,7 @@ func TestRunProcessGuardBeforeDependenciesAndSignals(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			before := legacyState()
 			deps := defaultProcessDependencies()
+			deps.api = nil // This matrix deliberately supplies no production defaults.
 			if strings.HasSuffix(tc.name, "_api_only") {
 				deps.factories.API = processTestFactories().API
 			}
@@ -157,6 +158,71 @@ func TestRunProcessModernDispatch(t *testing.T) {
 			}
 			if ctx.Err() != context.Canceled || !reflect.DeepEqual(events, []string{"config", "signals", "runtime", "unregister"}) || !reflect.DeepEqual(before, legacyState()) {
 				t.Fatal("incorrect dispatch/unregister lifecycle", events)
+			}
+		})
+	}
+}
+
+func TestRunProcessDefaultAPIAssemblyAndPreflight(t *testing.T) {
+	for _, name := range []string{"api", "worker", "all", "bad_jwt", "bad_address", "bad_redis", "bad_mysql"} {
+		t.Run(name, func(t *testing.T) {
+			h := newAPIHarness()
+			deps := defaultProcessDependencies()
+			deps.api = &apiAssembly{options: func(config.Config) apiOptions { return h.o }, dependencies: h.d}
+			switch name {
+			case "worker":
+				h.c.RUNTIME.Mode = config.ModeWorker
+			case "all":
+				h.c.RUNTIME.Mode = config.ModeAll
+			case "bad_jwt":
+				h.c.JWT.Key = ""
+			case "bad_address":
+				h.o.Address = "invalid"
+			case "bad_redis":
+				h.c.REDIS.Addr = "invalid"
+			case "bad_mysql":
+				h.c.MYSQL.DbName = ""
+			}
+			deps.legacy.loadConfig = func() (config.Config, error) { return h.c, nil }
+			registered, executed := false, false
+			deps.notifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+				registered = true
+				return ctx, func() {}
+			}
+			deps.runRuntime = func(ctx context.Context, c config.Config, f application.RuntimeFactories, _ application.RuntimeOptions) error {
+				executed = true
+				if f.API == nil || f.Persistence != nil || f.Quarantine != nil || f.Outbox != nil {
+					t.Fatal("incorrect production role selection")
+				}
+				service, err := f.API(ctx, application.RoleDependencies{Publisher: h.publisher, Health: apiTestHealth{}})
+				if err != nil {
+					return err
+				}
+				if _, ok := service.(*apiService); !ok {
+					t.Fatal("default API is not the production service")
+				}
+				return service.Close(context.Background())
+			}
+			err := runProcess(deps)
+			if name == "api" {
+				if err != nil || !registered || !executed {
+					t.Fatal("default API not dispatched", err)
+				}
+			} else {
+				if err == nil || registered || executed {
+					t.Fatal("invalid/incomplete configuration reached runtime", err)
+				}
+				if name == "all" || name == "worker" {
+					var missing *application.RuntimeAssemblyError
+					if !errors.As(err, &missing) || !reflect.DeepEqual(missing.MissingRoles(), []application.RuntimeRole{application.RolePersistence, application.RoleQuarantine, application.RoleOutbox}) {
+						t.Fatal("missing background roles not reported", err)
+					}
+				} else if !errors.Is(err, errAPIInput) {
+					t.Fatal("missing API validation error", err)
+				}
+			}
+			if h.sql.closed.Load() != 0 || h.redis.closed.Load() != 0 || h.redis.gets.Load() != 0 {
+				t.Fatal("preflight/idle constructor opened resources")
 			}
 		})
 	}

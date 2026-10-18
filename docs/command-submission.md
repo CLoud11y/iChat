@@ -1,8 +1,8 @@
 # 确认式 HTTP 发送适配（P3.6.1）
 
-本小点提供独立的 `service.SubmitCommand`、`router.RegisterSubmission` 和新协议客户端探测；默认主程序仍是 legacy，尚未注册生产 API 工厂。不要把这个路由追加到旧 Router 的同名路径，也不能将旧发送成功解释为 MQ accepted。
+本小点提供独立的 `service.SubmitCommand`、`router.RegisterSubmission` 和新协议客户端探测；P3.6.2 已将其接入[生产 API 工厂](api-runtime-lifecycle.md)，显式 api 模式可运行，默认配置仍是 legacy。不要把这个路由追加到旧 Router 的同名路径，也不能将旧发送成功解释为 MQ accepted。
 
-现代路由显式调用 `router.RegisterSubmission(engine, tokens, publisher, timeout)`，注册 `POST /auth/sendMessage`。它不创建 listener、存储、publisher 或 worker，不修改全局，不设置健康 ready；API 实例的构造/信号/准入/探测与关闭在下一小点接线。
+现代路由显式调用 `router.RegisterSubmission(engine, tokens, publisher, timeout)`，注册 `POST /auth/sendMessage`。路由函数不创建 listener、存储、publisher 或 worker，不修改全局、不设置健康 ready；API 实例的构造、信号、准入、探测与关闭由独立生命周期 owner 管理。
 
 ## 请求与鉴权
 
@@ -57,6 +57,6 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestCommand
 4. 缺失本轮绑定，真实 Return+ACK 返回 503 unroutable，不误报 accepted。
 5. 按归属核验只停止本轮 MySQL，实际 HTTP 仍可得到 MQ 确认并返回 202。
 
-未实测真实 broker NACK 的 HTTP 路径、生产 API owner/慢头慢正文、OS 信号投递、业务提交后 ACK 或客户端持久化终态；NACK 映射由默认测试覆盖。只在独立 fixture 积压/读取命令，fixture 控制连接的 ACK 不是业务提交后 ACK。版本、runId、结果见[实施记录](message-reliability-mq-progress.md)。
+本 suite 未实测真实 broker NACK 的 HTTP 路径、OS 信号投递、业务提交后 ACK 或客户端持久化终态；NACK 映射由默认测试覆盖。生产 API owner 和慢头/慢正文已由 P3.6.2 的独立测试补充，见 [API 生命周期](api-runtime-lifecycle.md)。只在独立 fixture 积压/读取命令，fixture 控制连接的 ACK 不是业务提交后 ACK。版本、runId、结果见[实施记录](message-reliability-mq-progress.md)。
 
-下一小点 P3.6.2：生产 API 角色的受控 HTTP 生命周期、Redis 鉴权探测与运行时装配。默认现代业务工厂继续缺失；P3.6/P3 尚未整体验收，不切换开发共享数据或旧消息入口。
+P3.6.2 已完成[生产 API 生命周期、Redis GET 鉴权探测与默认进程装配](api-runtime-lifecycle.md)。显式 api 模式可运行本路由；默认配置仍是 legacy，worker/all 继续拒绝缺失的后台业务角色。P3.6 范围收口，下一项为 P3 总体验收核对；不切换开发共享数据。
