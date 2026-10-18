@@ -1,6 +1,6 @@
 # 有界消费 channel 与手动 ACK（P3.5.2.2）
 
-`ConsumerSession.OpenConsumer` 在已经核验的独立消费者连接上提供消费订阅、顺序读取和单条 ACK/Reject。当前是库与隔离测试接口；按角色 MQ 准备层可持有空闲消费者连接，但生产业务落库与隔离审计尚未接入。生产 worker 必须在 P4 的数据库事务完成后才调用 ACK。
+`ConsumerSession.OpenConsumer` 在已经核验的独立消费者连接上提供消费订阅、顺序读取和单条 ACK/Reject。当前是库与隔离测试接口；按角色 MQ 准备层可持有空闲消费者连接。[P4.1.1 持久化消费适配](mq-persistence-consumer.md)已将单条 delivery 接入 P2 完整事务并在成功后 ACK；生产 worker 生命周期与隔离审计仍待后续 P4。
 
 ## 调用与所有权
 

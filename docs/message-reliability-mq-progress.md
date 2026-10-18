@@ -2495,3 +2495,56 @@ P3 基础设施、可靠 publisher 和新接受 API 范围验收收口。P3 对�
 下一项：**P4.1：MQ delivery 到 P2 幂等事务的持久化消费适配**。开始前按 wire 校验、事务结果、ACK/重投和角色生命周期拆成可审查小点；隔离及 Outbox 等必需角色未完成时继续保留 worker/all 门禁。
 
 建议 commit message：`test(mq): close P3 acceptance and cover late ACK after timeout`
+
+## P4.1.1：单条 MQ delivery 到 P2 事务及提交后 ACK
+
+状态：2026-10-19（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译及独立 Docker 实测。基线为用户提交的 P3 收口 `067cc9a`，开始时工作区干净。按上一轮交接要求，将 P4.1 拆为本轮单条处理，以及下一小点受控 worker/角色生命周期；P4.1/P4 整体保持未完成，不自动提交。
+
+### 实现与边界
+
+- 新增 `workers.PersistenceHandler`，构造只捕获具体 `MessageRepository.PersistCommand`，不联网、启动 goroutine 或占有共享池。Handle 接收实际 ConsumerDelivery，要求有 deadline 的 context，事务与 ACK 共用期限。
+- 严格复用 P2 JSON/信封校验，重新核对业务身份/hash、版本、字段、时间与 attempt；核对持久标记、JSON ContentType、空 encoding、主 exchange/routing key 及 AMQP MessageID/CorrelationID。原 body/headers 保持不变，redelivered 不参与幂等身份。
+- 直接执行 P2 完整权限/seq/message/命令终态/Outbox 事务；不拆开写入或追加缓存/通知。applied、replayed、业务 rejected 与无原结果的 ID_CONFLICT 在仓储成功结束后均可 ACK。
+- 释放责任前复核终态 disposition、请求身份/hash、时间与消息/会话/拒绝字段；零值、部分结果、冲突附原结果和占位拒绝均不 ACK。SQL/回滚错误、COMMIT 未知和 ACK 错误返回空 execution，保留 errors.Is/As；常用错误格式不打印正文、SQL 或凭证。
+- ACK 只调用原 handle，一次、单条、multiple=false；不使用任意 tag，不重发 ACK，不做 Next/Reject/本地重试或主动隔离。调用者遇错应停止领取，原 channel owner 受控关闭后通过新 session 幂等恢复，不能立即 requeue 热循环。
+- 新增 [持久化消费适配](mq-persistence-consumer.md)，同步阶段清单、README、测试入口及消费传输/P3 验收后续说明。生产 factories、默认 legacy 配置和 worker/all 缺失角色门禁均未变。
+
+### 默认测试与自审
+
+- wire 错误均不调用仓储/ACK，包括非法/超大/重复/未知 JSON、无效 UTF-8、版本/身份/hash/规范字段错误、属性/route/attempt 不匹配；失败不修改原文。
+- 覆盖规范命令/context 原样传入、applied/replayed/conflict 及 persisted/rejected、部分/矛盾终态拒绝、仓储尚未完成时禁止 ACK、每次调用最多一次仓储/ACK、错误分类与安全日志。
+- 覆盖 COMMIT 未知、仓储返回结果同时带错误、ACK 不确定、nil/无期限/预取消，以及仓储成功后取消仍不尝试 ACK。底层具体传输 tag/multiple、复制/旧 handle 隔离继续复用 P3 已验证的 ConsumerDelivery 实现。
+
+### 实际 MySQL/RabbitMQ 验证
+
+新增 `TestPersistenceConsumerIntegration` 的 8 个顺序场景，使用本轮单一独立 MySQL/Redis/RabbitMQ fixture。可靠 schema 显式迁移，identity 表仅创建测试用户/群/关系；写入前检查数据库等于本轮 `ichat_test_<runId>`，不读取开发 .env/config。
+
+- 文本/图片/音频和群消息真实落库；新 publishAttempt 重放和同 key 跨目标异 hash 冲突不增加业务行、seq 或 Outbox。
+- 已确认接受后移除群成员，新命令提交 rejected + 单个 command.result、无 message；此前 persisted 命令仍重放原终态。
+- 两个独立消费 channel 竞争同身份，恰好一次 applied、一次 replayed，各自通过原 delivery ACK。
+- `before_commit` / `after_commit` 使用实际测试子进程、本适配器、真实 SQL 事务和消费 session；仅 integration 测试 driver 在实际 Commit 前/成功后设置 stdout 屏障。父进程独立 SELECT 分别看到 0/1 条 message 后强杀进程并 wait；原 publishAttempt 重投，分别 applied/replayed；最终唯一 message/seq/两个事件。生产构建没有崩溃控制接口。
+- 实际 COMMIT 成功后 driver 向调用方返回 EOF，适配器识别 commit_unknown、不 ACK；关闭旧 channel 后原 delivery 重投，复用既有终态。此为实际提交后的调用结果注入，不是 TCP 层 COMMIT 响应丢包演练。
+- 归属核验后停止本轮 MySQL，处理报错且原 delivery 未 ACK；恢复数据库、更新可能变化的测试端口、等待 Ping 成功后，由新 session 恢复原 attempt 并落库。没有自动重连业务循环或 circuit breaker。
+- 坏 JSON 无业务处置；关闭旧 channel 后 body/自定义 headers 原样重投，末尾继续保留在本轮队列中由 fixture 整体清理，不用控制 ACK 假装隔离审计。
+- 成功场景均在关闭消费者后以控制连接验证主队列为空，排除仅靠本地 ACK 返回值判断；最终核对每个 conversation.last_seq、消息数和最大 seq 一致，无 seq 洞。
+
+固定 Go 1.27.1，清空不匹配 GOROOT，GOCACHE 为仓库 .gocache，ICHAT_CONFIG_FILE 为不存在的单元配置。没有更改依赖/配置、运行业务 main 或操作共享开发数据。
+
+| 命令 / 检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./workers -count=1 -timeout=60s` | PASS，2.005s |
+| `go test -mod=readonly -race ./workers -count=30 -timeout=60s` | PASS，2.803s |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，无 race；主包 11.176s、rabbitmq 7.055s、workers 1.770s，其余包通过或无测试 |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表运行全部集成测试 |
+| `go test -mod=readonly -race -tags=integration ./workers -run '^TestPersistenceConsumerIntegration$' -count=1 -v -timeout=9m` | 最终 PASS，8 个场景全部通过，suite 29.49s、包 31.942s |
+
+最终通过 runId：`d52bed4f4ed6c79395d65d0c3df029d9`，实际 RabbitMQ 4.3.6 / amqp091-go v1.15.0。两轮先前失败 runId 为 `00c5a39cabcd2acdeeba856503b873f3`、`57af490409aa3d1f3d4a83fbafcfc5a4`：首次夹具将真实 `relation` 写为 `relations`，且数据库重启未等待就绪，前置失败留下队列消息导致后续错误；修正为前置失败即终止 suite、惰性 SQL 连接等待恢复。第二轮 8 个场景通过，最终 seq 断言发现恢复连接池错误归到子测试 cleanup；改由 fixture 持有到父测试结束，第三轮完整通过。失败轮次不计为成功。
+
+Docker 在沙箱内不可访问，所需测试和只读核验通过自动审批在沙箱外执行；无自动审批拒绝。三轮 fixture Close 均无清理错误，完成后按三个 runId 只读查询容器/卷/网络，三轮各类资源均为 0。测试中的 MySQL EOF/断连日志来自本轮预期停机注入，不是新的业务重试策略。
+
+### 下一项
+
+P4.1.1 单条适配范围完成；不宣称生产 worker、自动恢复/隔离或端到端完成。下一小点：**P4.1.2：顺序 worker 的受控准入、停止/drain/取消/join、角色生命周期及就绪适配**。独立消费者传输已允许多 session，但本轮不装配生产循环，不启用 worker/all；隔离/Outbox 等必需角色齐备前继续门禁。持续数据库故障的暂停/退避、可靠隔离转移、隔离审计/重放、真实 ACK 丢帧和已落库数据的组合验证留待后续阶段。
+
+建议 commit message：`feat(worker): persist MQ deliveries before acknowledging`

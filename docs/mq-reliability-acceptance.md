@@ -84,4 +84,4 @@ go test -mod=readonly -race -tags=integration -p 1 . ./tests/testenv -run '^Test
 
 `-p 1` 控制包间并发；每个 fixture 都使用独立随机 project/vhost/凭证和端口。Docker 故障控制、清理前检查项目/run 标签。保留 JSON 中的失败和 skip，区分包没有匹配用例与测试跳过；未执行的测试不能算通过。版本、随机顺序 seed、runId、耗时及清理结果只以当轮日志/实施记录为准，历史记录不算本轮实测。
 
-下一项为 **P4.1：MQ delivery 到 P2 幂等事务的持久化消费适配**；开始前按 wire 校验、事务结果、ACK/重投和角色生命周期拆成可审查小点。隔离和 Outbox 尚未实现前，worker/all 门禁继续保留。
+后续 P4.1 已拆为单条处理及角色生命周期两步；[P4.1.1](mq-persistence-consumer.md)补上单条 wire → P2 完整事务 → ACK，以及实际提交前/后强杀重投的独立证据。以上表格仍记录 P3 收口时的覆盖边界，不把后续结果改写为 P3 实测。下一项为 P4.1.2 受控 worker 与角色生命周期；隔离和 Outbox 尚未实现前，worker/all 门禁继续保留。

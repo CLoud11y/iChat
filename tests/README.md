@@ -2,6 +2,15 @@
 
 P3 的阶段要求、五项接受验收条件、故障矩阵及集中重跑命令见 [MQ 与接受入口验收对照](../docs/mq-reliability-acceptance.md)。集中回归包含 13 个 MQ/API suite；fixture 手动 ACK 不代表业务事务提交后 ACK，后者仍归 P4。
 
+P4.1.1 单条持久化消费适配：
+
+```powershell
+go test -mod=readonly -race ./workers -count=30 -timeout=60s
+go test -mod=readonly -race -tags=integration ./workers -run '^TestPersistenceConsumerIntegration$' -count=1 -v -timeout=9m
+```
+
+默认测试验证严格 wire/终态校验、仓储结束前不 ACK、错误/取消/COMMIT 未知和 ACK 失败。实际独立 MySQL/RabbitMQ suite 验证 P2 完整事务后的 ACK、媒体/群消息、重放/冲突/权限拒绝、并发消费者、真实子进程在提交前与提交后 ACK 前强杀、成功 COMMIT 后错误注入、数据库离线恢复和坏消息原文/headers 保留。fixture 仅清理本轮归属资源，生产角色生命周期和自动恢复尚待 P4.1.2/后续 P4，详见 [持久化消费适配](../docs/mq-persistence-consumer.md)。
+
 P3.6.1 独立确认式发送 handler/路由与客户端协议探测：
 
 ```powershell
