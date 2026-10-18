@@ -2,6 +2,31 @@
 
 本文档用于生成可复现、可写入简历的性能数据。每次结果必须同时保留代码版本、机器配置、消息大小、并发连接数和测试时长。
 
+P3.6.1 新增独立的新协议探测模式。后文原有性能命令均为默认 `-mode legacy`，其中旧 HTTP 成功计数不代表 MQ accepted；新协议的落库/端到端容量基线仍待后续阶段。
+
+## 确认式接受协议探测
+
+仅对隔离环境中显式注册的新路由使用 `-mode acceptance`；默认主程序尚未接线，不能对旧服务返回的 HTTP 200 计为 accepted。该模式不创建账号或打开 WebSocket，只验证接受协议，不产生消息送达或持久化吞吐指标。
+
+先保存一个 v1 JSON 请求到 `pending-request.json`，clientMessageId 在请求超时/unknown 后保持不变，例如：
+
+```json
+{"clientMessageId":"8fd7c2ef-ae26-4bb5-91a5-32a302bb05f1","targetType":"private","targetId":"34","media":"text","content":"fixture probe"}
+```
+
+以下变量由本轮隔离 fixture 提供：base URL、已鉴权发送者 ID 和有效 JWT。不要把 token 写入命令行参数或结果文件。
+
+```powershell
+$env:ICHAT_LOADTEST_TOKEN = $fixtureToken
+go run ./cmd/loadtest -mode acceptance -base-url $fixtureBaseURL -sender-id $fixtureUserID -request-file pending-request.json -attempts 1 -request-timeout 5s -out acceptance-result.json
+```
+
+输入文件限制 16 KiB，复用严格解码和规范化；发送者只用于校验响应身份，不写入请求。确认仅接受 HTTP 202/code=0/state=accepted、匹配的 commandId/clientMessageId/payloadHash 和有效 attempt。旧 200、丢失/错误/过大响应或错误身份都保守记录 unknown；不跟随 redirect，不打印 token/正文/底层诊断。
+
+`-attempts` 范围 1–100，是对文件中同一请求的明确顺序重放次数；默认 1，没有自动 unknown 重试或换键，不实现业务恢复轮询/退避器。通常按一次结果和 Retry-After 安排后续显式调用。任何响应都不删除/重写输入，`-out` 也不能指向同一文件。出现一次已知 accepted 后，后续失败不会把整体状态降回 unknown；accepted 仍不是业务终态，文件继续保留到后续状态查询确认或明确放弃。
+
+本轮测试只在自有 loopback 对端与独立 Docker fixture 验证协议，不执行实际性能压测。实现及覆盖边界见[确认式发送适配](command-submission.md)。
+
 ## 1. 指标口径
 
 - **连接成功率**：成功建立 WebSocket 的连接数 / 尝试连接数。

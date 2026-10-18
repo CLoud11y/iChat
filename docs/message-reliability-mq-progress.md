@@ -2347,3 +2347,49 @@ P3.5.4 的巡检与就绪装配基础范围收口，P3 尚未整体验收。健�
 建议 commit message：`feat(runtime): compose acceptance and consumer readiness`
 
 下一项：**P3.6：新 DTO 与 HTTP 202 接受入口**。开始前按鉴权/规范化/发布结果映射及 API 装配范围细分；未实现消费者时仅在隔离测试环境积压，不能启用缺失业务角色或退回旧 Redis 成功语义。本轮不继续下一项、不自动提交。
+
+## P3.6.1：独立确认式 HTTP 发送适配与客户端协议探测
+
+状态：2026-10-18（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译和隔离 Docker 实测。代码基线为用户提交的就绪汇总 `0a29b62`，开始时工作区干净。将 P3.6 分为本轮独立 handler/路由/客户端协议适配，以及下一小点生产 API 生命周期、鉴权探测与运行时装配；默认入口不切换。本轮不继续下一小点、不自动提交。
+
+### 改动
+
+- 新增 service.SubmitCommand，仅依赖 CommandPublisher 和有界操作 timeout；只从已鉴权 uint uid 取发送者。读取前限制 16 KiB，复用 DecodeRequest/Normalize，严格校验类型、未知/重复字段、UTF-8/代理项、UUID/ID/枚举/内容及时间；不做 DB 权限/冲突预查、Redis 入队或缓存/通知。
+- 新增 router.RegisterSubmission，显式为现代 engine 注册 /auth/sendMessage，并以同一父 deadline 覆盖鉴权和提交。新增 JwtBearerAuth，仅接受 Authorization: Bearer；没有 header 时不调用旧 ExtractToken/FormValue 读取正文，query/form/raw token 均拒绝。旧 JwtAuth 和旧 Router 保持原调用路径。
+- 新增共享 SubmissionResponse/Submission DTO 及规范 attempt ID 检查。只有 accepted+nil error、匹配逻辑 commandId、有效 attempt 及非零 connection/channel epoch/tag 才返回 HTTP 202。not_published+busy 为 429/Retry-After:1，明确 Return 为 503/PUBLISH_UNROUTABLE，NACK 为 503 依赖错误，unknown/矛盾/不完整结果保守 503/PUBLISH_UNKNOWN。
+- 每个 HTTP 请求只调用一次 publisher，不自动重试。错误分类依据实际 Outcome，不将 unknown+busy 错映射为 429；已知完整 accepted 也不因写响应前取消而降级。返回规范逻辑身份和可用 attempt，原始错误/URL/非法结果字段不外泄，不包含 seq/persisted/delivered。
+- cmd/loadtest 新增显式 -mode acceptance，使用已有请求文件、sender-id 与环境变量 token；只做接受协议探测，不创建账号/登录/WS，不混用旧 200 指标。默认一次，-attempts=1–100 为同一原键/原内容的显式重放；文件始终保留，输出不能覆盖同一文件。不跟随 redirect，响应限长，只有完整 202 且身份/hash 匹配才计 accepted；未知/丢失/旧 200 不清除原请求，先前 accepted 不倒退。
+- 新增[确认式发送适配](command-submission.md)，同步协议、开发清单、README、测试和压测指南。P3.6/P3 保持未完成；本轮没有注册生产 API/后台角色、修改开发配置/依赖、启用业务主程序或切换共享数据。
+
+### 自审与验证
+
+- 新增 6 组 handler、2 组路由、3 组客户端默认测试。验证严格 JSON 与身份、规范 key/hash 和逐次新 attempt、同键异内容延后冲突决策、正文/NUL/时间保留、16 KiB 边界/未知长度流、无身份零读取、错误 Content-Type、Bearer-only/黑名单/Redis/鉴权 deadline 拒绝。
+- 结果矩阵覆盖 202、429、not_published、Return、NACK、unknown、unknown+busy、accepted+error、错 commandId/缺 attempt/非法 attempt、零 epoch/tag/未知 Outcome 等矛盾结果；发布只调用一次，HTTP reason 固定，不回显诊断。预取消、父期限、调用后取消的 unknown 与已知 accepted 分别验证；正文读取被取消不误报需要修改输入的 400。
+- 客户端验证已有文件在 unknown、响应丢失、旧 HTTP 200、坏 JSON/过大响应、错身份/缺 attempt 等情况下仍保留，已知 accepted 不倒退；明确 pre-publish/未接受分类独立，redirect 不转发 token/body，非法配置/输入/输出别名在网络 I/O 前拒绝。
+- 实际 confirmed_202 场景运行新 Gin 路由、真实 JWT/Redis 黑名单与 publisher，读回持久信封核对发送者、规范身份/hash、内容/NUL/时间和 attempt。auth_and_input 场景证明伪造发送者、重复/超大请求、非法/被撤销 JWT、Redis 客户端关闭均无队列消息。
+- 实际 lost_confirm 场景由本轮 TCP 代理丢弃真实 broker confirm；首请求等待时额外请求返回 429/Retry-After，首请求到期返回 unknown，而控制连接可读到原文。新 epoch 恢复本身不重发；原键显式重试返回 202，逻辑身份不变、物理 attempt 更新。
+- 实际 real_return_plus_ack 场景只移除本轮主绑定，真实 Return+ACK 映射为 503 unroutable，不误报 accepted；fixture 恢复绑定，应用不修复。mysql_offline 场景按标签核验只停止本轮 MySQL，实际确认式 HTTP 仍返回 202，信封可读回。
+- 自审区分输入/响应不确定性和业务终态：400/401/429 不证明先前 unknown 尝试没有入队；客户端不换键、不删除原文件。handler 不提供整个 HTTP server 的慢头/慢正文硬期限，后续 API owner 必须配置 ingress timeout 并 join 活动请求；publisher/鉴权调用须遵守 context，不丢弃后台 goroutine。
+
+环境：Windows amd64、Go 1.27.1、GCC/race；沿用仓库 GOCACHE 和不存在的 ICHAT_CONFIG_FILE。默认测试只用注入依赖与自有 loopback HTTP，不读取开发 .env/config、不访问真实依赖。真实测试使用 StartWithRabbitMQ 独立 project/vhost/随机账号/端口，按标签回收；JWT key 使用本轮 runId 派生测试值。未运行业务 main、迁移/重置共享数据或发送 OS 信号。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./service -run '^TestSubmitCommand' -count=1 -timeout=45s` | 首轮通过，2.585s |
+| `go test -mod=readonly -race ./service ./router ./cmd/loadtest -run 'Test(SubmitCommand\|SubmissionRoute\|AcceptanceProbe)' -count=30 -timeout=60s` | 全部连续 30 轮通过，service=4.700s、router=2.819s、loadtest=6.347s |
+| `go test -mod=readonly -race ./service -run '^TestSubmitCommand' -count=30 -timeout=60s` | 最后补充恰好 16 KiB/正文读取取消回归后，全部 handler 组 30 轮通过，3.677s |
+| `go test -mod=readonly -race ./... -count=1` | 全部通过；主包=11.567s、application=2.866s、service=2.629s、router=2.203s、loadtest=2.291s、rabbitmq=7.657s，无 race；最后新增边界用例由专项覆盖，生产代码未再改动 |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库集成标签编译通过 |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestCommandSubmissionIntegration$' -count=1 -v -timeout=5m` | 5 个真实场景全部通过，suite=27.10s、包=31.545s |
+| gofmt、`git diff --check`、新增文件空白/文档链接检查 | 全部通过 |
+
+实际 runId=`213d870e4b6041eac5b4081dc700cccf`，broker=4.3.6、client=v1.15.0，cleanup 成功；本轮无失败测试、自动审批拒绝、引擎重启、共享数据变更或环境重置。真实 HTTP NACK、完整 API owner/慢客户端和业务事务尚未实测；不将上轮/历史结果计为本轮验证。fixture 控制连接的读取/ACK 仅为核对传输，不是业务提交后 ACK。
+
+### 后续边界
+
+P3.6.1 范围收口，P3.6/P3 尚未整体验收。当前是可显式注册的真实确认式路由及协议探测，默认 legacy 入口没有切换，现代生产工厂仍为空。接受就绪能力、HTTP server/活动请求生命周期、真实鉴权监控源需由下一小点装配；业务消费者、Outbox、状态/同步恢复与端到端验收仍按后续阶段实施。新协议探测不提供吞吐/落库/送达或自动恢复指标。
+
+建议 commit message：`feat(api): add confirmed command submission and protocol probe`
+
+下一小点：**P3.6.2：生产 API 角色的受控 HTTP 生命周期、Redis 鉴权探测与运行时装配**。完整管理 ingress 期限/停止准入/drain/存储归属，选中未完成后台角色仍须在 I/O 前拒绝。未完成 consumer 时仅在独立测试环境积压，本轮不继续下一小点、不自动提交。

@@ -21,6 +21,10 @@ import (
 )
 
 type options struct {
+	mode             string
+	requestFile      string
+	senderID         uint64
+	attempts         int
 	baseURL          string
 	users            int
 	rate             int
@@ -110,6 +114,15 @@ type result struct {
 
 func main() {
 	opt := parseOptions()
+	if opt.mode == "acceptance" {
+		if err := runAcceptanceProbe(opt, os.Getenv("ICHAT_LOADTEST_TOKEN")); err != nil {
+			fatalf("acceptance probe: %v", err)
+		}
+		return
+	}
+	if opt.mode != "legacy" {
+		fatalf("mode must be legacy or acceptance")
+	}
 	if opt.users < 2 {
 		fatalf("users must be at least 2")
 	}
@@ -177,6 +190,10 @@ func main() {
 
 func parseOptions() options {
 	var opt options
+	flag.StringVar(&opt.mode, "mode", "legacy", "legacy WebSocket load or acceptance protocol probe")
+	flag.StringVar(&opt.requestFile, "request-file", "", "acceptance: existing immutable v1 JSON request, including stable clientMessageId")
+	flag.Uint64Var(&opt.senderID, "sender-id", 0, "acceptance: authenticated sender ID used to verify response identity")
+	flag.IntVar(&opt.attempts, "attempts", 1, "acceptance: explicit sequential attempts of the SAME request (1-100)")
 	flag.StringVar(&opt.baseURL, "base-url", "http://127.0.0.1:8080", "iChat HTTP base URL")
 	flag.IntVar(&opt.users, "users", 100, "number of authenticated WebSocket users")
 	flag.IntVar(&opt.rate, "rate", 100, "target messages per second; 0 tests connections only")

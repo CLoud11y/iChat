@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.6.1 独立确认式发送 handler/路由与客户端协议探测：
+
+```powershell
+go test -mod=readonly -race ./service ./router ./cmd/loadtest -run 'Test(SubmitCommand|SubmissionRoute|AcceptanceProbe)' -count=30 -timeout=60s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestCommandSubmissionIntegration$' -count=1 -v -timeout=5m
+```
+
+默认测试覆盖严格有界 JSON/身份、结果证据与错误映射、Bearer-only/Redis 鉴权失败、deadline 和客户端保留原请求。真实 suite 使用新 Gin 路由、实际 JWT/Redis/MQ，验证 202 后信封、非法/黑名单/Redis 故障零发布、真实丢失 confirm 的 unknown 与并发 429、原键显式重试新 attempt、Return+ACK 的 503，以及仅停止本轮 MySQL 后仍可确认接受。fixture 控制连接读回/ACK，不是业务消费事务；默认入口未切换，详见[发送适配](../docs/command-submission.md)。
+
 P3.5.4.2 接受/消费者就绪汇总与健康接线：
 
 ```powershell
