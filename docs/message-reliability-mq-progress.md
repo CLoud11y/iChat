@@ -2548,3 +2548,61 @@ Docker 在沙箱内不可访问，所需测试和只读核验通过自动审批�
 P4.1.1 单条适配范围完成；不宣称生产 worker、自动恢复/隔离或端到端完成。下一小点：**P4.1.2：顺序 worker 的受控准入、停止/drain/取消/join、角色生命周期及就绪适配**。独立消费者传输已允许多 session，但本轮不装配生产循环，不启用 worker/all；隔离/Outbox 等必需角色齐备前继续门禁。持续数据库故障的暂停/退避、可靠隔离转移、隔离审计/重放、真实 ACK 丢帧和已落库数据的组合验证留待后续阶段。
 
 建议 commit message：`feat(worker): persist MQ deliveries before acknowledging`
+
+## P4.1.2：顺序 worker 生命周期、就绪与运行时角色工厂
+
+状态：2026-10-19（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译及独立 Docker 实测。基线为用户提交的 P4.1.1 `dbef91f`，开始时工作区干净。本轮完成 P4.1.2，P4.1 的既定两步范围收口；P4 整体未验收，不自动提交或推进下一项。
+
+### 实现与所有权
+
+- 新增 `workers.PersistenceService`，闲置构造时只校验并复制输入，复用具体 P2 仓储/P4.1.1 handler；不探测、订阅、迁移或启动任务。固定 1—32 个独立消费者、prefetch 1—256，拒绝 nil/typed nil、失效/重复 session Done 和无效期限。
+- Start 在共同 setup 下执行真实存储探测、依次打开全部订阅和最终新鲜探测；全部成功后才启用每连接一个顺序消费循环。setup 成功后取消不影响独立 lifetime。每次处理共用一个有界事务/ACK context，不为事务创建可丢弃的后台 goroutine。
+- 同步准入门禁覆盖停止与 Next 返回的竞争；停止后收到的 delivery 不处理、不 ACK。健康空队列超时继续等候，业务终态正常 ACK 后继续。任一处理/传输/存储/新鲜度错误或受控任务 panic 使整组停止领取，不重试、立即 requeue 或重开连接。
+- StopAdmission 不做 RPC，也不取消已准入事务；Drain 等待 setup、工作循环及探测真实 join，保留提交/ACK 机会。Close 才取消剩余处理；observer 过期明确 pending，后续可等同一个 owner。部分启动 handle+error 和晚返回 handle 统一保留，工作/探测未返回前不关闭订阅。
+- 所有订阅共用清理预算并发 Close，Done 仅在自有工作和 Close 调用真实返回后关闭；并发重复 Close 不重复清理。订阅关闭退役其专用 session，MQResources 继续持有整组，服务不关闭共享 SQL 或 MQ group。外部 SQL owner 必须等服务 Done，不能把 observer 超时当作已 join。
+- ConsumerReady 只读本地状态/订阅 Done/lifetime/最近成功 SQL Ping；有效年龄为 ProbeInterval + 2*ProbeTimeout，迟到成功不能恢复停止实例。默认 Go 参数为 poll=1s、process=5s、probe interval=2s/timeout=1s、close=5s，均限制正值且≤60s；本轮不增加 YAML/env。
+- 新增 `application.NewPersistenceFactory`，把执行器的主队列消费者适配到真实服务，拒绝 publisher/其他队列；静态验证 RuntimeService/RuntimeConsumerReadiness。仅提供可注入工厂，默认进程后台工厂、legacy 配置和 worker/all 门禁保持，隔离/Outbox 缺失不能用 fixture 服务代替。
+- 新增 [持久化生命周期](mq-persistence-lifecycle.md)，同步 P4 清单、README、单条处理、运行时/健康文档及测试入口。所有外部 I/O 都由显式 Start 或 integration fixture 触发。
+
+### 默认验证与自审
+
+- 覆盖成功 setup 取消隔离、处理准入及提交/ACK drain、空队列等待、晚 delivery、多个 worker 失败后不取消已准入 sibling、无自动重开、partial/nil/typed nil/handle+error/panic 启动回滚与第二次探测失败。
+- 覆盖启动中 Close、处理/探测/closer 不响应取消时 pending 及真实 join、并发 Stop/Drain/Close、关闭前闲置及禁止重启、lifetime 取消、处理期限和 handler/probe panic 的清理及错误脱敏。
+- SQL 连接计数证明工厂/构造无 I/O；服务关闭后共享 pool 仍可 Ping。工厂拒绝空/错误/重复消费者、取消及坏配置；只提供 persistence 工厂时仍完整报告 quarantine/Outbox 缺失。
+- 20 轮首批专项发现工厂直接把 `(*PersistenceService)(nil), error` 转成了非 nil RuntimeService 接口；修正为错误时显式返回 nil interface。之后专项 30 轮通过，最终增加期限/panic/lifetime 用例后再次 30 轮全部通过。此失败不计为通过。
+- 自审补上最终启动探测，避免慢订阅打开后把早期 Ping 当作新鲜状态；准入同时检查所有订阅 Done；多错误 Unwrap 不包含 nil cause。
+
+### 实际 MySQL/RabbitMQ 集成
+
+`TestPersistenceLifecycleIntegration` 使用本轮独立 schema/vhost/随机账号和端口，可靠表显式迁移，身份写入前核对 schema；不读开发 .env/config。六场景均通过：
+
+1. 真实 COMMIT 成功后 driver 屏障尚未返回，停止准入后 work context 保持有效，Drain observer 超时仍 pending；释放后单条 ACK，未处理的预取原 attempt 由新 session 接手。
+2. 强制 Close 后已提交数据和未返回 callback 继续持有，observer 超时后共享 SQL 仍可 Ping、Done 未关闭；释放并 join 后原 attempt 重投，只 replay 既有 message/seq/两个事件。
+3. 两连接顺序循环处理 8 个身份各 2 次物理发布；最终强化为先观察 broker messages=16，再消费并等待 messages=0，逐身份唯一消息/终态/事件，不凭首份落库提前停止。
+4. loopback 代理实际解析并丢弃一个 basic.ack，本地方法成功，服务正常 drain/close；原 attempt redelivered，仓储 replay，不增加消息/seq/Outbox。本轮将真实消费 ACK 丢帧与业务持久化组合验证。
+5. 实际 `NewPersistenceFactory` 经 RunRuntime 激活两连接持久化角色，真实 COMMIT 屏障中进程 context 取消，服务/聚合就绪撤销，释放后事务/ACK、服务/MQ 顺序退出，共享 SQL 保留。quarantine/Outbox 为明确的测试占位服务，不具备审计/通知，不代表默认生产装配完整。
+6. 归属核验后停止本轮 MySQL，空队列也因实际 Ping 故障退出；MQ 继续接受；恢复数据库并等待可用后，旧服务仍停，新建 session/服务才处理积压。更新可能变化的测试端口，最后核对各 conversation 的消息数、最大 seq 和 last_seq 一致。
+
+SQL 屏障仅在 integration driver 中，Ping 明确转发到实际 MySQL；生产没有控制接口。没有投递宿主 OS 信号、运行业务 main、启用默认 worker/all 或实现自动恢复。测试回调违反取消时没有丢弃 goroutine；pool 清理由真实服务退出后执行，运行时失败路径也等待执行器返回。
+
+固定 Go 1.27.1，GOROOT 清空，GOCACHE 为仓库 .gocache，ICHAT_CONFIG_FILE 指向不存在的路径。命令与最终结果：
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./workers ./application -run '^TestPersistence(Service\|Factory)' -count=30 -timeout=90s` | 最终 PASS，workers 5.655s、application 2.791s |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库 PASS，无 race；主包 10.837s、application 3.076s、rabbitmq 7.057s、workers 1.824s；之后只增加专项测试/强化集成断言，生产代码未再变化 |
+| `go vet -mod=readonly -tags=integration ./...` | 最终通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过；不代表重跑所有集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceLifecycleIntegration$' -count=1 -v -timeout=9m` | 最终 PASS，6 个场景无 fail/skip，suite 41.30s、包 44.064s |
+
+首轮通过 runId `2bdcb2b57a198a02fb2618edff2c488f`（suite 31.18s、包 33.913s）；强化队列正数基线及失败清理等待后，最终通过 runId `65e649448a1b6278b8a3aaff566d7487`。实际 RabbitMQ 4.3.6 / amqp091-go v1.15.0。数据库故障恢复的 fixture Ping 由 10ms 调整为 200ms 条件轮询，减少未就绪握手日志，不修改 worker 的故障策略或弱化断言。
+
+两轮 fixture Close 成功，结束后按各自 runId 只读核对 Docker 容器/卷/网络均为 0。Docker 测试和只读核验通过自动审批在沙箱外执行，无审批拒绝。没有改依赖、共享配置/数据或默认入口行为。
+
+### 阶段结论与下一项
+
+P4.1 持久化消费适配及受控角色范围完成；持续数据库故障的自动暂停/退避/恢复、可靠隔离转移、隔离审计/受控重放及 Outbox 仍未完成，P4/P5 及端到端验收继续保留。默认后台装配在必需角色齐备前继续拒绝。
+
+下一项：**P4.2.1：消费失败分类与有界本地重试**。区分业务终态、技术坏消息、事务可重试错误和基础设施故障，保留原业务身份、COMMIT 未知及恢复责任；不能因重试次数耗尽把正常积压当坏消息，也不能通过立即 requeue 制造重投风暴。
+
+建议 commit message：`feat(worker): manage persistence consumer lifecycle and runtime role`

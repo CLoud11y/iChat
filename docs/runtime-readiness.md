@@ -1,5 +1,7 @@
 # 接受就绪汇总与健康接口（P3.5.4.2）
 
+[P4.1.2 持久化服务](mq-persistence-lifecycle.md)已实现具体 ConsumerReady：本地订阅/准入/lifetime 加真实 SQL 探测的新鲜度；处理、探测或传输失败会停止整个持久化组，不自动恢复。实际 RunRuntime 集成证明该角色的退出撤销就绪及事务/ACK drain；隔离/Outbox 仍是明确的测试占位服务，不代表完整生产 worker 已装配。
+
 RunRuntime 现在为每次现代运行实例创建一个只读 Health capability，通过 RoleDependencies.Health 传给选中的服务工厂。它组合运行阶段、业务能力和当前 MQ 状态，不把 Start 成功或一个可连接的 publisher 当作业务接受就绪。
 
 P3.6.2 已装配[生产 API 与 Redis GET 鉴权监控](api-runtime-lifecycle.md)，显式 api 模式可运行确认式接受入口。worker/all 仍因缺失后台业务角色在外部 I/O 前拒绝；默认 legacy Router 继续返回接受未配置。

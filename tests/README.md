@@ -2,6 +2,15 @@
 
 P3 的阶段要求、五项接受验收条件、故障矩阵及集中重跑命令见 [MQ 与接受入口验收对照](../docs/mq-reliability-acceptance.md)。集中回归包含 13 个 MQ/API suite；fixture 手动 ACK 不代表业务事务提交后 ACK，后者仍归 P4。
 
+P4.1.2 顺序 worker 生命周期、就绪及角色工厂：
+
+```powershell
+go test -mod=readonly -race ./workers ./application -run '^TestPersistence(Service|Factory)' -count=30 -timeout=90s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceLifecycleIntegration$' -count=1 -v -timeout=9m
+```
+
+默认测试覆盖受控准入、setup/lifetime 隔离、部分启动回滚、失败停止、多 worker、取消/超时后真实 join、重复并发关闭、探测新鲜度及工厂门禁。实际 suite 验证 SQL 提交屏障下的 graceful/forced 退出、预取重投、并发幂等、实际 ACK 丢帧、真实工厂接入 RunRuntime 和数据库停机后的显式恢复；运行时的隔离/Outbox 是测试占位角色。默认 worker/all 仍拒绝缺失后台装配，详见 [持久化生命周期](../docs/mq-persistence-lifecycle.md)。
+
 P4.1.1 单条持久化消费适配：
 
 ```powershell
@@ -9,7 +18,7 @@ go test -mod=readonly -race ./workers -count=30 -timeout=60s
 go test -mod=readonly -race -tags=integration ./workers -run '^TestPersistenceConsumerIntegration$' -count=1 -v -timeout=9m
 ```
 
-默认测试验证严格 wire/终态校验、仓储结束前不 ACK、错误/取消/COMMIT 未知和 ACK 失败。实际独立 MySQL/RabbitMQ suite 验证 P2 完整事务后的 ACK、媒体/群消息、重放/冲突/权限拒绝、并发消费者、真实子进程在提交前与提交后 ACK 前强杀、成功 COMMIT 后错误注入、数据库离线恢复和坏消息原文/headers 保留。fixture 仅清理本轮归属资源，生产角色生命周期和自动恢复尚待 P4.1.2/后续 P4，详见 [持久化消费适配](../docs/mq-persistence-consumer.md)。
+默认测试验证严格 wire/终态校验、仓储结束前不 ACK、错误/取消/COMMIT 未知和 ACK 失败。实际独立 MySQL/RabbitMQ suite 验证 P2 完整事务后的 ACK、媒体/群消息、重放/冲突/权限拒绝、并发消费者、真实子进程在提交前与提交后 ACK 前强杀、成功 COMMIT 后错误注入、数据库离线恢复和坏消息原文/headers 保留。fixture 仅清理本轮归属资源，生命周期已有上方独立 suite，自动恢复仍待后续 P4，详见 [持久化消费适配](../docs/mq-persistence-consumer.md)。
 
 P3.6.1 独立确认式发送 handler/路由与客户端协议探测：
 

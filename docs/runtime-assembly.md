@@ -1,5 +1,7 @@
 # 角色构造器与服务实例检查（P3.5.3.3.2.1）
 
+后续 [P4.1.2](mq-persistence-lifecycle.md)已提供 `NewPersistenceFactory(sharedPool, options)`，构造闲置的真实持久化服务并实现消费者就绪能力。共享 SQL 由调用方持有至服务 Done，默认进程未注册后台工厂；本页缺失角色检查及 worker/all 门禁继续适用，不能用测试隔离/Outbox 占位服务补齐生产装配。
+
 `application.RuntimeFactories.Check(conf)` 从 Config 重新解析角色，检查所选业务服务的实际构造函数是否存在。它不调用构造函数、不创建 MQ/数据库连接、不检查依赖在线状态。缺少任一必需角色时返回空 RuntimeAssembly 和全部缺失角色，不允许使用半份装配结果。
 
 ## 两次检查

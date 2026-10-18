@@ -2,7 +2,7 @@
 
 `workers.PersistenceHandler` 将一个 `rabbitmq.ConsumerDelivery` 交给 P2 的 `MessageRepository.PersistCommand`，仓储成功结束后才调用原 handle 的单条 ACK。构造不联网，不启动循环，也不持有数据库或消费者连接的关闭权。
 
-P4.1 拆为两个可审查小点：本轮 P4.1.1 完成 wire 校验、事务结果、ACK 与重投验证；下一项 P4.1.2 实现顺序 worker 的准入、停止、drain、取消、join、角色适配与就绪状态。P4.1/P4 尚未整体验收，生产 persistence/quarantine/Outbox 角色仍未装配，worker/all 继续在 I/O 前拒绝缺失角色。
+P4.1 拆为两个可审查小点：P4.1.1 完成 wire 校验、事务结果、ACK 与重投验证；[P4.1.2](mq-persistence-lifecycle.md)已实现顺序 worker 的准入、停止、drain、取消、join、角色工厂与就绪。P4.1 范围完成，P4 整体尚未验收；默认进程未装配后台角色，worker/all 继续在 I/O 前拒绝缺失角色。
 
 ## 输入与信封校验
 
@@ -71,4 +71,4 @@ go test -mod=readonly -race -tags=integration ./workers -run '^TestPersistenceCo
 - 坏 JSON 处理失败后关旧 channel，完整 body/自定义 headers 仍可重投；不以 fixture ACK 冒充隔离审计。
 - 全部成功处置后先关闭消费者，再用控制连接检查队列为空；最终核验 last_seq、消息数、最大 seq 一致，无序号洞。
 
-子进程直接使用本适配器和真实仓储/消费传输，不是已装配的生产 worker 角色。未验证完整角色生命周期、自动恢复、真实 ACK 丢帧与已持久化数据的组合、隔离审计、Outbox 通知、实际客户端或三节点。P3 的传输测试与本轮数据库测试不能合并称为端到端验收。
+本节 P4.1.1 的子进程直接使用本适配器和真实仓储/消费传输。后续 [P4.1.2](mq-persistence-lifecycle.md)补上角色生命周期和真实 ACK 丢帧与已持久化数据的组合；自动恢复、隔离审计、Outbox 通知、实际客户端及三节点仍待后续阶段。各轮独立证据不能合并称为端到端验收。
