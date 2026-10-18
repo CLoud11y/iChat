@@ -68,4 +68,4 @@ go vet -mod=readonly -tags=integration ./...
 
 实际执行 bootstrap 的测试验证结构化缺失角色、sentinel 兼容，且只出现配置加载事件，旧全局状态不变。默认 legacy 生命周期与全仓库回归继续执行。测试不访问 Docker、开发配置/.env 或共享数据；没有更改 AMQP 库或重复旧 Docker 结果。
 
-P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；默认现代业务工厂仍为空。下一项为 P3.5.4 接受 readiness 与持续拓扑核验，业务处理器与 consumer 恢复仍待对应后续小点。
+P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；默认现代业务工厂仍为空。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，下一项为接受就绪状态汇总及运行时/健康接口接线，业务处理器与 consumer 恢复仍待对应后续小点。

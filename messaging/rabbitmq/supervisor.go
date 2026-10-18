@@ -16,7 +16,7 @@ import (
 var (
 	ErrSupervisorConfig   = errors.New("invalid RabbitMQ supervisor configuration")
 	ErrSupervisorConnect  = errors.New("publisher session could not be established")
-	ErrSupervisorTopology = errors.New("new publisher connection topology did not verify")
+	ErrSupervisorTopology = errors.New("publisher connection topology did not verify")
 	ErrSupervisorSession  = errors.New("publisher session retired after a transport or notification failure")
 	ErrSupervisorCleanup  = errors.New("old publisher session did not quiesce; refusing a new epoch")
 	ErrSupervisorEpoch    = errors.New("publisher connection epoch exhausted")
@@ -26,10 +26,12 @@ type SupervisorOptions struct {
 	Session  SessionOptions
 	RetryMin time.Duration
 	RetryMax time.Duration
+	// Checks are serialized by the recovery owner; no check publishes or repairs.
+	TopologyCheckInterval time.Duration
 }
 
 func DefaultSupervisorOptions() SupervisorOptions {
-	return SupervisorOptions{Session: DefaultSessionOptions(), RetryMin: time.Second, RetryMax: 30 * time.Second}
+	return SupervisorOptions{Session: DefaultSessionOptions(), RetryMin: time.Second, RetryMax: 30 * time.Second, TopologyCheckInterval: 10 * time.Second}
 }
 
 type SupervisorState string
@@ -53,6 +55,7 @@ type SupervisorStatus struct {
 
 type supervisedSession interface {
 	Publish(context.Context, messaging.Command, time.Time) (PublishResult, error)
+	verifyTopology(context.Context) error
 	Done() <-chan struct{}
 	Close(context.Context) error
 	abort()
@@ -124,7 +127,8 @@ func ValidateSupervisorOptions(address, vhost string, o SupervisorOptions) error
 }
 
 func validSupervisorOptions(o SupervisorOptions) bool {
-	return o.RetryMin >= time.Millisecond && o.RetryMax >= o.RetryMin && o.RetryMax <= time.Minute
+	return o.RetryMin >= time.Millisecond && o.RetryMax >= o.RetryMin && o.RetryMax <= time.Minute &&
+		o.TopologyCheckInterval >= 10*time.Millisecond && o.TopologyCheckInterval <= time.Minute
 }
 
 func verifyNewConnection(ctx context.Context, conn *amqp.Connection, m *Management, vhost string) error {
@@ -198,12 +202,8 @@ func (s *Supervisor) run(ctx context.Context) {
 				s.setStatus(SupervisorBackoff, epoch, ErrSupervisorSession)
 			} else {
 				base = s.options.RetryMin
-				select {
-				case <-ctx.Done():
-				case <-current.Done():
-				case <-s.wake:
-				}
-				s.invalidate(current)
+				cause := s.watchSession(ctx, current)
+				s.invalidateCause(current, cause)
 				if !s.dispose(current) {
 					s.fail(ErrSupervisorCleanup)
 					return
@@ -222,6 +222,33 @@ func (s *Supervisor) run(ctx context.Context) {
 		}
 		epoch++
 		base = nextBackoff(base, s.options.RetryMax)
+	}
+}
+
+// The same owner both checks and replaces sessions. It cannot install a new
+// epoch while an old check is running, or let a late success revive readiness.
+func (s *Supervisor) watchSession(ctx context.Context, current supervisedSession) error {
+	timer := time.NewTimer(s.options.TopologyCheckInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ErrSupervisorSession
+		case <-current.Done():
+			return ErrSupervisorSession
+		case <-s.wake:
+			return ErrSupervisorSession
+		case <-timer.C:
+			check, cancel := context.WithTimeout(ctx, s.options.Session.OperationTimeout)
+			err := current.verifyTopology(check)
+			checkErr := check.Err()
+			cancel()
+			if err != nil || checkErr != nil {
+				return ErrSupervisorTopology
+			}
+			// Reset after completion: slow management cannot accumulate checks.
+			timer.Reset(s.options.TopologyCheckInterval)
+		}
 	}
 }
 
@@ -262,6 +289,10 @@ func (s *Supervisor) install(current supervisedSession, epoch uint64) bool {
 }
 
 func (s *Supervisor) invalidate(current supervisedSession) {
+	s.invalidateCause(current, ErrSupervisorSession)
+}
+
+func (s *Supervisor) invalidateCause(current supervisedSession, cause error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.active != current {
@@ -271,7 +302,7 @@ func (s *Supervisor) invalidate(current supervisedSession) {
 	if s.status.State != SupervisorClosed && s.status.State != SupervisorFailed {
 		s.status.State = SupervisorBackoff
 		s.status.Ready = false
-		s.status.LastError = ErrSupervisorSession
+		s.status.LastError = cause
 	}
 	current.abort()
 	s.signal()

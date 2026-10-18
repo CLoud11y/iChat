@@ -2258,3 +2258,46 @@ P3.5.3.3 的基础装配与入口范围收口；P3 尚未整体验收。信号�
 建议 commit message：`feat(runtime): wire legacy process signals and phased cleanup`
 
 下一项：**P3.5.4：接受 readiness 与持续拓扑核验**。开始前按状态来源、拓扑复核与生命周期范围细分，拓扑不匹配必须保持未就绪。本轮不继续下一项、不自动提交。
+
+## P3.5.4.1：Publisher 已就绪连接的周期只读拓扑复核
+
+状态：2026-10-18（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译和隔离 Docker 实测。代码基线为用户提交的 legacy 统一生命周期 `8b334c2`，开始时工作区干净。将 P3.5.4 分为本轮 publisher 周期复核，以及下一小点接受状态汇总与运行时/健康接口接线；P3.5.4 整体保持未完成。本轮不自动提交或继续下一小点。
+
+### 改动
+
+- SupervisorOptions 新增 Go 装配参数 TopologyCheckInterval，默认 10s、范围 10ms—60s，零值不能关闭检查。应用配置沿用 DefaultSupervisorOptions，无新增 YAML/env；纯 ValidateSupervisorOptions 在网络 I/O 前拒绝非法间隔。
+- 复核由原有唯一恢复 owner 串行执行，安装 ready 后开始计时，检查成功结束后重新计时，避免 ticker 积压/重叠。成功保持原 epoch 与准入，不创建新 publisher，不发布探测命令。
+- PublisherSession 保留 startup 只读核验回调，后续在同一实际 AMQP connection 上复用 verifyNewConnection。复核 broker 版本/vhost、management 中的 feature flags、队列/交换机/有效策略/quorum 在线成员/绑定，再在独立临时 channel 执行 passive 查询并重新读取管理契约；不调用 EnsureLocal 或修复/删除拓扑。
+- 检查整体受 Session.OperationTimeout 限制，活动检查进入 connection owner 的 beginCall/endCall 计数。watchdog 在取消/期限耗尽时中止 socket，打断 AMQP RPC。任意核验失败、management 不可用/超时均退休当前 epoch，撤销 Status/WaitReady 和后续 Publish 准入；公开错误只保留固定 sentinel。
+- 旧检查与旧发布全部 quiesce 后才沿用 backoff 创建新 epoch；无法 join 时保持原 failed/cleanup 边界。检查与恢复同属一个 owner，晚到成功不能复活已退休/关闭实例。已有 accepted 不撤销，尚未完整确认的发布仍可 unknown，不自动重发。
+- 新增[周期拓扑复核](mq-topology-monitor.md)，更新 supervisor、README、测试说明与开发阶段清单。默认现代业务工厂仍为空，legacy 接受健康接口继续 503；不将传输就绪直接解释为业务接受就绪。
+
+### 自审与验证
+
+- 新增 6 组 supervisor 默认测试：多轮成功保持 epoch/准入且没有探测发布、空闲失败立即撤销准入、原始错误脱敏、旧调用屏障阻止替代连接、未修复持续未就绪、修复后新 epoch 且无重发、deadline 后返回 nil 仍失败、Close 取消并 join 检查、旧 session 晚到成功隔离，以及间隔上下界纯校验。
+- 新增 3 组 session 默认测试使用受控真实 AMQP 对端：初始化 context 不控制交接后的复核；重复健康检查不会遗留 watchdog 或消耗 publisher tag；预取消/nil observer 不退休健康 session，关闭后不可复用。channel.open 响应黑洞由 60ms watchdog 中止 socket，调用 quiesce；已发送但丢失 confirm 的发布在复核失败后仍返回 unknown，不误报 accepted/确定未入队。
+- 新增真实 idle_quarantine_binding_drift 场景：先得到一个 accepted，再移除本轮隔离队列绑定，之后没有新发布；周期检查仍主动撤销就绪。绑定持续缺失、不自动修复；恢复绑定后新 epoch 就绪，原 accepted 的 command/attempt 内容保留，队列没有自动重发的额外消息。
+- 新增真实 management_response_blackhole 场景：本轮 loopback 反向代理只丢弃管理响应，独立 AMQP 控制连接仍可查询队列；操作期限耗尽后停止接单，之后新连接核验也保持未就绪。恢复代理后新 epoch 就绪，队列没有巡检消息。
+- 自审核对复核与 Publish 的共享连接所有权：失败会中止整个 epoch，不能只把健康布尔值改为 false 而继续使用未经验证的原 publisher。原 accepted 的持久责任保留，未决发布遵循既有 unknown；恢复路径没有补偿重发。周期轮询存在发现窗口，不等于每次请求前的原子拓扑快照，也不是生产容量承诺。
+
+环境：Windows amd64、Go 1.27.1、GCC/race；沿用仓库 GOCACHE 和不存在的 ICHAT_CONFIG_FILE。默认测试只使用 fake/自有 net.Pipe AMQP 对端，不读取开发 .env/config 或连接真实依赖。真实测试使用 StartWithRabbitMQ 的独立 Docker project、vhost、随机账号/端口，按归属标签清理；未运行业务主程序或修改共享数据。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./messaging/rabbitmq -run 'Test(Supervisor\|SessionTopology)' -count=1 -timeout=45s` | 首轮全部通过，2.727s |
+| `go test -mod=readonly -race ./messaging/rabbitmq -run 'Test(Supervisor\|SessionTopology)' -count=10 -timeout=60s` | 连续 10 轮通过，8.013s |
+| `go test -mod=readonly -race ./... -count=1` | 全部通过；主包=11.595s、application=3.261s、config=3.708s、rabbitmq=7.439s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库集成标签编译通过 |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQTopologyMonitorIntegration$' -count=1 -v -timeout=5m` | 2 个真实场景全部通过，suite=27.18s、包=29.839s |
+| gofmt、`git diff --check`、新增文件空白/文档链接检查 | 全部通过 |
+
+实际 runId=`6b537a6f0ae42e1cc95e0bdc701c0300`，broker=4.3.6、client=v1.15.0，cleanup 成功。首次 Docker engine 未运行，在资源创建前发现阶段失败（run=`befa1392734347d395ba389d9f43d6e5`，缺少 dockerDesktopLinuxEngine pipe）；隐藏启动 Docker Desktop 后 server=28.4.0，完成上述真实测试。无自动审批拒绝、环境重置、共享数据修改或进程强杀。本轮没有重复旧 broker 重启/ACK 丢帧/消费者 Docker suites，不将历史结果计为本轮实测。
+
+### 后续边界
+
+P3.5.4.1 范围收口，P3.5.4/P3 尚未整体验收。Status/WaitReady 仍是时点观察，拓扑变化在检查间隔内存在发现窗口；management 故障保守退休 AMQP 尚可用的 publisher。默认 10s 是有界装配值，性能压测、生产三节点成员契约仍待对应阶段。消费者的周期核验/恢复和业务接受状态不能由本轮 publisher 结果推断。
+
+建议 commit message：`feat(rabbitmq): continuously verify publisher topology`
+
+下一小点：**P3.5.4.2：接受就绪状态汇总及运行时/健康接口接线**。区分传输就绪、业务接受能力、退出准入与消费者状态；未装配的现代业务角色不能借健康检查宣称 ready。HTTP 202 与业务消费者仍按 P3.6/P4 实施。本轮不继续下一小点、不自动提交。

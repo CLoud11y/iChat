@@ -22,6 +22,7 @@ type supervisorPeer struct {
 	publications atomic.Int32
 	onPublish    func(context.Context, messaging.Command) (PublishResult, error)
 	onClose      func()
+	onVerify     func(context.Context) error
 }
 
 func newSupervisorPeer() *supervisorPeer {
@@ -32,6 +33,12 @@ func newSupervisorPeer() *supervisorPeer {
 func (p *supervisorPeer) Done() <-chan struct{}      { return p.done }
 func (p *supervisorPeer) quiescent() <-chan struct{} { return p.idle }
 func (p *supervisorPeer) abort()                     { p.once.Do(func() { close(p.done) }) }
+func (p *supervisorPeer) verifyTopology(ctx context.Context) error {
+	if p.onVerify != nil {
+		return p.onVerify(ctx)
+	}
+	return nil
+}
 func (p *supervisorPeer) Close(ctx context.Context) error {
 	p.closed.Add(1)
 	p.abort()

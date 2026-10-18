@@ -1,6 +1,6 @@
 # RabbitMQ publisher 重连、epoch 与拓扑就绪
 
-P3.4.2 在 P3.4.1 owned session 上增加单一 supervisor：有界失败退避、每次尝试独立 epoch、旧 session 停止/回收，以及新连接复核后接单。当前仍是独立库与隔离验收，未接入 HTTP/旧业务入口。P3.5.1 已提供 [应用配置](mq-application-config.md)，P3.5.2 已有独立的 [消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)；应用装配与整体 readiness 继续按 P3.5 后续小点实施。
+P3.4.2 在 P3.4.1 owned session 上增加单一 supervisor：有界失败退避、每次尝试独立 epoch、旧 session 停止/回收，以及新连接复核后接单。P3.5.4.1 又增加[已就绪连接的周期拓扑复核](mq-topology-monitor.md)。P3.5.1 已提供 [应用配置](mq-application-config.md)，P3.5.2 已有独立的 [消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3 已完成基础装配；默认现代业务工厂仍为空，整体接受 readiness 继续按 P3.5.4 后续小点实施。
 
 ## 调用
 
@@ -36,7 +36,7 @@ result, err := supervisor.Publish(requestCtx, normalizedCommand, time.Now())
 
 supervisor 每次 Publish 只调用一次当前 session 的 Publish。连接恢复不会自动重放命令；unknown 不证明未入 MQ，调用者用原 clientMessageId/原内容明确重试，新的服务端 attempt ID 标识新尝试。既有 accepted 不被之后的重连撤销，消费者仍须以数据库幂等事务处理可能重复的逻辑命令。[RabbitMQ 失败后的重复与幂等边界](https://www.rabbitmq.com/docs/reliability)
 
-Status/WaitReady 是时点观察；本小点在每次新连接复核拓扑，尚未对已就绪连接周期复核或接入应用健康接口。管理端点与 AMQP 的部署对应关系由调用方配置；本小点没有实现集群服务发现、跨主机自动更换 URL、三节点成员契约或多 API 会话协调。MQ 配置、独立 producer/consumer 连接、持续拓扑 readiness 和 HTTP 接线仍按 P3.5/P3.6 实施。
+Status/WaitReady 是时点观察；除每次新连接核验外，已就绪连接现在也会按 TopologyCheckInterval（默认 10s）串行复核。失败或超时退休当前 epoch；成功保持就绪，检查结束后重新计时。检查计入旧连接的 quiescence，不会与新 epoch 重叠；不自动修复或重发。周期观察存在发现窗口，具体参数、取消和测试边界见[周期拓扑复核](mq-topology-monitor.md)。管理端点与 AMQP 的部署对应关系由调用方配置；没有实现集群服务发现、跨主机自动更换 URL、三节点成员契约或多 API 会话协调。整体接受 readiness 与 HTTP 接线仍待 P3.5.4.2/P3.6。
 
 ## 验证
 

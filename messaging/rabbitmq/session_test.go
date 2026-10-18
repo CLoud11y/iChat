@@ -53,15 +53,16 @@ type wirePublish struct {
 	body    []byte
 }
 type sessionPeer struct {
-	socket          *observedSocket
-	done            chan struct{}
-	received        chan wirePublish
-	ready           chan struct{}
-	dialCalls       atomic.Int32
-	modes           string
-	slots           int
-	server          net.Conn
-	consumerMethods chan wireFrame
+	socket           *observedSocket
+	done             chan struct{}
+	received         chan wirePublish
+	ready            chan struct{}
+	dialCalls        atomic.Int32
+	pauseChannelOpen atomic.Bool
+	modes            string
+	slots            int
+	server           net.Conn
+	consumerMethods  chan wireFrame
 }
 
 func testSessionOptions() SessionOptions {
@@ -203,7 +204,7 @@ func (p *sessionPeer) serve(conn net.Conn) {
 			case class == 60 && (method == 80 || method == 90 || method == 31):
 				p.consumerMethods <- f
 			case class == 20 && method == 10:
-				if p.modes == "silent_channel_open" {
+				if p.modes == "silent_channel_open" || p.pauseChannelOpen.Load() {
 					<-p.socket.closed
 					return
 				}

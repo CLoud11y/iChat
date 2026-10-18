@@ -42,6 +42,7 @@ func (o SessionOptions) connectionOptions() ConnectionOptions {
 type PublisherSession struct {
 	*connectionOwner
 	publisher *Publisher
+	verify    func(context.Context, *amqp.Connection) error
 }
 
 func (s *PublisherSession) String() string { return "RabbitMQ owned publisher session" }
@@ -84,7 +85,38 @@ func dialPreparedPublisher(ctx context.Context, address string, options SessionO
 	if err != nil {
 		return nil, err
 	}
-	return &PublisherSession{connectionOwner: owner, publisher: p}, nil
+	return &PublisherSession{connectionOwner: owner, publisher: p, verify: prepare}, nil
+}
+
+// Only the supervisor calls this, serially. The check shares this connection's
+// lifetime accounting with Publish, but uses a fresh passive channel. A failed
+// or timed-out check retires the whole epoch, including unresolved publishes.
+func (s *PublisherSession) verifyTopology(ctx context.Context) error {
+	if s == nil || s.connectionOwner == nil || s.verify == nil || ctx == nil {
+		return ErrSupervisorTopology
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !s.beginCall() {
+		return ErrPublisherUnavailable
+	}
+	defer s.endCall()
+	operationCtx, cancel := context.WithTimeout(ctx, s.options.OperationTimeout)
+	defer cancel()
+	stop := watchCancellation(operationCtx, s.abort)
+	err := s.verify(operationCtx, s.connection)
+	stop()
+	if err != nil || operationCtx.Err() != nil {
+		s.abort()
+		return ErrSupervisorTopology
+	}
+	select {
+	case <-s.Done():
+		return ErrPublisherUnavailable
+	default:
+		return nil
+	}
 }
 
 func validSessionOptions(address string, o SessionOptions) bool {

@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.5.4.1 publisher 周期只读拓扑复核：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq -run 'Test(Supervisor|SessionTopology)' -count=10 -timeout=60s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQTopologyMonitorIntegration$' -count=1 -v -timeout=5m
+```
+
+默认测试覆盖空闲巡检、共享旧连接生命周期、超时取消、失败撤销准入、晚到成功隔离、旧调用 join 后才恢复及无自动重发；受控 AMQP 对端验证 channel.open 响应黑洞与丢失 confirm 后的 unknown。真实 Docker suite 移除本轮隔离绑定，并通过 loopback 代理丢弃管理响应，验证无新发布也能撤销就绪、只读不修复、人工恢复后新 epoch、原 accepted 保留且无探测/重发命令。只操作并清理本轮 fixture，详见[周期拓扑复核](../docs/mq-topology-monitor.md)；整体接受 readiness 尚未接线。
+
 P3.5.3.3.3.2.2.2 默认 legacy 统一生命周期与退出信号：
 
 ```powershell
