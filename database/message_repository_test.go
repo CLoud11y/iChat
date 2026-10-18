@@ -269,7 +269,28 @@ func TestCommandReplayRollbackFailure(t *testing.T) {
 		t.Fatal("replay invoked handler")
 		return CommandDecision{}, nil
 	})
-	if !errors.Is(err, io.ErrUnexpectedEOF) || result.Result != nil || result.Disposition != "" {
+	if !errors.Is(err, io.ErrUnexpectedEOF) || !errors.Is(err, ErrCommandRollbackUnknown) || result.Result != nil || result.Disposition != "" {
 		t.Fatalf("rollback failure returned success: %+v err=%v", result, err)
+	}
+}
+
+func TestCommandHandlerFailurePreservesRollbackOutcome(t *testing.T) {
+	command := testCommand(t)
+	for _, rollbackFailure := range []error{nil, io.ErrUnexpectedEOF, errors.Join(sql.ErrTxDone, io.ErrUnexpectedEOF)} {
+		state := &commandTestState{cause: rollbackFailure}
+		if rollbackFailure != nil {
+			state.stage = "rollback"
+		}
+		repo := newCommandTestRepository(t, state)
+		original := errors.New("original transaction failure")
+		result, err := repo.ExecuteCommand(context.Background(), command, func(context.Context, CommandTransaction, messaging.Command) (CommandDecision, error) {
+			return CommandDecision{}, original
+		})
+		if !errors.Is(err, original) || result.Result != nil || result.Disposition != "" {
+			t.Fatal("original failure lost or partial execution returned", err)
+		}
+		if errors.Is(err, ErrCommandRollbackUnknown) != (rollbackFailure != nil) {
+			t.Fatal("rollback outcome not distinguished", err)
+		}
 	}
 }

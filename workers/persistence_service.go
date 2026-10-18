@@ -22,11 +22,12 @@ var (
 
 type PersistenceOptions struct {
 	PollTimeout, ProcessingTimeout, ProbeInterval, ProbeTimeout, CloseTimeout time.Duration
+	Retry                                                                     PersistenceRetryOptions
 }
 
 func DefaultPersistenceOptions() PersistenceOptions {
 	return PersistenceOptions{PollTimeout: time.Second, ProcessingTimeout: 5 * time.Second,
-		ProbeInterval: 2 * time.Second, ProbeTimeout: time.Second, CloseTimeout: 5 * time.Second}
+		ProbeInterval: 2 * time.Second, ProbeTimeout: time.Second, CloseTimeout: 5 * time.Second, Retry: DefaultPersistenceRetryOptions()}
 }
 
 func ValidatePersistenceOptions(o PersistenceOptions) error {
@@ -34,6 +35,9 @@ func ValidatePersistenceOptions(o PersistenceOptions) error {
 		if d <= 0 || d > time.Minute {
 			return ErrPersistenceServiceInput
 		}
+	}
+	if _, err := resolvePersistenceRetry(o.Retry); err != nil {
+		return ErrPersistenceServiceInput
 	}
 	return nil
 }
@@ -110,7 +114,7 @@ func NewPersistenceService(pool *sql.DB, consumers []PersistenceConsumer, option
 	if err != nil {
 		return nil, err
 	}
-	handler, err := NewPersistenceHandler(repository)
+	handler, err := NewPersistenceHandlerWithRetry(repository, options.Retry)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"iChat/messaging"
 	"iChat/messaging/rabbitmq"
 	"strconv"
+	"time"
 )
 
 var ErrPersistenceInput = errors.New("persistence requires a handler, delivery and bounded context")
@@ -27,8 +28,9 @@ const (
 // error for errors.Is/As and controlled diagnostics. Every failure leaves
 // recovery responsibility with the original delivery/channel owner.
 type PersistenceError struct {
-	Kind  PersistenceFailure
-	cause error
+	Kind     PersistenceFailure
+	Attempts int // Repository calls for this delivery, including the first call.
+	cause    error
 }
 
 func (e *PersistenceError) Error() string    { return "message persistence: " + string(e.Kind) }
@@ -36,19 +38,33 @@ func (e *PersistenceError) GoString() string { return e.Error() }
 func (e *PersistenceError) Unwrap() error    { return e.cause }
 
 // PersistenceHandler processes exactly one already-received delivery. It does
-// not own the repository pool, stream, retries, isolation or worker lifecycle.
+// not own the repository pool, stream, isolation or worker lifecycle.
+// Known transaction conflicts are retried within the same processing context
+// only after the repository has finished the previous transaction.
 // In particular it never calls Next, Reject or retries an ACK. Its caller must
 // stop taking deliveries on error and retain/close the original channel before
 // recovery; immediately requeueing in a loop can exhaust broker delivery limits.
 type PersistenceHandler struct {
 	persist func(context.Context, messaging.Command) (database.CommandExecution, error)
+	retry   PersistenceRetryOptions
+	wait    func(context.Context, time.Duration) error
 }
 
-func NewPersistenceHandler(repository *database.MessageRepository) (*PersistenceHandler, error) {
+// NewPersistenceHandlerWithRetry applies a bounded transaction-conflict policy.
+// The zero policy selects defaults; other policies must be complete and valid.
+func NewPersistenceHandlerWithRetry(repository *database.MessageRepository, options PersistenceRetryOptions) (*PersistenceHandler, error) {
 	if repository == nil {
 		return nil, ErrPersistenceInput
 	}
-	return &PersistenceHandler{persist: repository.PersistCommand}, nil
+	options, err := resolvePersistenceRetry(options)
+	if err != nil {
+		return nil, err
+	}
+	return &PersistenceHandler{persist: repository.PersistCommand, retry: options}, nil
+}
+
+func NewPersistenceHandler(repository *database.MessageRepository) (*PersistenceHandler, error) {
+	return NewPersistenceHandlerWithRetry(repository, DefaultPersistenceRetryOptions())
 }
 
 // Handle validates the wire message, executes P2's complete idempotent
@@ -77,22 +93,22 @@ func (h *PersistenceHandler) handle(ctx context.Context, message rabbitmq.Consum
 	if err != nil {
 		return database.CommandExecution{}, &PersistenceError{Kind: InvalidDelivery, cause: err}
 	}
-	execution, err := h.persist(ctx, command)
+	execution, attempts, err := h.persistWithRetry(ctx, command)
 	if err != nil {
 		kind := PersistenceFailed
 		if errors.Is(err, database.ErrCommandCommitUnknown) {
 			kind = CommitUnknown
 		}
-		return database.CommandExecution{}, &PersistenceError{Kind: kind, cause: err}
+		return database.CommandExecution{}, &PersistenceError{Kind: kind, Attempts: attempts, cause: err}
 	}
 	if !terminalExecution(command, execution) {
-		return database.CommandExecution{}, &PersistenceError{Kind: InvalidTerminalResult, cause: database.ErrCommandInvariant}
+		return database.CommandExecution{}, &PersistenceError{Kind: InvalidTerminalResult, Attempts: attempts, cause: database.ErrCommandInvariant}
 	}
 	if err := ctx.Err(); err != nil {
-		return database.CommandExecution{}, &PersistenceError{Kind: AcknowledgementFailed, cause: err}
+		return database.CommandExecution{}, &PersistenceError{Kind: AcknowledgementFailed, Attempts: attempts, cause: err}
 	}
 	if err := ack(ctx); err != nil {
-		return database.CommandExecution{}, &PersistenceError{Kind: AcknowledgementFailed, cause: err}
+		return database.CommandExecution{}, &PersistenceError{Kind: AcknowledgementFailed, Attempts: attempts, cause: err}
 	}
 	return execution, nil
 }

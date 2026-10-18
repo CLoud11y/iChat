@@ -27,7 +27,7 @@ StopAdmission 与处理器之间有本地准入锁。停止前已准入的任务
 
 任一处理错误、传输终止、存储探测失败、探测状态过期或受控任务 panic，都让整个持久化组停止领取。取消各方 poll/probe，保留已准入任务在各自处理预算内完成的机会，随后自动关闭已经打开的订阅。错误保留原始 errors.Is/As 原因，常用格式仅显示固定阶段，不打印 SQL、正文或 panic 内容。
 
-本轮不重试事务、不立即 requeue、不重开 session，也不主动转移隔离。failed service 的存储恢复不会使它重新 ready；恢复需显式创建新 session 和新服务。数据库故障自动暂停/退避/恢复、确定性技术失败隔离继续归后续 P4。不能把本轮的停止策略描述为已经实现 circuit breaker。
+P4.1.2 的停止策略仍用于最终处理错误；后续 [P4.2.1](mq-persistence-retry.md)已让 handler 在同一处理期限内有限重试明确事务冲突，可通过 PersistenceOptions.Retry 配置。它不立即 requeue、重开 session 或主动隔离，失败/耗尽后的存储恢复不会让旧实例重新 ready。自动暂停/退避/恢复及隔离仍归后续 P4，不能把当前停止策略称为 circuit breaker。
 
 ## 退出与资源归属
 
@@ -55,6 +55,7 @@ ConsumerReady 只读取本地激活/停止标志、lifetime、订阅 Done 和最
 | ProbeInterval | 2s | 正值，≤60s |
 | ProbeTimeout | 1s | 正值，≤60s |
 | CloseTimeout | 5s | 正值，≤60s，全部订阅共用 |
+| Retry | 3 次，25ms 基数/250ms 上限 | 完整零值沿用默认，详细校验见 [本地重试](mq-persistence-retry.md) |
 
 这些是显式 Go 装配参数，本轮没有新增配置字段。订阅 setup 及网络读写/关闭还受到既有 MQ 期限约束，不能把处理预算当作网络硬上限。
 
@@ -78,4 +79,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersist
 
 没有运行默认业务 main、切换模式、投递宿主 OS 信号或启用真实隔离/Outbox。P4.1.1 的强杀证据与本轮受控退出/ACK 丢帧证据均保留各自边界；未实现三节点、实际客户端和完整端到端恢复。
 
-下一项为 **P4.2.1：消费失败分类与有界本地重试**。保持原命令身份、提交未知与基础设施故障的责任；自动暂停/退避/恢复及可靠隔离/审计继续分步推进。
+[P4.2.1 分类与本地重试](mq-persistence-retry.md)已完成。下一项为 **P4.2.2：数据库故障暂停、退避、恢复及消费者监督**；可靠隔离/审计继续分步推进，默认后台角色门禁保持。

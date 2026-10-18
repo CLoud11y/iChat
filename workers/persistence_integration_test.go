@@ -412,6 +412,10 @@ func TestPersistenceConsumerIntegration(t *testing.T) {
 		old := f.open(t)
 		execution, err := handler.Handle(ctx, f.next(t, old))
 		requirePersistenceFailure(t, execution, err, CommitUnknown)
+		var failure *PersistenceError
+		if !errors.As(err, &failure) || failure.Attempts != 1 || ClassifyPersistenceFailure(err) != FailureCommitUnknown {
+			t.Fatal("unknown commit was locally retried or misclassified")
+		}
 		if !errors.Is(err, io.ErrUnexpectedEOF) {
 			t.Fatal("commit diagnostic lost")
 		}
@@ -442,6 +446,10 @@ func TestPersistenceConsumerIntegration(t *testing.T) {
 		execution, err := f.handler.Handle(operation, delivery)
 		stop()
 		requirePersistenceFailure(t, execution, err, PersistenceFailed)
+		var failure *PersistenceError
+		if !errors.As(err, &failure) || failure.Attempts != 1 || ClassifyPersistenceFailure(err) != FailureInfrastructure {
+			t.Fatal("database outage was locally retried or treated as bad input", err)
+		}
 		f.close(t, stream)
 		if err := f.env.SetMySQLRunning(ctx, true); err != nil {
 			t.Fatal(err)

@@ -47,7 +47,7 @@ ACK 始终调用原 `ConsumerDelivery.Ack`，沿用原 channel/tag、`multiple=f
 | `invalid_terminal_result` | 终态不变量错误，不 ACK |
 | `acknowledgement_failed` | 仓储成功后期限到期、取消或 ACK 错误；保留重投责任 |
 
-每次调用最多执行一次仓储、一次 ACK；没有 Next、Reject、本地重试、自动重连或隔离发布。调用者遇错必须停止领取，保留当前责任并由原 channel 的 owner 受控关闭，之后通过新 session 和数据库幂等恢复。不能立即 requeue 热循环，也不能因为暂时数据库故障耗尽本地次数就把正常命令当坏消息。自动暂停/退避/恢复、可靠隔离转移和隔离审计归后续 P4；本轮错误分类不宣称这些策略已实现。
+P4.1.1 首次范围为一次仓储调用；后续 [P4.2.1](mq-persistence-retry.md)已加入类型化失败分类及明确事务冲突的有界本地重试，仍只 ACK 一次，不做 Next/Reject/重新发布。提交或回滚未知、连接故障、约束/未知错误不自动重试；耗尽仍保留事务冲突类别。调用者遇到最终错误必须停止领取，由原 channel owner 受控关闭并幂等恢复。不能立即 requeue 或把基础设施积压当坏消息。自动暂停/恢复、可靠隔离和审计仍待后续 P4。
 
 ## 验证
 

@@ -2606,3 +2606,62 @@ P4.1 持久化消费适配及受控角色范围完成；持续数据库故障的
 下一项：**P4.2.1：消费失败分类与有界本地重试**。区分业务终态、技术坏消息、事务可重试错误和基础设施故障，保留原业务身份、COMMIT 未知及恢复责任；不能因重试次数耗尽把正常积压当坏消息，也不能通过立即 requeue 制造重投风暴。
 
 建议 commit message：`feat(worker): manage persistence consumer lifecycle and runtime role`
+
+## P4.2.1：消费失败分类与有界本地事务重试
+
+状态：2026-10-19（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译及独立 Docker 故障验证。基线为用户提交的 P4.1.2 `13de715`，开始时工作区干净。本轮完成 P4.2.1；P4 整体、自动恢复及隔离仍未验收，不自动提交或推进下一项。
+
+### 实现与责任边界
+
+- 新增 `ClassifyPersistenceFailure`：按固定责任阶段、类型及 MySQL 错误号遍历完整单/多错误树，区分 malformed、事务可重试、基础设施、提交/回滚未知、取消、ACK、技术及未知错误。不匹配错误文本，不只用 errors.As 取得第一个 MySQL 错误。生命周期阶段包装不改变底层 delivery 类别；混合连接/约束/未知错误禁止因同时存在 1213/1205 而重试。
+- `MessageRepository.ExecuteCommand` 增加 `ErrCommandRollbackUnknown`，defer 回滚失败时保留原事务错误和回滚原因并返回空 execution；只忽略精确 sql.ErrTxDone，组合/包装中的其他失败不被隐藏。COMMIT 未知标记及业务写入/锁顺序保持。
+- Handler 只在上一笔仓储事务已返回后，对 MySQL 1213/1205 有限重试。每次重用原 command、delivery、处理 context 和 ACK handle；不重新发布、不改业务 ID/hash、不领取下一条。最终安全终态后仍只有一次单条 ACK；ACK 错误不进入事务重试。
+- 新增 `PersistenceRetryOptions`、`NewPersistenceHandlerWithRetry` 和 `PersistenceOptions.Retry`，工厂纯校验传递；完整零值沿用默认。默认最多 3 次（含首次）、BaseDelay=25ms、MaxDelay=250ms，最多 5 次、等待上限≤5s；指数上限的一半至上限之间随机正等待。MaxAttempts=1 禁用后续尝试，不新增 YAML/env。
+- 全部事务/等待/ACK 共用原 ProcessingTimeout，不刷新 deadline、不丢弃后台 goroutine。次数耗尽只附 `ErrPersistenceRetriesExhausted`，类别仍是事务冲突；`PersistenceError.Attempts` 记录仓储调用数，保留 errors.Is/As 和安全日志。中途变为连接、技术、提交/回滚未知或取消立即停止；不把基础设施故障或耗尽当作坏消息。
+- 单条失败仍交由 P4.1.2 服务停止整组领取并受控关闭。StopAdmission/Drain 保留已准入退避，强制 Close 才取消等待；自动暂停/恢复、主动隔离及审计尚未实现。任何类别均不单独授权 ACK/Reject/隔离，默认 legacy/后台工厂门禁保持。
+- 新增 [失败分类与本地重试](mq-persistence-retry.md)，同步 README、阶段清单、单条/生命周期文档及测试入口。MySQL 事务边界复核使用官方 InnoDB 错误处理和错误号文档，客户端错误类型核对本机固定 go-sql-driver/mysql v1.8.1 源码，未升级依赖。
+
+### 默认测试与自审
+
+- 覆盖错误树混合优先级、未知文字/错误号、服务包装、提交/回滚未知及 ACK 阶段保护；sql.ErrTxDone+EOF 的组合不能掩盖回滚不确定性。
+- 覆盖两次事务冲突后成功、相同 command/context、完整预算、每次事务返回后退避、最终单次 ACK、次数上限/禁用、抖动范围、耗尽保持原类别/原因及 Attempts。
+- 覆盖处理中途类别变化、退避取消/期限、失败 execution 为空、ACK 即使携带 1213 也不重试、工厂拒绝坏策略及安全错误格式。所有测试默认无外部 I/O。
+- 自审将分类应用到完整错误树，防止多个 PersistenceError 只读取第一个而漏掉 ACK；保留服务包装下的耗尽类别。等待参数使用准确的 BaseDelay 名称，避免把抖动的指数基数误称为实际最小等待。
+- 字段重命名工具漏掉 integration 标签内一个结构体字面量，生命周期回归的标签编译实际捕获未知字段（尚未创建 fixture）；修正引用后回归通过。未把该次编译失败计为测试通过。
+
+### 真实 MySQL/RabbitMQ 验证
+
+新增 `TestPersistenceRetryIntegration`，复用独立 fixture，向本轮 schema 添加测试锁表。integration driver 在真实 message INSERT 后执行同一事务内的测试锁 SQL；真实 1213/1205 来自 MySQL，生产没有故障开关。只对本次测试连接设置 innodb_lock_wait_timeout=1，不修改生产或全局参数。
+
+1. blocker 修改 127 行形成较重事务，worker 修改测试锁行后构造循环等待；实际 1213 选择 worker 回滚。仓储调用 2 次、实际回滚 1 次、提交 1 次，原 delivery 最终 ACK，唯一业务集合。
+2. 实际 1205 发生在消息插入之后，整笔回滚再第二次完整事务成功；此前 seq 不被消耗，没有部分 message/Outbox。
+3. 每次均真实锁超时，3 次调用、3 次回滚、0 提交；错误保持 transaction_retryable/exhausted，原 delivery 仍 busy。解除锁并关闭后原 publishAttempt 重投成功，无提前处置。
+4. 实际 Rollback 成功后 driver 返回 EOF，保留真实 1205 与 rollback_unknown，只调用一次；原 attempt 随后恢复。本例为回滚调用结果注入，不是实际 TCP 响应丢包。
+5. 实际 COMMIT 成功后 driver 返回 1213，仍为 commit_unknown 且一次调用；原 attempt 重放既有终态，不因错误号可重试而重复事务。本例同样是实际提交后的调用结果注入。
+6. 为本轮下一 seq 增加临时 CHECK，得到实际 3819；一次调用/回滚、不重试或 ACK。删除约束后原 attempt 可恢复；DDL 仅作用于本轮自有 schema。
+7. 托管服务在真实 1205 后进入退避，停止准入后 Drain observer 为 pending，处理 context 保留，最终第二次事务成功并单次 ACK。
+8. 同样在真实 1205 后强制 Close，退避被取消；一次调用/回滚、0 提交，无 ACK，原 attempt 由新 session/仓储恢复。
+
+既有 `TestPersistenceConsumerIntegration` 增加 COMMIT 未知及真实数据库离线的“一次尝试及类别”断言，同轮 8 场景继续验证媒体/群权限、并发幂等、提交前/后实际子进程强杀与原文保留。另回归 `TestPersistenceLifecycleIntegration` 的 6 个场景，覆盖多连接、实际 ACK 丢帧、pending/join、RunRuntime drain 及数据库探测故障。运行时隔离/Outbox 仍为明确的测试占位角色，不冒充生产完整装配。
+
+默认及真实测试均核对规范终态、唯一 message/两个业务事件，最终按每会话消息数/最大 seq/last_seq 检查无洞。没有重置共享数据、运行默认 main、投递宿主信号或启用 worker/all。
+
+固定 Go 1.27.1，GOROOT 清空，仓库 .gocache，不存在的 ICHAT_CONFIG_FILE。主要命令与结果：
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./workers ./database ./application -run 'Test(Persistence(Retry\|Failure\|Factory)\|Command(HandlerFailure\|ReplayRollback))' -count=30 -timeout=90s` | 最后 30 轮通过，workers 3.173s、database 2.738s、application 2.754s |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 最终全仓库通过，无 race；主包 11.032s、application 2.833s、database 2.271s、rabbitmq 6.842s、workers 1.840s |
+| `go vet -mod=readonly -tags=integration ./...` / `go test -mod=readonly -tags=integration ./... -run '^$'` | 通过；标签编译不代表运行所有集成测试 |
+| `go test -mod=readonly -race -tags=integration -p 1 ./tests/testenv ./workers -run '^Test(PersistenceRetryIntegration\|PersistenceConsumerIntegration)$' -count=1 -v -timeout=12m` | 两个 suite 共 16 个场景全部通过，无 fail/skip；retry suite 32.77s/包 36.498s，consumer suite 29.23s/包 31.622s |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceLifecycleIntegration$' -count=1 -v -timeout=9m` | 6 个场景全部通过，suite 40.55s/包 43.228s |
+
+首轮新 retry suite 7 场景已通过，runId `23483f4156ee9bb90b125e0a5456ba75`，suite 33.61s/包 36.474s。加入实际退避强制关闭后，最终 retry runId `6114b046e53975eb0afe36da42dab646`；consumer 回归 runId `aad161d68d696980010ee96b5a3a8bde`；lifecycle 回归 runId `5aa92a5585936e40e3caa737e4d1f8be`。实际 RabbitMQ 4.3.6 / amqp091-go v1.15.0；驱动 v1.8.1 固定未变。首轮夹具的慢 SQL 日志不是性能基线，数据库 EOF 日志来自明确的停机注入。
+
+全部 fixture Close 成功；Docker 测试及资源查询通过自动审批在沙箱外执行，没有审批拒绝。已按四个 runId 只读核对专属容器/卷/网络，四轮各类资源均为 0，不访问开发 .env/config 或共享命名空间。
+
+### 下一项
+
+P4.2.1 范围完成。下一项：**P4.2.2：数据库故障暂停、退避、恢复及消费者监督**。开始前按监督状态、连接替换和退出所有权拆分；数据库持续故障不能把正常积压隔离为坏消息，恢复不能造成立即 requeue/重连风暴，过期连接/任务不能重新获得就绪。可靠隔离转移、审计/受控重放、Outbox 和端到端恢复继续保留，默认后台装配在角色齐备前仍拒绝。
+
+建议 commit message：`feat(worker): classify persistence failures and bound transaction retries`

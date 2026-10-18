@@ -20,6 +20,9 @@ var (
 	// A failed Commit never proves rollback. The caller must retain the original
 	// command identity and recover by replay; it must not acknowledge a delivery.
 	ErrCommandCommitUnknown = errors.New("command commit outcome is unknown")
+	// A failed rollback must not be mistaken for a safely finished retryable
+	// transaction, even when the original error was a deadlock/lock timeout.
+	ErrCommandRollbackUnknown = errors.New("command rollback outcome is unknown")
 )
 
 type CommandState string
@@ -158,8 +161,8 @@ func (r *MessageRepository) ExecuteCommand(ctx context.Context, command messagin
 	defer func() {
 		// Also runs during panic. Commit/automatic cancellation may already have
 		// finished the transaction; sql.ErrTxDone adds no new information.
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-			err = errors.Join(err, fmt.Errorf("rollback command transaction: %w", rollbackErr))
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
+			err = errors.Join(err, fmt.Errorf("%w: %w", ErrCommandRollbackUnknown, rollbackErr))
 		}
 		if err != nil {
 			execution = CommandExecution{}

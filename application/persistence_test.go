@@ -85,6 +85,11 @@ func TestPersistenceFactoryRejectsInvalidDependenciesWithoutIO(t *testing.T) {
 	if _, err := NewPersistenceFactory(pool, bad); err == nil {
 		t.Fatal("invalid options accepted")
 	}
+	bad = o
+	bad.Retry.MaxAttempts = 99
+	if _, err := NewPersistenceFactory(pool, bad); err == nil {
+		t.Fatal("invalid retry policy accepted")
+	}
 	factory, err := NewPersistenceFactory(pool, o)
 	if err != nil {
 		t.Fatal(err)

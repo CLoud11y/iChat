@@ -2,6 +2,15 @@
 
 P3 的阶段要求、五项接受验收条件、故障矩阵及集中重跑命令见 [MQ 与接受入口验收对照](../docs/mq-reliability-acceptance.md)。集中回归包含 13 个 MQ/API suite；fixture 手动 ACK 不代表业务事务提交后 ACK，后者仍归 P4。
 
+P4.2.1 消费失败分类与有界本地重试：
+
+```powershell
+go test -mod=readonly -race ./workers ./database ./application -run 'Test(Persistence(Retry|Failure|Factory)|Command(HandlerFailure|ReplayRollback))' -count=30 -timeout=90s
+go test -mod=readonly -race -tags=integration -p 1 ./tests/testenv ./workers -run '^Test(PersistenceRetryIntegration|PersistenceConsumerIntegration)$' -count=1 -v -timeout=12m
+```
+
+新 suite 在独立 MySQL/RabbitMQ fixture 构造实际死锁、锁超时及 CHECK 失败，验证完整回滚后同 delivery 重试、次数耗尽仍保留原文/身份、提交/回滚响应错误不重试，以及退避中 drain/Close 的责任。提交/回滚结果错误是实际 SQL 完成后的 driver 注入，非 TCP 丢包；约束/锁/1s session lock wait 只用于测试。既有单条 suite 同轮回归强杀重投与实际数据库离线，增加一次尝试/分类断言，详见 [失败分类与重试](../docs/mq-persistence-retry.md)。
+
 P4.1.2 顺序 worker 生命周期、就绪及角色工厂：
 
 ```powershell
