@@ -24,6 +24,7 @@ func TestHealthEndpoints(t *testing.T) {
 		}{
 			{"/health/live", http.StatusOK, "live"},
 			{"/health/ready/accept", http.StatusServiceUnavailable, "MQ_ACCEPTANCE_NOT_CONFIGURED"},
+			{"/health/ready/consumers", http.StatusServiceUnavailable, "CONSUMERS_NOT_CONFIGURED"},
 			{"/health/ready/storage", http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE"},
 		} {
 			if tc.path == "/health/ready/storage" && storage != nil && storage.StorageReady() {

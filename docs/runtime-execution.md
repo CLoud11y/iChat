@@ -7,10 +7,11 @@
 ## 构造与激活
 
 1. 验证 context、RuntimeOptions、全部所选业务构造器及 MQ 参数；无效配置或缺失角色不能触发依赖工厂。RunRuntime 不运行 legacy，legacy 使用原 bootstrap。
-2. PrepareMQ 创建显式持有的 publisher/独立消费者连接。重新核对实际资源的模式、publisher 选择、队列/数量/prefetch/非空消费能力，再为角色提供各自的 MQ 输入。
+2. PrepareMQ 创建显式持有的 publisher/独立消费者连接。重新核对实际资源的模式、publisher 选择、队列/数量/prefetch/非空消费能力，再为角色提供各自的 MQ 输入及只读 Health 观察。
 3. 按稳定角色顺序构造全部服务（API、持久化、隔离、Outbox），构造器只能准备闲置对象。收集每个已返回 handle，包括 handle+error；缺失/nil/typed nil、可比较且重复使用的实例均拒绝。重复实例只保留一份清理责任。
 4. 对受控服务集合执行 ValidateServices，通过后才按 Outbox → 隔离审计 → 持久化 → API 激活。API 最后启动；每次后续激活前检查已经启动的角色是否退出。
 5. Start 使用共同 setup deadline 和独立 service lifetime；启动成功后清除 setup deadline 的控制。Done 必须是稳定、非 nil、只通过关闭通知退出的 channel，Err 在 Done 关闭后本地读取。构造器和服务须遵守 context，并提供非阻塞的 StopAdmission/Done/Err。
+6. 全部启动和最终检查成功后发布 Health 绑定；接受/消费者就绪还需要各自显式业务能力及当前依赖状态，见[运行时就绪状态](runtime-readiness.md)。进程取消或任何清理路径先撤销健康就绪，再执行停止准入/drain；撤销健康状态不会提前取消 MQ lifetime。
 
 API 仅获得命令 publisher；持久化获得 consumerWorkers 个主队列连接；隔离审计获得一个隔离连接；Outbox 当前没有 MQ 输入。每组消费者 slice 独立，不能通过修改元数据删除 MQ 组内部清理清单。存储/鉴权依赖由明确的工厂闭包注入。
 
@@ -72,4 +73,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 共享关闭内核另回归原 session 黑洞和消费者重投/ACK 丢帧 suites。版本、runId、时长与 cleanup 见实施记录。测试不读取开发 .env/config、不启用业务主程序、不修改共享数据。
 
-P3.5.3.3 的[进程入口](runtime-process-entry.md)、[HTTP/WebSocket](legacy-http-lifecycle.md)、[cron](legacy-worker-lifecycle.md)及[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已完成基础装配和退出接线；默认入口通过 net/http owner 管理请求，收到信号后先 drain 再关闭，未 join 时保留存储。默认现代业务工厂仍为空，必须继续拒绝缺失角色，不能用测试 fixture 充当生产处理器。下一项是接受 readiness 与持续拓扑核验；HTTP 202、提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。
+P3.5.3.3 的[进程入口](runtime-process-entry.md)、[HTTP/WebSocket](legacy-http-lifecycle.md)、[cron](legacy-worker-lifecycle.md)及[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已完成基础装配和退出接线；默认入口通过 net/http owner 管理请求，收到信号后先 drain 再关闭，未 join 时保留存储。默认现代业务工厂仍为空，必须继续拒绝缺失角色，不能用测试 fixture 充当生产处理器。[接受就绪汇总与健康接线](runtime-readiness.md)及周期拓扑复核已完成装配基础，下一项为 P3.6 HTTP 202 接受入口；HTTP 202、提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。

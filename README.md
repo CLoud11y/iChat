@@ -36,7 +36,7 @@ P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消�
 
 [MQ 托管生命周期](docs/mq-lifecycle.md) 在 lifetime 取消时自动关闭整组资源，提供 Done/Wait、短等待后再次加入清理及错误保留。[角色构造器与服务实例检查](docs/runtime-assembly.md) 可列出所选模式的全部缺失角色，并在激活前拒绝缺失或多余服务。[运行时执行器](docs/runtime-execution.md) 已提供全部构造后再激活、API 最后启动，以及停止准入→drain→关闭服务→关闭 MQ 的有界编排。[进程入口](docs/runtime-process-entry.md)已将 legacy 与现代分支接入退出信号；[默认 legacy 生命周期](docs/legacy-runtime-lifecycle.md)统一管理 HTTP/WebSocket、worker、健康探测和存储，未退出任务继续持有资源。默认现代角色工厂仍为空，当前仍只可运行 legacy。
 
-[legacy cron 生命周期](docs/legacy-worker-lifecycle.md) 已由默认入口复用：批次限时、停止准入、等待全部任务后一次释放注册，支持重复观察退出结果。真实 WebSocket/DB 提交后的正常退出、超时后保留存储与原始前缀重放已验证。[Publisher 周期拓扑复核](docs/mq-topology-monitor.md)已补上空闲连接的只读巡检，失败/超时撤销就绪，不修复拓扑或重发命令；下一项为接受就绪状态汇总及运行时/健康接口接线。
+[legacy cron 生命周期](docs/legacy-worker-lifecycle.md) 已由默认入口复用：批次限时、停止准入、等待全部任务后一次释放注册，支持重复观察退出结果。真实 WebSocket/DB 提交后的正常退出、超时后保留存储与原始前缀重放已验证。[Publisher 周期拓扑复核](docs/mq-topology-monitor.md)已补上空闲连接的只读巡检，失败/超时撤销就绪，不修复拓扑或重发命令；[接受就绪汇总与健康接口](docs/runtime-readiness.md)已接线，显式区分鉴权、publisher、消费者和退出状态；默认缺失业务能力仍不就绪。下一项为 P3.6 新 DTO 与 HTTP 202 接受入口。
 
 项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 

@@ -77,9 +77,11 @@ func runRuntime(ctx context.Context, c config.Config, f RuntimeFactories, o Runt
 	// Process cancellation starts drain; it must not cancel in-flight work or
 	// MQ first. The role lifetime is cancelled only AFTER the drain phase.
 	lifetime, cancelLifetime := context.WithCancel(context.Background())
+	readiness := &runtimeHealth{ctx: ctx, mode: a.Mode()}
 	var resources *MQResources
 	var entries []*runtimeEntry
 	defer func() {
+		readiness.stop() // Withdraw health before any admission/drain callback.
 		cancelSetup()
 		err = errors.Join(err, shutdownRuntime(entries, resources, cancelLifetime, o))
 	}()
@@ -96,7 +98,9 @@ func runRuntime(ctx context.Context, c config.Config, f RuntimeFactories, o Runt
 		if err := setup.Err(); err != nil {
 			return &runtimeFailure{kind: ErrRuntimeStart, stage: "service preparation deadline", cause: err}
 		}
-		service, buildErr := selected.factory(setup, inputs[selected.role])
+		roleInputs := inputs[selected.role]
+		roleInputs.Health = readiness
+		service, buildErr := selected.factory(setup, roleInputs)
 		if !nilRuntimeService(service) {
 			for _, previous := range entries {
 				if sameRuntimeService(previous.service, service) {
@@ -145,6 +149,7 @@ func runRuntime(ctx context.Context, c config.Config, f RuntimeFactories, o Runt
 	if err := exitedRuntimeService(entries); err != nil {
 		return err
 	}
+	readiness.activate(resources, entries)
 	cancelSetup() // Successful services retain lifetime, never the setup deadline.
 	return awaitRuntimeStop(ctx, entries)
 }

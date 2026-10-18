@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"iChat/config"
+	"iChat/health"
 )
 
 var (
@@ -43,13 +44,16 @@ type RuntimeService interface {
 	Err() error
 }
 
-// RoleDependencies supplies only MQ capabilities belonging to this role.
-// Other dependencies are captured by its explicit factory. The future executor
-// must pass the command publisher only to API and matching queue groups only
-// to consumers. Outbox has no MQ inputs in the current runtime plan.
+// RoleDependencies supplies only MQ capabilities belonging to this role, plus
+// a read-only runtime health observation. Other dependencies are captured by its
+// explicit factory. The executor passes the command publisher only to API and
+// matching queue groups only to consumers. Outbox has no MQ inputs.
 type RoleDependencies struct {
 	Publisher MQPublisher
 	Consumers []PreparedConsumer
+	// Health is a read-only aggregate. It is never proof of this role's own
+	// readiness; RuntimeAcceptance/RuntimeConsumerReadiness must not consult it.
+	Health health.RuntimeHealth
 }
 
 type RuntimeFactory func(context.Context, RoleDependencies) (RuntimeService, error)

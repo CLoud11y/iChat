@@ -36,4 +36,4 @@ go test -mod=readonly -tags=integration ./... -run '^$'
 
 信号取消测试使用可控 context，不是实际操作系统中断实测；运行时内部阶段与真实 MQ 的既有验证见 [执行器](runtime-execution.md)，本轮不重复 Docker，也不将旧结果计为本轮实测。测试不读取开发 .env/config、不运行实际业务主程序、不修改共享数据。
 
-入口接线和 legacy 退出装配已完成；默认仍只有 legacy 可运行。下一项是接受 readiness 与持续拓扑核验；现代生产业务工厂、MQ 业务 COMMIT/ACK、consumer 恢复、HTTP 202、审计和 Outbox 继续按后续小点实现。legacy Docker 验证及信号投递限制见统一生命周期说明。
+入口接线和 legacy 退出装配已完成；默认仍只有 legacy 可运行。[接受就绪汇总与健康接线](runtime-readiness.md)及周期拓扑复核已完成装配基础，下一项为 P3.6 HTTP 202 接受入口；现代生产业务工厂、MQ 业务 COMMIT/ACK、consumer 恢复、HTTP 202、审计和 Outbox 继续按后续小点实现。legacy Docker 验证及信号投递限制见统一生命周期说明。

@@ -43,4 +43,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 测试不读取开发 .env/config、不运行业务主程序，不操作共享数据；fixture 按归属标签清理。具体命令结果、runId 见[实施记录](message-reliability-mq-progress.md)。旧 broker 重启、ACK 丢帧和消费者场景本轮没有重复 Docker 实测，不将历史结果计入本轮。
 
-P3.5.4 尚未整体验收。下一小点 P3.5.4.2 为接受就绪状态汇总及运行时/健康接口接线；需区分 publisher 传输就绪、业务接受能力、退出准入与消费者状态。默认现代业务工厂仍为空，legacy `/health/ready/accept` 继续返回 503；HTTP 202 与业务消费者仍归后续阶段。
+P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)已完成装配基础，区分 publisher 传输就绪、业务接受能力、退出准入与消费者状态。默认现代业务工厂仍为空，legacy `/health/ready/accept` 继续返回 503；下一项 P3.6 为新的 DTO 与 HTTP 202 接受入口，业务消费者仍归 P4，P3 尚未整体验收。

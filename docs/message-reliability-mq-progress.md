@@ -2301,3 +2301,49 @@ P3.5.4.1 范围收口，P3.5.4/P3 尚未整体验收。Status/WaitReady 仍是�
 建议 commit message：`feat(rabbitmq): continuously verify publisher topology`
 
 下一小点：**P3.5.4.2：接受就绪状态汇总及运行时/健康接口接线**。区分传输就绪、业务接受能力、退出准入与消费者状态；未装配的现代业务角色不能借健康检查宣称 ready。HTTP 202 与业务消费者仍按 P3.6/P4 实施。本轮不继续下一小点、不自动提交。
+
+## P3.5.4.2：接受就绪状态汇总及运行时/健康接口接线
+
+状态：2026-10-18（Australia/Sydney）完成实现、自审、专项/全仓库 race、静态检查、集成标签编译和隔离 Docker 实测。代码基线为用户提交的 publisher 周期拓扑复核 `96884d1`，开始时工作区干净。本轮完成既定就绪汇总及接线范围，不继续下一项、不自动提交。
+
+### 改动
+
+- 新增 health.RuntimeHealth/RuntimeStatus 和固定 ReadinessState 枚举。状态按值返回，不含依赖错误/URL；未知值保持 503，nil/typed nil capability 视为未配置。owner 的 String/GoString 不输出 context 或内部资源。
+- RunRuntime 为每次现代运行创建独立只读 Health，随 RoleDependencies 提供给选中工厂。构造及部分激活期间始终 starting；所有 Start/Done/最终 setup 检查通过才发布绑定。进程取消立即撤销观察，回滚/退出也在任何 StopAdmission/Drain 前永久停止 owner，不提前取消服务/MQ lifetime。
+- API 就绪要求显式 RuntimeAcceptance 能力：新接受 handler 的 AcceptanceReady、包含有时效 Redis 鉴权状态的 AuthenticationReady，以及 publisher 当前 State=ready、Ready=true、非零 epoch。Start 成功、JWT key 已配置或仅有 publisher 都不能代替业务能力；缺失/false 均未就绪。
+- 消费者就绪单独要求所有本地消费连接 Done 非 nil 且未关闭，并由持久化/隔离角色显式 ConsumerReady 声明订阅/业务/存储状态。接受不受 MySQL 或本地消费者单独故障阻塞；worker 模式接受未配置、api 模式消费者未配置，不推断远程实例。
+- 健康读取只采样本地缓存/Status/Done，不调用 Verify、WaitReady、Publish、订阅或依赖探测。角色能力方法也必须非阻塞且不能回读聚合状态。MQ 组关闭、进程取消或任一业务服务退出均不能保留 ready；停止标记在返回前复核。
+- router.RegisterHealth 作为显式现代适配入口，接入 /health/ready/accept 并新增独立 /health/ready/consumers；保留 live/storage 语义，所有 ready 响应 no-store，公开原因均固定。旧 Router 始终传 nil，因此即使传入现代 mode，旧业务路由也不能虚报确认式接受。
+- 新增[运行时就绪状态](runtime-readiness.md)，同步清单、运行时/组件/README/测试说明。P3.5.4 拓扑巡检与健康装配基础范围收口，默认现代业务工厂仍为空，legacy 接受健康接口仍为 503；生产 202、Redis 鉴权状态来源和消费事务仍在后续业务角色中实现。
+
+### 自审与验证
+
+- 新增 8 组 application 默认测试及 2 组 router 默认测试，覆盖模式/构造/激活门禁、缺失业务能力、鉴权与 publisher 状态/epoch、消费者独立故障、nil/typed nil、MQ 关闭、进程取消前后、drain 期间保留 MQ、并发观察、启动失败/服务意外退出、context 格式化脱敏、HTTP 固定原因/缓存/legacy 拒绝；原健康接口回归继续执行。
+- 实际 suite 使用生产 RunRuntime、Gin loopback HTTP、真实 MQ 独立连接和空队列订阅；fixture 角色显式声明测试能力，没有生产 accepted handler、JWT 黑名单或业务事务。共享有时效探测缓存分别监测本轮 Redis/MySQL，健康 HTTP 本身不联网。
+- redis_auth_connection_failure_and_recovery：关闭本轮 Redis 探测客户端，接受 HTTP 变为 503/AUTHENTICATION_UNAVAILABLE，消费者/live 保持 200；新建本轮客户端后恢复。没有停止 Redis 服务，也不将此场景描述为 Redis 服务重启或实际 JWT 校验验收。
+- publisher_topology_retirement_and_new_epoch：移除本轮发布绑定，实际 mandatory 发布不能 accepted，接受 HTTP 503 而消费者仍 200；恢复绑定后 publisher 新 epoch 和接受 HTTP 恢复，未自动修复拓扑。
+- consumer_connection_fault_does_not_block_acceptance：关闭本轮实际消费 channel/session，消费者 HTTP 503，接受 HTTP 仍 200，区分持久责任可继续进入 MQ 与本地处理暂时不可用。
+- mysql_offline_accepts_until_process_drain：仅按标签核验后停止本轮 MySQL；storage/consumers=503 而 accept/live=200。取消进程并停在 drain 屏障时 accept/consumers=503/RUNTIME_STOPPING，role lifetime 和 publisher 仍可用；放行屏障后正常关闭所有资源。关闭期间 MySQL EOF 日志为预期故障现象。
+- 首次集成标签编译发现测试误导入 go-redis/v9；修正为仓库既有 github.com/go-redis/redis/v8 v8.11.5，没有修改依赖。该次失败发生在编译阶段，没有创建 Docker 资源。随后 vet、标签编译和真实 suite 全部通过。最终增加 formatter 与 typed-nil/已关闭 MQ 的专项用例，最终全仓库及 30 轮专项均覆盖；formatter 不改变先前真实场景的汇总行为。
+
+环境：Windows amd64、Go 1.27.1、GCC/race；沿用仓库 GOCACHE 和不存在的 ICHAT_CONFIG_FILE。默认测试使用注入配置和受控依赖，不读取开发 .env/config、不连接真实服务。实际测试使用 StartWithRabbitMQ 的独立 project/vhost/随机账号/端口，核验标签后清理；未运行业务主程序、迁移/重置共享数据或发送 OS 信号。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./application ./router ./health -run 'Test(RuntimeHealth\|HealthEndpoints)' -count=1 -v -timeout=45s` | 首轮通过，application=2.491s、router=2.669s；health 此选择器无匹配测试 |
+| `go test -mod=readonly -race ./application ./router -run 'Test(RuntimeHealth\|HealthEndpoints)' -count=30 -timeout=60s` | 最终连续 30 轮通过，application=3.694s、router=3.524s |
+| `go test -mod=readonly -race ./... -count=1` | 最终全部通过；主包=10.459s、application=2.500s、config=2.448s、rabbitmq=6.806s、router=2.015s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库集成标签编译通过 |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRuntimeReadinessIntegration$' -count=1 -v -timeout=5m` | 4 个真实场景全部通过，suite=26.30s、包=29.050s |
+| gofmt、`git diff --check`、新增文件空白/文档链接检查 | 全部通过 |
+
+实际 runId=`2a15f0a91b5a14945b858d9851584f0b`，broker=4.3.6、client=v1.15.0，cleanup 成功；没有自动审批拒绝、共享数据变更或环境重置。Docker 本轮已运行，无需启动/重启宿主引擎。只停止本轮 fixture MySQL，按归属正常回收；未重复上轮周期管理响应黑洞、broker 重启或 ACK 丢帧 suites，不将历史结果计为本轮实测。
+
+### 后续边界
+
+P3.5.4 的巡检与就绪装配基础范围收口，P3 尚未整体验收。健康接口是时点观察，不代替某次发送的完整确认判定；生产角色必须实现真实 handler、鉴权缓存新鲜度与消费状态，不能以 fixture 代替装配。默认 api/worker/all 仍缺少生产业务工厂并在 I/O 前拒绝；legacy 不支持 MQ accepted。消费者自动恢复/周期核验、事务提交后 ACK、Outbox 与端到端验收仍归后续阶段。
+
+建议 commit message：`feat(runtime): compose acceptance and consumer readiness`
+
+下一项：**P3.6：新 DTO 与 HTTP 202 接受入口**。开始前按鉴权/规范化/发布结果映射及 API 装配范围细分；未实现消费者时仅在隔离测试环境积压，不能启用缺失业务角色或退回旧 Redis 成功语义。本轮不继续下一项、不自动提交。

@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P3.5.4.2 接受/消费者就绪汇总与健康接线：
+
+```powershell
+go test -mod=readonly -race ./application ./router -run 'Test(RuntimeHealth|HealthEndpoints)' -count=30 -timeout=60s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRuntimeReadinessIntegration$' -count=1 -v -timeout=5m
+```
+
+默认测试覆盖激活/退出门禁、缺失业务能力、鉴权/publisher/消费者状态独立、typed nil、并发读取和 HTTP 固定原因/缓存/legacy 拒绝。真实 fixture 使用 RunRuntime、Gin HTTP 和空队列订阅，覆盖 Redis 探测客户端关闭/重建、发布绑定故障与恢复、消费连接关闭，以及只停止本轮 MySQL 时接受仍可就绪、进入 drain 后撤销但 MQ lifetime 保留。角色仅声明测试能力，未实现生产 202、JWT 黑名单或业务事务；测试不读开发配置，不操作共享数据，详见[运行时就绪状态](../docs/runtime-readiness.md)。
+
 P3.5.4.1 publisher 周期只读拓扑复核：
 
 ```powershell

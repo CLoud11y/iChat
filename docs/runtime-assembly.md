@@ -40,7 +40,7 @@ RuntimeService 的方法定义了后续执行器的调用边界：
 | Close(ctx) | 取消剩余任务、限时 join 自己持有的工作，不关闭共享 MQ 组或共享存储池 |
 | Done() / Err() | 退出通知；Done 关闭后读取退出结果 |
 
-RoleDependencies 只承载本角色的 MQ 能力。后续执行器应仅给 API 命令 publisher，仅给消费者对应固定队列的连接列表，当前 Outbox 没有 MQ 输入。此处定义契约，没有提供这些业务服务实现，也没有执行 Start/停止/Drain/Close。接口和非空实例不能证明处理器遵守业务语义，仍须在 HTTP 202、提交后 ACK、审计及 Outbox 实现中验证。
+RoleDependencies 承载本角色的 MQ 能力以及只读 Health 观察。执行器仅给 API 命令 publisher，仅给消费者对应固定队列的连接列表，当前 Outbox 没有 MQ 输入。Health 的激活/退出门禁及显式业务就绪能力见[运行时就绪状态](runtime-readiness.md)。此处定义契约，没有提供这些业务服务实现，也没有执行 Start/停止/Drain/Close。接口和非空实例不能证明处理器遵守业务语义，仍须在 HTTP 202、提交后 ACK、审计及 Outbox 实现中验证。
 
 ## 启动诊断
 
@@ -68,4 +68,4 @@ go vet -mod=readonly -tags=integration ./...
 
 实际执行 bootstrap 的测试验证结构化缺失角色、sentinel 兼容，且只出现配置加载事件，旧全局状态不变。默认 legacy 生命周期与全仓库回归继续执行。测试不访问 Docker、开发配置/.env 或共享数据；没有更改 AMQP 库或重复旧 Docker 结果。
 
-P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；默认现代业务工厂仍为空。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，下一项为接受就绪状态汇总及运行时/健康接口接线，业务处理器与 consumer 恢复仍待对应后续小点。
+P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；默认现代业务工厂仍为空。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础；下一项为 P3.6 HTTP 202 接受入口，业务处理器与 consumer 恢复仍待对应后续小点。
