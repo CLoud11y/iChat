@@ -1,6 +1,6 @@
 # 消费者参数与按角色生成 MQ 依赖计划（P3.5.3.2.1）
 
-本小点补充消费者的有界参数、`RabbitMQConfig.Consumer()` 和 `Config.MQRuntime()`。这些构造器只返回经校验的依赖输入，不解析 DNS、不拨号、不请求管理 API、不建立订阅或启动 worker。当前业务程序的 api/worker/all 装配检查继续拒绝未完成角色，默认 legacy 不会启用 MQ。
+本小点补充消费者的有界参数、`RabbitMQConfig.Consumer()` 和 `Config.MQRuntime()`。这些构造器只返回经校验的依赖输入，不解析 DNS、不拨号、不请求管理 API、不建立订阅或启动 worker。默认 legacy 不会启用 MQ；显式 api 已装配接受入口，worker/all 仍在连接前拒绝缺失的后台业务角色。
 
 ## 消费者参数
 
@@ -62,4 +62,4 @@ go vet -mod=readonly -tags=integration ./...
 
 测试覆盖消费者默认/上下界、全字段环境覆盖、重复加载、错误数值/类型/空覆盖/溢出、直接构造校验、角色独立选择、审计固定单实例、新旧模式冲突、必需依赖缺失/半计划拒绝、配置不变和凭证脱敏。AMQP/management 两个本机 listener 观察 Load、Consumer 和各角色 MQRuntime 执行后的零连接。测试不访问 Docker 或开发配置。
 
-P3.5.3.2.1 消费者参数与纯 MQ 依赖计划、P3.5.3.2.2 [按角色准备 MQ 连接与失败清理](mq-runtime-resources.md) 已完成。调用后者才会实际联网；配置计划本身继续保持零 I/O。启动/恢复/关闭生命周期与完整角色能力仍在 P3.5.3.3；HTTP 202、业务提交后 ACK 和 Outbox 分别按 P3.6/P4/P5 接入。
+P3.5.3.2.1 消费者参数与纯 MQ 依赖计划、P3.5.3.2.2 [按角色准备 MQ 连接与失败清理](mq-runtime-resources.md) 已完成。调用后者才会实际联网；配置计划本身继续保持零 I/O。P3.5.3.3 已实现资源生命周期与角色检查，P3.6 已实现显式 api 的 HTTP 202；业务提交后 ACK 和 Outbox 仍按 P4/P5 接入。当前边界见 [P3 验收对照](mq-reliability-acceptance.md)。

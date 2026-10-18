@@ -49,4 +49,4 @@ go test -mod=readonly -race -tags=integration . -run '^TestLegacyWorkerLifecycle
 
 默认测试不读开发 .env/config、不访问真实 DB/Redis。实际场景只触碰本轮 fixture，归属标签核验后清理；没有启动业务主程序或发送 OS 信号，也不把本轮 legacy 提交/确认测试当作 MQ/P4 验收。版本、runId、命令结果见实施记录。
 
-P3.5.3.3.3.2.2.2 [统一生命周期与信号接入](legacy-runtime-lifecycle.md)已完成。先停止各方准入，保留 drain 机会，确认 HTTP 和 job 全部 join 后才恢复旧全局、关闭存储。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础；下一项为 P3.6 HTTP 202 接受入口，P3 尚未整体验收。
+后续[统一生命周期与信号接入](legacy-runtime-lifecycle.md)已完成：先停止各方准入，保留 drain 机会，确认 HTTP 和 job 全部 join 后才恢复旧全局、关闭存储。现代[周期拓扑复核](mq-topology-monitor.md)、[接受就绪汇总](runtime-readiness.md)与[生产 API](api-runtime-lifecycle.md)也已装配；当前阶段及后续业务消费边界见 [P3 验收对照](mq-reliability-acceptance.md)。

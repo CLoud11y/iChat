@@ -1,8 +1,8 @@
 # RabbitMQ 应用配置（P3.5.1）
 
-P3.5.3.2.1 已追加 [消费者参数与按角色生成 MQ 依赖计划](mq-runtime-parameters.md)，提供 Consumer/MQRuntime 纯构造结果；当前仍未将 MQ 连接装配进业务主程序。
+P3.5.3.2.1 已追加 [消费者参数与按角色生成 MQ 依赖计划](mq-runtime-parameters.md)，提供 Consumer/MQRuntime 纯构造结果；MQ 资源和[生产 API](api-runtime-lifecycle.md)已装配进主程序的显式 api 模式，后台业务角色仍缺失。
 
-本小点提供 `config.Load()` 的配置入口，以及纯构造器 `Config.RABBITMQ.Publisher()`。两者不解析 DNS、不拨号、不请求管理 API、不启动后台任务。当前主程序仍使用旧消息链路；填写这些字段不会启动 MQ 或切换发送入口。[运行模式](mq-runtime-modes.md) 已有配置与启动检查，独立连接的应用装配、readiness 和 HTTP 202 仍待后续小点。
+本小点提供 `config.Load()` 的配置入口，以及纯构造器 `Config.RABBITMQ.Publisher()`。两者不解析 DNS、不拨号、不请求管理 API、不启动后台任务。默认 legacy 使用旧消息链路，单独填写 MQ 字段不会切换发送入口；显式选择 api 且纯检查通过后才创建连接。运行模式、readiness、HTTP 202 的当前边界见 [P3 验收对照](mq-reliability-acceptance.md)。
 
 ## 缺省与配置来源
 
@@ -49,7 +49,7 @@ AMQP URI 要求显式非空用户名与密码、合法端口、无 query/fragmen
 
 `RABBITMQ` 拒绝未知字段、错误类型和无效值，错误仅包含脱敏 sentinel 与已知字段名。未配置连接时，已有 timing / slots 字段仍须合法。`RabbitMQConfig` / `PublisherConfig` 的常用 fmt 格式（`%v`、`%+v`、`%#v`，含整个 Config 的嵌套格式）会隐藏 MQ 凭证；不要直接日志输出 `.URL` 或 `.ManagementPassword`。语法解析错误也不回显原始配置文本。其他旧配置字段的日志习惯不在本次 MQ 脱敏范围内。
 
-MQ 配置已有 publisher 与 consumer 参数及按角色生成的纯依赖计划；broker ack timeout、Outbox 和消息入口切换参数尚未加入。运行模式字段位于独立 `RUNTIME` 节，有明确的未装配启动拒绝，不能填写后就假定新角色运行。
+MQ 配置已有 publisher 与 consumer 参数及按角色生成的纯依赖计划；broker ack timeout 和 Outbox 参数尚未加入。消息入口由独立 RUNTIME.mode 选择。运行模式字段位于独立 `RUNTIME` 节，有明确的未装配启动拒绝，不能填写后就假定新角色运行。
 
 ## 使用纯构造结果
 

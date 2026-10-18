@@ -1,6 +1,6 @@
 # RabbitMQ 隔离测试环境与版本核验
 
-P3.1 已完成（2026-10-13，Australia/Sydney）。RabbitMQ 使用 Docker，与每轮独立 MySQL/Redis fixture 一起启动；本阶段只交付版本核验和测试基础设施。P3.2 已完成正式本地 Docker 拓扑及可靠 DLX，启动与故障验收见 [本地 MQ 拓扑](mq-local-topology.md)。生产发送入口、HTTP 202、有界 publisher 与消费任务按后续小点接入。
+P3.1 已完成（2026-10-13，Australia/Sydney）。RabbitMQ 使用 Docker，与每轮独立 MySQL/Redis fixture 一起启动；本阶段只交付版本核验和测试基础设施。P3.2 已完成正式本地 Docker 拓扑及可靠 DLX，启动与故障验收见 [本地 MQ 拓扑](mq-local-topology.md)。有界 publisher、消费传输接口、运行时及显式 api 的生产接受入口现已实现，业务消费任务尚未接入；当前阶段对照见 [P3 验收](mq-reliability-acceptance.md)。
 
 ## 固定版本
 
@@ -77,6 +77,6 @@ go vet -mod=readonly -tags=integration ./...
 
 测试自动启动并清理独立资源，无需手工为测试文件填写 runId 或执行 Compose。默认单元测试不启动 Docker，只使用本机 httptest 对端验证管理 API 边界。
 
-真实 MQ 用例检查两套环境的同名 exchange/queue 保存不同内容、双方独立凭证、实际单成员 quorum probe 队列、跨 vhost/跨环境/资源前缀访问拒绝、应用账号无 management 权限、mandatory 不可路由 Return 与 publisher ACK、预取消 Publish 不消耗 tag、SASL 凭证复用，以及先清理一套后另一套待处理消息仍完整。probe 对象为 `ichat.test.probe.*`，只证明版本和隔离环境可用；正式主/隔离拓扑、可靠 DLX、生产通知和 HTTP 接线仍待 P3.2 及后续小点。
+真实 MQ 用例检查两套环境的同名 exchange/queue 保存不同内容、双方独立凭证、实际单成员 quorum probe 队列、跨 vhost/跨环境/资源前缀访问拒绝、应用账号无 management 权限、mandatory 不可路由 Return 与 publisher ACK、预取消 Publish 不消耗 tag、SASL 凭证复用，以及先清理一套后另一套待处理消息仍完整。probe 对象为 `ichat.test.probe.*`，只证明版本和隔离环境可用；正式主/隔离拓扑、可靠 DLX 和 HTTP 接线由后续独立 suites 验证；生产通知仍归 P5，不能将其计为本页 probe 的验证范围。
 
-尚未覆盖 broker 重启或数据恢复、节点/多数故障、confirm 丢失、网络黑洞、背压、可靠隔离转移和容量。本轮单节点 probe 不宣称节点容灾。
+本页基础 probe 不覆盖 broker 重启、confirm 丢失、网络黑洞、背压及容量；这些传输场景由后续独立 suites 验证，映射见 [P3 验收对照](mq-reliability-acceptance.md)。节点/多数故障、业务隔离恢复和完整容量基线仍未完成，单节点 probe 不宣称节点容灾。

@@ -44,4 +44,4 @@ WebSocket 使用实际 `service.Chat` 和 Gin/Gorilla，经独占 loopback liste
 
 测试只使用本机独占临时端口、net.Pipe 和受控订阅，不读取开发 .env/config、不运行业务主程序、不访问共享数据库，也不使用 Docker。OS 信号投递、实际 Redis Pub/Sub/DB 在途事务、cron/注册锁释放和完整服务器信号退出不属于本项实测。
 
-P3.5.3.3.3.2.2.1 [legacy cron 生命周期](legacy-worker-lifecycle.md)、P3.5.3.3.3.2.2.2 [默认 legacy 统一生命周期](legacy-runtime-lifecycle.md) 已完成。下一项是接受 readiness 与持续拓扑核验；现代业务角色仍缺失，P3 整体尚未验收。
+后续 [legacy cron 生命周期](legacy-worker-lifecycle.md)与[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已完成。现代[接受 readiness](runtime-readiness.md)、[持续拓扑核验](mq-topology-monitor.md)与[生产 API](api-runtime-lifecycle.md)也已接入；后台业务角色仍缺失，阶段边界见 [P3 验收对照](mq-reliability-acceptance.md)。

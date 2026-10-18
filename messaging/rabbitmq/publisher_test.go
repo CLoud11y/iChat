@@ -302,38 +302,61 @@ func TestPublisherCapacityAndSlotIsolation(t *testing.T) {
 }
 
 func TestPublisherLateAckCannotReachAnotherSlot(t *testing.T) {
-	first := &publisherPeer{onPublish: func(*publisherPeer, publishedAttempt) error { return io.EOF }}
-	started := make(chan publishedAttempt, 1)
-	second := &publisherPeer{onPublish: func(f *publisherPeer, a publishedAttempt) error { started <- a; return nil }}
-	p := peersPublisher(t, first, second)
-	ctx := publisherContext(t)
-	c := publisherCommand(t)
-	if r, err := p.Publish(ctx, c, time.Now()); err == nil || r.Outcome != PublishUnknown {
-		t.Fatal("write failure accepted")
-	}
-	done := make(chan PublishResult, 1)
-	errs := make(chan error, 1)
-	go func() { r, err := p.Publish(ctx, c, time.Now()); done <- r; errs <- err }()
-	var a publishedAttempt
-	select {
-	case a = <-started:
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
-	}
-	first.confirms <- amqp.Confirmation{DeliveryTag: 1, Ack: true}
-	select {
-	case <-done:
-		t.Fatal("old slot ACK completed a new attempt")
-	default:
-	}
-	second.confirms <- amqp.Confirmation{DeliveryTag: a.tag, Ack: true}
-	select {
-	case r := <-done:
-		if err := <-errs; err != nil || r.Outcome != PublishAccepted || r.ChannelEpoch != 2 || r.DeliveryTag != 1 {
-			t.Fatal("new slot correlation failed", r, err)
-		}
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
+	for _, timeout := range []bool{false, true} {
+		t.Run(map[bool]string{false: "write_failure", true: "confirm_timeout"}[timeout], func(t *testing.T) {
+			first := &publisherPeer{onPublish: func(*publisherPeer, publishedAttempt) error {
+				if timeout {
+					return nil
+				}
+				return io.EOF
+			}}
+			started := make(chan publishedAttempt, 1)
+			second := &publisherPeer{onPublish: func(f *publisherPeer, a publishedAttempt) error { started <- a; return nil }}
+			p := peersPublisher(t, first, second)
+			ctx := publisherContext(t)
+			firstContext := ctx
+			if timeout {
+				bounded, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
+				defer cancel()
+				firstContext = bounded
+			}
+			c := publisherCommand(t)
+			if r, err := p.Publish(firstContext, c, time.Now()); err == nil || r.Outcome != PublishUnknown || (timeout && !errors.Is(err, context.DeadlineExceeded)) {
+				t.Fatal("unconfirmed failure accepted or misclassified", r, err)
+			}
+			if first.closeCount != 1 {
+				t.Fatal("failed channel was not retired")
+			}
+			done := make(chan PublishResult, 1)
+			errs := make(chan error, 1)
+			go func() { r, err := p.Publish(ctx, c, time.Now()); done <- r; errs <- err }()
+			var a publishedAttempt
+			select {
+			case a = <-started:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			// Both attempts use tag 1, but the failed attempt's raw notification
+			// channel remains isolated even after its confirmation deadline.
+			first.confirms <- amqp.Confirmation{DeliveryTag: 1, Ack: true}
+			select {
+			case <-done:
+				t.Fatal("old slot ACK completed a new attempt")
+			default:
+			}
+			second.confirms <- amqp.Confirmation{DeliveryTag: a.tag, Ack: true}
+			select {
+			case r := <-done:
+				if err := <-errs; err != nil || r.Outcome != PublishAccepted || r.ChannelEpoch != 2 || r.DeliveryTag != 1 {
+					t.Fatal("new slot correlation failed", r, err)
+				}
+				if len(second.confirms) != 0 {
+					t.Fatal("new attempt completed without consuming its own ACK")
+				}
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+		})
 	}
 }
 

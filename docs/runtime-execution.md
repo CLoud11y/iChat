@@ -73,4 +73,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 共享关闭内核另回归原 session 黑洞和消费者重投/ACK 丢帧 suites。版本、runId、时长与 cleanup 见实施记录。测试不读取开发 .env/config、不启用业务主程序、不修改共享数据。
 
-P3.5.3.3 的[进程入口](runtime-process-entry.md)、[HTTP/WebSocket](legacy-http-lifecycle.md)、[cron](legacy-worker-lifecycle.md)及[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已完成基础装配和退出接线；默认入口通过 net/http owner 管理请求，收到信号后先 drain 再关闭，未 join 时保留存储。[生产 API](api-runtime-lifecycle.md) 已为显式 api 模式装配，仍拒绝缺失后台角色。[接受就绪汇总与健康接线](runtime-readiness.md)、周期拓扑复核及 P3.6 接受入口已完成；下一项为 P3 总体验收核对，提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。
+P3.5.3.3 的[进程入口](runtime-process-entry.md)、[HTTP/WebSocket](legacy-http-lifecycle.md)、[cron](legacy-worker-lifecycle.md)及[默认 legacy 统一生命周期](legacy-runtime-lifecycle.md)已完成基础装配和退出接线；默认入口通过 net/http owner 管理请求，收到信号后先 drain 再关闭，未 join 时保留存储。[生产 API](api-runtime-lifecycle.md) 已为显式 api 模式装配，仍拒绝缺失后台角色。[接受就绪汇总与健康接线](runtime-readiness.md)、周期拓扑复核及 P3.6 接受入口已完成；阶段证据与后续边界见 [P3 验收对照](mq-reliability-acceptance.md)，下一项为 P4 持久化消费适配，提交后 ACK、consumer 恢复、审计和 Outbox 仍按后续阶段完成。

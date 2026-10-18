@@ -1,6 +1,6 @@
 # 本地 RabbitMQ 拓扑与可靠死信转发
 
-P3.2 使用 Docker Compose 单节点 RabbitMQ `4.3.6` 和 P3.1 已验证的镜像 digest。Go 服务尚未接入 MQ；本小点提供显式初始化、只读检查和隔离故障测试。三节点副本与多数故障验收在后续 P8 实施。
+P3.2 使用 Docker Compose 单节点 RabbitMQ `4.3.6` 和 P3.1 已验证的镜像 digest，提供显式初始化、只读检查和隔离故障测试。[生产 API](api-runtime-lifecycle.md)已通过 supervisor 接入 MQ，启动/恢复/周期检查只读核验，不自动声明修复。三节点副本与多数故障验收在 P8 实施，详见 [P3 验收对照](mq-reliability-acceptance.md)。
 
 ## 启动和初始化
 
@@ -65,4 +65,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 集成测试沿用 P3.1 `StartWithRabbitMQ`，正式对象名只用于本轮独立 broker/vhost；经典队列冲突和管理命令另用该临时 broker 中的新 vhost。全部随有归属标签的容器/卷清理，开发 `.env`、已有容器和卷不参与测试。
 
-覆盖实际单成员 quorum、幂等声明、persistent 原始正文/身份保留、reject 隔离、delivery-limit 超限、隔离反复失败保留、DLX 路由失效时源队列计数及恢复转发、operator policy 失败、已有 classic 队列内容保留；实际子进程执行两次 `mqadmin init` 和一次只读 `check`。尚未覆盖 broker 重启、容量饱和、三节点多数故障、生产 accepted、隔离审计或受控重放。
+本页 topology suite 覆盖实际单成员 quorum、幂等声明、persistent 原始正文/身份保留、reject 隔离、delivery-limit 超限、隔离反复失败保留、DLX 路由失效时源队列计数及恢复转发、operator policy 失败、已有 classic 队列内容保留；实际子进程执行两次 `mqadmin init` 和一次只读 `check`。broker 重启、容量拒绝及生产 accepted 由后续独立 suites 覆盖；三节点多数故障、隔离审计与受控业务重放仍未完成，不能计入本 suite。

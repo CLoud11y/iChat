@@ -36,7 +36,7 @@ P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消�
 
 [MQ 托管生命周期](docs/mq-lifecycle.md) 在 lifetime 取消时自动关闭整组资源，提供 Done/Wait、短等待后再次加入清理及错误保留。[角色构造器与服务实例检查](docs/runtime-assembly.md) 可列出所选模式的全部缺失角色，并在激活前拒绝缺失或多余服务。[运行时执行器](docs/runtime-execution.md) 已提供全部构造后再激活、API 最后启动，以及停止准入→drain→关闭服务→关闭 MQ 的有界编排。[进程入口](docs/runtime-process-entry.md)已将 legacy 与现代分支接入退出信号；[默认 legacy 生命周期](docs/legacy-runtime-lifecycle.md)统一管理 HTTP/WebSocket、worker、健康探测和存储，未退出任务继续持有资源。[生产 API 生命周期](docs/api-runtime-lifecycle.md)同样保留尚未退出请求和探针所需的私有存储客户端。
 
-[legacy cron 生命周期](docs/legacy-worker-lifecycle.md) 已由默认入口复用：批次限时、停止准入、等待全部任务后一次释放注册，支持重复观察退出结果。真实 WebSocket/DB 提交后的正常退出、超时后保留存储与原始前缀重放已验证。[Publisher 周期拓扑复核](docs/mq-topology-monitor.md)已补上空闲连接的只读巡检，失败/超时撤销就绪，不修复拓扑或重发命令；[接受就绪汇总与健康接口](docs/runtime-readiness.md)显式区分鉴权、publisher、消费者和退出状态。[确认式 HTTP 发送适配](docs/command-submission.md)、loadtest 新协议探测和[生产 API 装配](docs/api-runtime-lifecycle.md)已完成隔离验证；api 角色目前仅提供新发送及健康路由。下一项为 P3 总体验收核对与文档收口。
+[legacy cron 生命周期](docs/legacy-worker-lifecycle.md) 已由默认入口复用：批次限时、停止准入、等待全部任务后一次释放注册，支持重复观察退出结果。真实 WebSocket/DB 提交后的正常退出、超时后保留存储与原始前缀重放已验证。[Publisher 周期拓扑复核](docs/mq-topology-monitor.md)已补上空闲连接的只读巡检，失败/超时撤销就绪，不修复拓扑或重发命令；[接受就绪汇总与健康接口](docs/runtime-readiness.md)显式区分鉴权、publisher、消费者和退出状态。[确认式 HTTP 发送适配](docs/command-submission.md)、loadtest 新协议探测和[生产 API 装配](docs/api-runtime-lifecycle.md)已完成隔离验证；api 角色目前仅提供新发送及健康路由。[P3 基础设施与接受入口验收](docs/mq-reliability-acceptance.md)已收口；下一项为 P4.1 持久化消费适配，业务事务与完整客户端恢复仍待后续阶段。
 
 项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 
@@ -140,7 +140,7 @@ P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消�
 
 P1.6 起历史直接查询 MySQL，只返回已落库消息，不读取、迁移或回填 Redis 历史缓存。按 `(time_stamp, identifier, id)` 降序取一页，响应页内逆序供展示；游标只用消息 ID 定位当前会话中的存储记录。每页在独立的可重复读只读事务中校验群成员和群存续状态，再读取游标及历史；当前成员可读入群前的全部历史。权限在本页数据库快照建立时判定，之后离群不撤回已开始的读取，下一页重新检查。尚未实现跨页快照或按提交顺序的 `seq`，并发晚落库消息仍需重新查询，不能把旧时间戳分页当作可靠同步游标。
 
-发送仍为旧 Redis 入队→缓存→发布流程：入队确认后缓存/发布失败不撤销成功；调用入队后结果不确定时返回 503 / `MESSAGE_ENQUEUE_UNKNOWN`。发送成功不代表 MySQL 已持久化，历史需等待启用的 worker 落库；worker 默认关闭时待处理消息会持续积压。历史仓储不依赖 Redis，但生产 HTTP 鉴权仍需要 Redis 黑名单服务。完整 MQ 接受语义、客户端重试幂等、发送权限事务和群推送权限仍待后续阶段实现。
+默认 legacy 发送仍为旧 Redis 入队→缓存→发布流程：入队确认后缓存/发布失败不撤销成功；调用入队后结果不确定时返回 503 / `MESSAGE_ENQUEUE_UNKNOWN`。发送成功不代表 MySQL 已持久化，历史需等待启用的 worker 落库；worker 默认关闭时待处理消息会持续积压。历史仓储不依赖 Redis，但生产 HTTP 鉴权仍需要 Redis 黑名单服务。现代 api 已提供 MQ 确认式接受，详见 [P3 验收对照](docs/mq-reliability-acceptance.md)；MQ 消费事务接线、完整客户端恢复和群推送权限仍属后续阶段。
 
 Redis 私聊/群消息订阅返回可关闭的句柄，逐一核对所请求频道的 SUBSCRIBE 确认后才交给接收循环使用；重复或未知频道的确认视为初始化失败。context 取消、接收循环退出或群订阅初始化失败时会释放已建立的订阅；无群用户使用空句柄，不发送空的 SUBSCRIBE。群列表使用消息仓储自身的 DB。
 

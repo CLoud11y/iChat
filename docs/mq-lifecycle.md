@@ -28,7 +28,7 @@ cancelMQ()
 return owner.Close(context.Background())
 ```
 
-worker 尚未实现，示例没有实际订阅或事务。真正的业务装配必须先停止接单/领取、限时等待处理器完成提交及 ACK，再取消 mqLifetime/调用 Close。不要直接把会在停止请求时立即取消的进程 signal context 作为在途业务的 MQ lifetime；否则连接可能先于事务 drain 被关闭。角色能力和这套分阶段退出顺序在 P3.5.3.3.2 接入。
+worker 尚未实现，示例没有实际订阅或事务。真正的业务装配必须先停止接单/领取、限时等待处理器完成提交及 ACK，再取消 mqLifetime/调用 Close。不要直接把会在停止请求时立即取消的进程 signal context 作为在途业务的 MQ lifetime；否则连接可能先于事务 drain 被关闭。角色能力和这套分阶段退出顺序已由 P3.5.3.3.2 执行器接入，生产 API 也已使用；业务 worker 尚未实现。
 
 ## 所有权与关闭结果
 
@@ -59,4 +59,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestMQPrepa
 
 测试不读取开发 .env/config，不启动业务主程序，不访问共享数据。实际版本、runId、时长及 cleanup 见实施记录。本轮不计为业务提交后 ACK、进程信号/在途事务优雅退出或 consumer 恢复验收。
 
-P3.5.3.3.2.1 [角色构造器与服务实例检查](runtime-assembly.md)、P3.5.3.3.2.2 [受控服务执行与退出编排](runtime-execution.md) 已完成。RunRuntime 直接持有 PrepareMQ 资源，先 drain 服务再关闭 MQ，不将进程取消直接传给本页的连接 lifetime owner。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础，下一项为 P3.6 HTTP 202 接受入口。默认现代业务工厂仍为空，HTTP 202、业务事务、隔离审计与 Outbox 仍按 P3.6/P4/P5 实现。
+P3.5.3.3.2.1 [角色构造器与服务实例检查](runtime-assembly.md)、P3.5.3.3.2.2 [受控服务执行与退出编排](runtime-execution.md) 已完成。RunRuntime 直接持有 PrepareMQ 资源，先 drain 服务再关闭 MQ，不将进程取消直接传给本页的连接 lifetime owner。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础，P3.6 [生产 API 与 HTTP 202](api-runtime-lifecycle.md)已完成；业务事务、隔离审计与 Outbox 仍按 P4/P5 实现。集中验收见 [P3 验收对照](mq-reliability-acceptance.md)。

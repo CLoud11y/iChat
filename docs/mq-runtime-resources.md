@@ -2,7 +2,7 @@
 
 `application.PrepareMQ` 将配置计划变成显式持有的 MQ 资源。它从 `config.Config` 重新生成并验证计划，不接收可被任意修改的 MQRuntimePlan。配置错误、缺失必需工厂和已经取消的 setup context 在外部 I/O 前失败。
 
-这仍是独立的依赖准备层。业务 bootstrap 的新模式装配检查继续保留；当前主程序仅运行 legacy。准备连接不代表 HTTP 202、业务事务、隔离审计、Outbox 或整体 readiness 已实现。
+这仍是独立的依赖准备层。默认 runProcess 已装配 legacy 和显式 api，兼容 bootstrap 仍拒绝现代模式。准备连接本身不代表业务 ready；[生产 API](api-runtime-lifecycle.md)另行管理 handler/鉴权/HTTP，后台业务事务、隔离审计及 Outbox 仍未实现。
 
 ## 创建的资源
 
@@ -65,4 +65,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestMQPrepa
 
 管理 API 的连接/队列统计有约 5s 采样延迟，真实超时场景使用 8s 总准备期限，以观察回滚前的连接；单元测试保留毫秒期限证明期限不按 worker 重置。统计缺失字段不视作零，订阅另直接检查 /api/consumers。测试不读取开发 .env/config，也不启用业务 bootstrap。
 
-P3.5.3.3.1 [MQ 托管生命周期](mq-lifecycle.md) 已在此准备层之上增加 lifetime 取消后的自动关闭与 Done/Wait。PrepareMQ 本身仍只受 setup context 控制，成功后资源由调用方显式持有；使用 StartMQLifecycle 才转由 lifetime owner 管理。下一项 P3.5.3.3.2 角色能力门禁与服务退出装配；consumer 自动恢复、readiness、HTTP 202、提交后 ACK 和 Outbox 继续按后续阶段完成。
+P3.5.3.3.1 [MQ 托管生命周期](mq-lifecycle.md) 已在此准备层之上增加 lifetime 取消后的自动关闭与 Done/Wait。PrepareMQ 本身仍只受 setup context 控制，成功后资源由调用方显式持有；使用 StartMQLifecycle 才转由 lifetime owner 管理。角色能力门禁、服务退出、readiness 和 HTTP 202 已完成装配；consumer 自动恢复、业务提交后 ACK 与 Outbox 仍归后续阶段。当前边界见 [P3 验收对照](mq-reliability-acceptance.md)。

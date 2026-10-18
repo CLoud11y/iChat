@@ -58,4 +58,4 @@ go test -mod=readonly -race -tags=integration . -run '^TestLegacyRuntimeIntegrat
 
 测试不读开发 .env/config、不运行业务主程序，不访问共享数据；只操作本轮 fixture 并核验标签后清理。信号取消为可控 context，未实测 OS 信号投递。具体 runId/时长见实施记录。本轮不将 legacy DB/Redis 测试计为 MQ 提交后 ACK 或 accepted 验收。
 
-P3.5.3.3 的基础装配与入口范围收口；现代生产角色工厂仍为空，api/worker/all 继续拒绝。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础；下一项为 P3.6 新 DTO 与 HTTP 202 接受入口。HTTP 202、业务消费者、审计、Outbox 和端到端恢复仍按后续阶段实现，P3 整体尚未验收。
+legacy 基础装配与退出入口已完成。现代分支现已提供[生产 API](api-runtime-lifecycle.md)、[持续拓扑核验](mq-topology-monitor.md)与[就绪汇总](runtime-readiness.md)；显式 api 可使用新 DTO/202，worker/all 仍缺失后台业务角色。业务消费者、审计、Outbox 和端到端恢复仍归后续阶段，当前范围见 [P3 验收对照](mq-reliability-acceptance.md)。

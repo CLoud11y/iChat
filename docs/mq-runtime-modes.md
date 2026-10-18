@@ -32,7 +32,7 @@ RuntimePlan 只返回 Mode/API/Publisher/PersistenceConsumer/QuarantineConsumer/
 
 ## 当前启动边界
 
-bootstrap 顺序为：检查必要 factory 存在 → 显式加载配置 → 解析角色并检查新业务构造器 → 模式执行器兜底检查 → 现有 legacy 依赖初始化。未装配的新模式返回可由 errors.Is 判断的 `ErrRuntimeNotAssembled`，附已经校验的模式及全部缺失角色；errors.As 可读取 RuntimeAssemblyError。非法模式/混用返回配置错误。检查在旧全局依赖绑定、legacy cron、storage health 和 HTTP 服务启动之前完成，详情见 [角色装配检查](runtime-assembly.md)。
+默认 runProcess 单次加载配置，选择实际角色工厂，完成角色/MQ/API 的纯检查后注册信号，再进入 legacy owner 或现代 RunRuntime。worker/all 缺失后台角色时返回可由 errors.Is 判断的 `ErrRuntimeNotAssembled`，附已经校验的模式及全部缺失角色；errors.As 可读取 RuntimeAssemblyError。非法模式/混用返回配置错误。检查早于连接、旧全局绑定、cron、探针与 HTTP，详情见[进程入口](runtime-process-entry.md)。兼容 bootstrap 独立保留现代模式兜底拒绝，不能绕过检查落入旧 Router。
 
 业务主程序当前缺失后台角色的错误示例：
 
@@ -54,4 +54,4 @@ go vet -mod=readonly -tags=integration ./...
 
 模式测试覆盖默认/文件/省略键环境覆盖、显式空值、错误类型/枚举/未知字段、新旧 worker 冲突、纯角色边界、重复加载与直接零值配置。bootstrap 注入工厂记录实际调用，证明新模式/非法模式/混用只调用配置加载，不触发 DB、Redis、legacy worker 或 HTTP，也不修改既有全局状态；原 legacy 启动/退出与 MySQL 离线测试继续执行。没有 Docker、开发配置或真实数据操作。
 
-P3.5.3.1 模式配置/角色计划/启动检查、P3.5.3.2.1 [消费者参数与纯 MQ 依赖计划](mq-runtime-parameters.md)、P3.5.3.2.2 [受控 MQ 连接创建与失败清理](mq-runtime-resources.md)、P3.5.3.3.1 [MQ 托管生命周期](mq-lifecycle.md)、P3.5.3.3.2.1 [角色构造器与服务实例检查](runtime-assembly.md)、P3.5.3.3.2.2 [服务构造/激活/退出编排](runtime-execution.md)、P3.5.3.3.3.1 [进程入口分流与现代信号](runtime-process-entry.md)、P3.5.3.3.3.2.1 [legacy HTTP/WebSocket 适配器](legacy-http-lifecycle.md)、P3.5.3.3.3.2.2.1 [legacy cron 生命周期](legacy-worker-lifecycle.md)、P3.5.3.3.3.2.2.2 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md) 已完成。默认 legacy 入口已统一停止 HTTP/worker/健康探测并在任务结束后关闭存储；主程序现代分支已接到 RunRuntime，显式 api 模式已装配[生产 API](api-runtime-lifecycle.md)，后台业务角色仍缺失。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础，P3.6 新 DTO/202 接受及 API 生命周期已完成，下一项为 P3 总体验收核对；consumer 自动恢复与后台业务处理器仍待后续阶段。
+P3.5.3.1 模式配置/角色计划/启动检查、P3.5.3.2.1 [消费者参数与纯 MQ 依赖计划](mq-runtime-parameters.md)、P3.5.3.2.2 [受控 MQ 连接创建与失败清理](mq-runtime-resources.md)、P3.5.3.3.1 [MQ 托管生命周期](mq-lifecycle.md)、P3.5.3.3.2.1 [角色构造器与服务实例检查](runtime-assembly.md)、P3.5.3.3.2.2 [服务构造/激活/退出编排](runtime-execution.md)、P3.5.3.3.3.1 [进程入口分流与现代信号](runtime-process-entry.md)、P3.5.3.3.3.2.1 [legacy HTTP/WebSocket 适配器](legacy-http-lifecycle.md)、P3.5.3.3.3.2.2.1 [legacy cron 生命周期](legacy-worker-lifecycle.md)、P3.5.3.3.3.2.2.2 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md) 已完成。默认 legacy 入口已统一停止 HTTP/worker/健康探测并在任务结束后关闭存储；主程序现代分支已接到 RunRuntime，显式 api 模式已装配[生产 API](api-runtime-lifecycle.md)，后台业务角色仍缺失。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础，P3.6 新 DTO/202 接受及 API 生命周期已完成，阶段证据与后续边界见 [P3 验收对照](mq-reliability-acceptance.md)，下一项为 P4 持久化消费适配；consumer 自动恢复与后台业务处理器仍待后续阶段。

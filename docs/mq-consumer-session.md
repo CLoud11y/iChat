@@ -4,7 +4,7 @@
 
 本小点新增 `ConsumerSession`，并从 publisher session 提取每次拨号独立创建的连接 owner。共享的是连接管理代码：生产/消费实例各自拥有 socket、AMQP connection、write mutex、取消回调、Done、在途调用计数与关闭状态，任何一方的超时/关闭不会主动关闭另一方。
 
-RabbitMQ 建议生产者和消费者使用独立连接，以避免生产连接的 flow control 影响消费确认。本轮验证了受控生产 Write 背压和真实连接下行响应黑洞的隔离；尚未注入 broker 资源告警，也尚未实现消费者 delivery/ACK API，不能将这次核验 RPC 的隔离冒充消费 ACK 验收。[RabbitMQ 连接与 flow control](https://www.rabbitmq.com/docs/connections#flow-control)、[flow control 机制](https://www.rabbitmq.com/docs/flow-control)
+RabbitMQ 建议生产者和消费者使用独立连接，以避免生产连接的 flow control 影响消费确认。本页连接 suite 验证受控生产 Write 背压和真实连接下行响应黑洞的隔离，核验 RPC 不作为消费 ACK 验收；后续 channel suite 已验证实际 delivery/ACK 与确认黑洞的连接隔离，见[手动 ACK 传输](mq-consumer-channel.md)。尚未注入 broker 资源告警。[RabbitMQ 连接与 flow control](https://www.rabbitmq.com/docs/connections#flow-control)、[flow control 机制](https://www.rabbitmq.com/docs/flow-control)
 
 ## 使用
 
@@ -54,4 +54,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 Docker 用例使用本轮独立 broker/vhost/账号，管理 API 观察生产/消费两个不同连接与各自关闭。TCP 代理观察并丢弃真实 publisher ACK，消费者核验仍完成；消费者 RPC 回复黑洞时另一生产连接仍发布 accepted。移除绑定使已有核验/新连接失败，确认绑定未被修复，手动恢复后仅显式新实例可用。另覆盖真实消费者 connection.close-ok 缺失。消息原文/attempt 与队列空断言由 fixture 原有控制连接读回/ACK，**不是 ConsumerSession 的消费能力**。代理只记录帧计数/事件，不打印协议内容；fixture 按项目和 run 标签清理。
 
-P3.5.2.1 连接基础与 P3.5.2.2 消费传输均已验收，实际 delivery/ACK 场景见新文档。本页连接 suite 的读回/ACK 仍来自 fixture 控制连接。下一项为 P3.5.3 运行模式与依赖装配，开始前继续细分。应用 consumer 参数、consumer 自动恢复、readiness/持续核验与 HTTP 接线尚未装配；业务消费事务及提交后 ACK 仍在 P4。旧 Redis 链路仍保留。
+连接基础与消费传输已验收，本页连接 suite 的读回/ACK 仍来自 fixture 控制连接。应用 consumer 参数、MQ 准备、角色执行器和就绪汇总已实现，显式 api 已提供真实接受入口；生产 consumer 的自动恢复、持续核验、数据库事务与提交后 ACK 仍归 P4，worker/all 继续因缺失后台业务角色而拒绝。完整边界见 [P3 验收对照](mq-reliability-acceptance.md)。

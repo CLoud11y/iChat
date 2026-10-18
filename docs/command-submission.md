@@ -14,7 +14,7 @@ handler 仅信任中间件设置的正 `uint` uid，转换为协议正 uint64；
 
 构造必须提供正值且不超过 60s 的 timeout。路由 context 覆盖鉴权及提交；handler 自身也限制 publisher 调用，不延长更短的父 deadline。超时/取消发生在发布调用前为 not_published；发生在调用后则遵循 publisher 的实际结果，不能笼统判断为“没有发出”。取消导致的正文读取失败为依赖失败，不错误要求客户端修改业务内容。
 
-此处限制正文内存和协作式调用，尚不提供完整 HTTP 慢头/慢正文硬期限。API owner 需在 P3.6.2 配置 ReadHeaderTimeout/ReadTimeout/WriteTimeout 并管理活动请求；没有通过丢弃 goroutine 来伪造 publisher/reader 已结束。
+handler 本身限制正文内存和协作式调用；P3.6.2 的 [API owner](api-runtime-lifecycle.md)已配置 ReadHeaderTimeout/ReadTimeout/WriteTimeout 并管理活动请求，提供慢头/慢正文期限。没有通过丢弃 goroutine 来伪造 publisher/reader 已结束。
 
 ## 发布与响应
 
@@ -59,4 +59,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestCommand
 
 本 suite 未实测真实 broker NACK 的 HTTP 路径、OS 信号投递、业务提交后 ACK 或客户端持久化终态；NACK 映射由默认测试覆盖。生产 API owner 和慢头/慢正文已由 P3.6.2 的独立测试补充，见 [API 生命周期](api-runtime-lifecycle.md)。只在独立 fixture 积压/读取命令，fixture 控制连接的 ACK 不是业务提交后 ACK。版本、runId、结果见[实施记录](message-reliability-mq-progress.md)。
 
-P3.6.2 已完成[生产 API 生命周期、Redis GET 鉴权探测与默认进程装配](api-runtime-lifecycle.md)。显式 api 模式可运行本路由；默认配置仍是 legacy，worker/all 继续拒绝缺失的后台业务角色。P3.6 范围收口，下一项为 P3 总体验收核对；不切换开发共享数据。
+P3.6.2 已完成[生产 API 生命周期、Redis GET 鉴权探测与默认进程装配](api-runtime-lifecycle.md)。显式 api 模式可运行本路由；默认配置仍是 legacy，worker/all 继续拒绝缺失的后台业务角色。P3.6 范围收口，阶段证据与后续边界见 [P3 验收对照](mq-reliability-acceptance.md)，下一项为 P4 持久化消费适配；不切换开发共享数据。

@@ -1,5 +1,7 @@
 # 独立测试环境
 
+P3 的阶段要求、五项接受验收条件、故障矩阵及集中重跑命令见 [MQ 与接受入口验收对照](../docs/mq-reliability-acceptance.md)。集中回归包含 13 个 MQ/API suite；fixture 手动 ACK 不代表业务事务提交后 ACK，后者仍归 P4。
+
 P3.6.1 独立确认式发送 handler/路由与客户端协议探测：
 
 ```powershell

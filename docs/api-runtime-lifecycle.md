@@ -55,4 +55,4 @@ go test -mod=readonly -race -tags=integration . -run '^TestProductionAPIIntegrat
 
 Docker 仅使用随机 runId 的 fixture，控制 MySQL 和清理前核验所有权；Redis 故障只关闭本次 loopback 代理连接。测试注入的 receipt barrier 只延迟实际 confirm 的返回，没有伪造接受或替换业务服务。最终读取/ACK 属于 fixture 控制操作，没有业务 consumer/事务提交后 ACK。OS 信号通过可控 context 测试，未实际向宿主进程投递；不代表吞吐、落库、通知、三节点或端到端恢复验收。
 
-P3.6 的 handler、客户端协议探测及生产 API 装配范围完成。下一项为 P3 总体验收核对与文档收口；P3 整体尚未宣称验收通过。
+P3.6 的 handler、客户端协议探测及生产 API 装配范围完成。阶段证据与后续边界见 [P3 验收对照](mq-reliability-acceptance.md)，下一项为 P4 持久化消费适配；P3 基础设施与接受入口范围已验收收口，端到端业务恢复仍待后续阶段。

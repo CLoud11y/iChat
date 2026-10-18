@@ -1,5 +1,5 @@
 // Package rabbitmq implements the versioned messaging topology. No connection
-// is opened at import time and no business entrypoint uses it yet.
+// is opened at import time. The modern API verifies it without repairing drift.
 package rabbitmq
 
 import (

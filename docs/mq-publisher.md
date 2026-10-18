@@ -1,6 +1,6 @@
 # RabbitMQ 有界 publisher 与发布结果
 
-P3.3 完成 publisher slot 池、服务器信封构造与 confirm/return 判定。固定 RabbitMQ `4.3.6`、`amqp091-go v1.15.0`。P3.4.1 新增拥有底层连接的有界入口，推荐使用方式见 [MQ session](mq-session.md)。当前只作为独立库及隔离测试使用，尚未接入 HTTP 202、旧发送入口或消费任务。
+P3.3 完成 publisher slot 池、服务器信封构造与 confirm/return 判定。固定 RabbitMQ `4.3.6`、`amqp091-go v1.15.0`。拥有底层连接的有界入口见 [MQ session](mq-session.md)，已由[生产 API](api-runtime-lifecycle.md)接入 HTTP 202；默认 legacy 入口和未实现的业务 consumer 不使用本 publisher。阶段验收及故障边界见 [P3 验收对照](mq-reliability-acceptance.md)。
 
 ## 调用边界
 
@@ -48,7 +48,7 @@ Return、NACK、写错误、确认等待超时、关闭或污染通知都会使�
 
 裸 `NewPublisher` 的 context 可以终止等待 confirm，**不能单靠 amqp091-go 1.15.0 的 PublishWithContext 中断已经开始的网络 I/O**。构造、退休与 Close 也包含 RPC，仍需调用者提供 transport 边界。P3.4.1 的 `DialPublisher`/`PublisherSession` 已增加 per-write deadline 和 socket 中断，覆盖握手、初始化、发布与关闭；P3.4.2 的 [MQ supervisor](mq-supervisor.md) 已管理自动恢复/epoch 重连。I/O 边界见 [MQ session](mq-session.md)。[固定 PublishWithContext 实现](https://github.com/rabbitmq/amqp091-go/blob/v1.15.0/channel.go)
 
-服务端自动重试、HTTP 202、数据库幂等接线、消费者、隔离审计和 HA 故障验收仍按后续小点实施。关闭 publisher 只处理自身 channel，不关闭调用者 connection；连接所有者最后负责关闭连接。
+HTTP 202 与消费传输接口已实现；数据库幂等接线、业务消费者、隔离审计和 HA 故障验收仍属 P4—P8。连接自动恢复不自动重发业务命令，显式重试保留原键。关闭裸 publisher 只处理自身 channel，不关闭调用者 connection；连接所有者最后负责关闭连接。
 
 ## 验证
 

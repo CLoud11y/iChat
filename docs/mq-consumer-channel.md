@@ -1,6 +1,6 @@
 # 有界消费 channel 与手动 ACK（P3.5.2.2）
 
-`ConsumerSession.OpenConsumer` 在已经核验的独立消费者连接上提供消费订阅、顺序读取和单条 ACK/Reject。当前是库与隔离测试接口，主程序、运行模式、业务落库和审计持久化尚未接入；生产 worker 必须在 P4 的数据库事务完成后才调用 ACK。
+`ConsumerSession.OpenConsumer` 在已经核验的独立消费者连接上提供消费订阅、顺序读取和单条 ACK/Reject。当前是库与隔离测试接口；按角色 MQ 准备层可持有空闲消费者连接，但生产业务落库与隔离审计尚未接入。生产 worker 必须在 P4 的数据库事务完成后才调用 ACK。
 
 ## 调用与所有权
 
@@ -41,7 +41,7 @@ ACK/Reject 的 nil 错误只证明本地发送方法完成，**没有 broker 对
 
 每个消费 channel 只注册容量 1 的原始 NotifyClose / NotifyCancel，单个有界 monitor 负责观察，异常只中止这个消费者 session。Done 是 session 停止 admission 的信号。Close 先关闭 admission，使等待 Next 和 monitor 退出，再在原 close deadline 下完成连接关闭并等待在途调用；阻塞 ACK 的 socket Write 由取消 watchdog 直接中断，未持有 delivery mutex 等待网络。
 
-关闭没有自动 ACK 或自动 Reject；当前 delivery 和客户端尚未交付的预取消息均留给 broker 重投。正常 worker 退出可先停止业务循环、限时等待事务与正常 ACK，再关闭 session；未完成操作按重投和幂等处理。consumer 自动恢复、应用 graceful shutdown 和数据库提交不确定的业务安排仍待后续装配。
+关闭没有自动 ACK 或自动 Reject；当前 delivery 和客户端尚未交付的预取消息均留给 broker 重投。正常 worker 退出可先停止业务循环、限时等待事务与正常 ACK，再关闭 session；未完成操作按重投和幂等处理。传输和执行器的受控关闭已装配；生产 consumer 的自动恢复、在途事务/ACK drain 和数据库提交不确定处理仍归 P4。
 
 ## 验证
 
@@ -60,4 +60,4 @@ Docker 新 suite 使用本轮独立 broker/vhost/账号：
 - 先截获生产者真实 confirm，再用独立消费者 ACK/正常关闭完成责任释放；生产者仍在等待，取消后为 unknown。
 - 仅在 ACK-loss 代理上解析上行 AMQP、记录并丢弃一条消费 ACK；本地 Ack 返回 nil，但关闭后新 session 获得同 attempt 的 redelivery。其余代理场景保持原 io.Copy 上行路径。
 
-该 suite 通过本 API 接收并手动处置消息，全部是明确的隔离测试操作，没有数据库落库。五个 suites 的集中回归覆盖已有 publisher、session、supervisor 与消费者连接，资源按本轮项目/run 标签清理；主程序继续运行旧消息链路。
+该 suite 通过本 API 接收并手动处置消息，全部是明确的隔离测试操作，没有数据库落库。五个 suites 的集中回归覆盖已有 publisher、session、supervisor 与消费者连接，资源按本轮项目/run 标签清理。默认配置仍走旧消息链路，显式 api 已支持 MQ 接受；worker/all 仍缺失后台业务角色，见 [P3 验收对照](mq-reliability-acceptance.md)。

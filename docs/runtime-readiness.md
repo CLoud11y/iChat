@@ -58,4 +58,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRuntime
 
 这些角色显式声明 fixture 就绪能力，不是生产 HTTP accepted、JWT 黑名单校验或业务事务处理器。测试中的 Redis 故障是本轮客户端关闭/重建，没有停止 Redis 服务。健康监控复用有时效 Storage probe，实际 API 的 GET 鉴权状态来源已在 P3.6.2 装配；不能用 fixture 冒充生产装配。MySQL 关闭期间的 EOF 日志属于本轮主动故障。
 
-P3.5.4 的拓扑巡检和就绪装配基础范围收口；P3 尚未整体验收。P3.6.1 [独立确认式 HTTP 发送适配](command-submission.md)及客户端协议探测已完成隔离验证，P3.6.2 [生产 API 生命周期、Redis GET 鉴权探测与运行时装配](api-runtime-lifecycle.md)已完成，下一项为 P3 总体验收核对。默认入口尚未切换，保持未实现角色门禁；业务提交后 ACK、消费者恢复、Outbox 和端到端验收仍在后续阶段。
+P3.5.4 的拓扑巡检和就绪装配基础范围收口；P3 基础设施与接受入口范围已验收收口。P3.6.1 [独立确认式 HTTP 发送适配](command-submission.md)及客户端协议探测已完成隔离验证，P3.6.2 [生产 API 生命周期、Redis GET 鉴权探测与运行时装配](api-runtime-lifecycle.md)已完成，阶段证据与后续边界见 [P3 验收对照](mq-reliability-acceptance.md)，下一项为 P4 持久化消费适配。默认入口尚未切换，保持未实现角色门禁；业务提交后 ACK、消费者恢复、Outbox 和端到端验收仍在后续阶段。

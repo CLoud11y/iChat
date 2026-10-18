@@ -68,4 +68,4 @@ go vet -mod=readonly -tags=integration ./...
 
 实际执行 bootstrap 的测试验证结构化缺失角色、sentinel 兼容，且只出现配置加载事件，旧全局状态不变。默认 legacy 生命周期与全仓库回归继续执行。测试不访问 Docker、开发配置/.env 或共享数据；没有更改 AMQP 库或重复旧 Docker 结果。
 
-P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；[生产 API](api-runtime-lifecycle.md) 已为显式 api 模式装配，后台业务角色仍缺失。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础；P3.6 接受入口与 API 生命周期已完成，下一项为 P3 总体验收核对；后台业务处理器与 consumer 恢复仍待后续阶段。
+P3.5.3.3.2.2 [受控服务构造、激活与分阶段退出编排](runtime-execution.md) 已在此检查层之上实现；它持有自己的服务集合，失败时回滚，不在 Check/ValidateServices 中执行生命周期方法。[现代入口与信号](runtime-process-entry.md)和 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)均已接入；[生产 API](api-runtime-lifecycle.md) 已为显式 api 模式装配，后台业务角色仍缺失。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础；P3.6 接受入口与 API 生命周期已完成，阶段证据与后续边界见 [P3 验收对照](mq-reliability-acceptance.md)，下一项为 P4 持久化消费适配；后台业务处理器与 consumer 恢复仍待后续阶段。

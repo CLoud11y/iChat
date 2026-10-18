@@ -2438,3 +2438,60 @@ go test -mod=readonly -race -tags=integration . -run '^TestProductionAPIIntegrat
 P3.6 的确认式 handler、客户端协议探测和生产 API 装配范围完成。API 当前没有新登录、WebSocket、状态/同步/历史适配；默认配置仍为 legacy，未完成 consumer 时仅在独立测试环境积压。真实 broker NACK 的 HTTP 路径、OS 信号投递、吞吐/容量、业务提交后 ACK、隔离/Outbox、三节点与端到端恢复不在本轮验收范围。
 
 下一项：**P3 总体验收核对与文档收口**。核对已有证据与阶段要求，区分库级、生产 API 和后续业务消费范围，再进入 P4；本轮不继续下一项、不自动提交。
+
+## P3：总体验收核对与文档收口
+
+状态：2026-10-18（Australia/Sydney）完成阶段核对、专项补强、全仓库随机顺序 race、静态检查、标签编译和集中 Docker 回归。基线为用户提交的生产 API 生命周期 `2c9c3bb`，开始时工作区干净。P3 基础设施、可靠 publisher 与接受入口范围收口；本轮不继续 P4、不自动提交。
+
+### 核对与补齐
+
+- 新增 [P3 验收对照](mq-reliability-acceptance.md)，逐项映射 P3.1—P3.6 的实现、可执行测试和核心断言；五项验收条件分别有直接证据。
+- 明确 F05—F38 中完成/部分完成/后续责任。confirm 丢失后的稳定身份与新 attempt 不等于唯一业务落库；HTTP 响应丢失的协议探测不等于完整客户端恢复；单节点重启不等于三节点容灾；fixture Get/ACK 不等于事务提交后 ACK。P4—P8 的剩余验证继续保留。
+- F09 原测试直接覆盖写失败后的旧 ACK 隔离，确认超时退休由另一测试验证。本轮将 TestPublisherLateAckCannotReachAnotherSlot 扩为 write_failure / confirm_timeout 两个时序：首发布 unknown、旧 channel 只关闭一次，新发布使用同 tag=1、不同 channel epoch；注入旧 ACK 后不能完成新请求，新结果还必须实际消费自己的 ACK，避免仅靠即时未完成检查。
+- 更新 MQ 配置、拓扑、publisher、supervisor、消费传输、资源/lifecycle、legacy/现代运行时和 API 文档中过期的“现代工厂为空”“未接入 HTTP 202”“下一项 P3”状态。保留历史实施记录，不将历史结果改写成本轮验证；同步 README、测试入口和阶段清单。
+- 修正 topology 包的过期注释；没有改变业务行为、依赖、配置默认值或共享数据。显式 api 继续只提供新发送/健康，worker/all 继续拒绝缺失的后台业务角色，默认 legacy 保持。
+
+### 本轮验证
+
+使用固定 Go 1.27.1、仓库 .gocache、不存在的 ICHAT_CONFIG_FILE，清空不匹配的 GOROOT。没有读取开发 .env/config、运行业务 main、执行迁移或重置共享数据。
+
+| 命令 / 检查 | 最终结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./... -count=2 -shuffle=on -timeout=120s` | 补强回归后的最终两轮全绿；主包 17.285s、rabbitmq 11.807s，其余包通过或无测试；无 race |
+| `go test -mod=readonly -race ./messaging/rabbitmq -run '^TestPublisher(ACKFirstDrainsOriginalReturn\|LateAckCannotReachAnotherSlot\|ConfirmTimeoutAndConcurrentClose)$' -count=30 -timeout=60s` | 加强“必须消费自己的 ACK”断言后 30 轮通过，6.377s |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 通过 |
+| `go test -mod=readonly -race -tags=integration -p 1 . ./tests/testenv -run '^Test(RabbitMQ.*Integration\|MQPreparationIntegration\|RuntimeExecutionIntegration\|RuntimeReadinessIntegration\|CommandSubmissionIntegration\|ProductionAPIIntegration)$' -count=1 -shuffle=on -timeout=20m -json` | 最终 13 个 suite 全部通过，0 fail / 0 skip；主包 31.432s、testenv 628.496s |
+| gofmt / diff 空白 / 本地文档链接 / 验收测试名 | 检查通过；测试名定位实际 Go 声明，不以说明文字代替可执行用例 |
+
+集中集成实际 suite、耗时和 runId：
+
+| suite | 秒 | 独立 runId |
+| --- | --- | --- |
+| ProductionAPI | 29.32 | `7d248ad8dae770d0ce346a21a2a2dde5` |
+| RabbitMQSupervisor | 46.34 | `84c7aac9b0c5fdafa033a0ef219e5460` |
+| CommandSubmission | 25.85 | `72fac4f2cf329fd4a6495ebe064883c8` |
+| RabbitMQTopologyMonitor | 26.72 | `ef865efa0eede2395cf41198ef6b2dfa` |
+| RabbitMQTopology | 213.63 | `ce12dcb4a2e981e258b46a33e8ffe356` |
+| RabbitMQPublisher | 21.47 | `05888f2ac00f2d8a2d97e01a6c6f240a` |
+| RabbitMQEnvironment | 45.44 | `c70dfd7ea93afb3274830f40e55b6c9e` / `bd7083f77a7b2927d25cc294e9129593` |
+| RuntimeExecution | 39.10 | `8617dea971f16f333f9864db076eaadc` |
+| RabbitMQConsumerChannel | 44.66 | `8494e0c263572e8633cb809686b2ce58` |
+| MQPreparation | 79.26 | `cda5962e58ac2779a77d87d7b17f2c9f` |
+| RuntimeReadiness | 25.89 | `17b460c51eb0009c760b1a71a8860815` |
+| RabbitMQConsumerSession | 35.43 | `3a79f279c147f692647fcc6ecd05cc00` |
+| RabbitMQSession | 22.04 | `ec3907222a5afcf6010b22ab77c09283` |
+
+集成 shuffle seed：主包 `1792317420874514800`，testenv `1792317458738256100`。本地 JSON 日志保留在忽略的 `p3-acceptance-integration-final.log`；原失败日志为 `p3-acceptance-integration.log`。表格和结论来自本轮最终日志，不引用此前通过代替本轮实测。
+
+Docker 初次未运行：第一轮 13 个 suite 都在创建资源前的项目查询处遇到缺失 dockerDesktopLinuxEngine pipe，整轮失败（主包 1.978s、testenv 3.484s），不计为通过。随后隐藏启动已安装 Docker Desktop，确认 server 28.4.0 后重跑全部 suite，得到上述最终通过。无自动审批拒绝，没有引擎重置或共享资源清理。
+
+最终实际核验 broker 4.3.6 / amqp091-go v1.15.0。拓扑 suite 保留 broker 默认约 180 秒 DLX 重试间隔，没有为缩短验收放宽契约；supervisor 重启仍使用既有 fixture 原端口 override。所有 fixture Close 成功，完成后按本轮 14 个 runId 额外只读核对容器、卷、网络均为 0；没有遗留当前任务资源。集中范围为 MQ/API，未重跑整个仓库的 legacy/MySQL 业务集成，不记录吞吐或端到端性能基线。
+
+### 阶段结论与下一项
+
+P3 基础设施、可靠 publisher 和新接受 API 范围验收收口。P3 对重投的证明止于稳定命令身份、物理 attempt 隔离和 broker 中原文保留；唯一业务 message/seq/Outbox、消费权限拒绝、隔离审计及完整客户端恢复仍须后续接线与故障演练。
+
+下一项：**P4.1：MQ delivery 到 P2 幂等事务的持久化消费适配**。开始前按 wire 校验、事务结果、ACK/重投和角色生命周期拆成可审查小点；隔离及 Outbox 等必需角色未完成时继续保留 worker/all 门禁。
+
+建议 commit message：`test(mq): close P3 acceptance and cover late ACK after timeout`

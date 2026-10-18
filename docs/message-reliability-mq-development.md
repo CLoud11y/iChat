@@ -70,7 +70,7 @@
 | Go AMQP 客户端 | 原候选 `github.com/rabbitmq/amqp091-go v1.14.0` | P3.1 已核验并固定 v1.15.0；后续通知顺序设计以已下载固定版本源码为依据 |
 | MySQL / Redis | 现有 Compose 使用 MySQL 8.0、Redis 7 | 首版复用；测试报告记录具体 patch/image digest，不在此任务中附带升级数据库大版本 |
 
-RabbitMQ 4.3.6 / amqp091-go v1.15.0 已在 P3.1 隔离 Docker 环境验证基本 AMQP、quorum probe、权限与通知顺序前提，版本、镜像 digest、模块校验和与覆盖边界见 [MQ 测试环境](mq-test-environment.md)。正式拓扑/可靠 DLX、生产 publisher、consumer 和故障恢复尚未验收。客户端 v1.15.0 的 `go.mod` 最低版本为 1.20；项目仍使用 Go 1.27.1，不能误称 AMQP 库要求 Go 1.27。[Go 下载](https://go.dev/dl/?mode=json)、[RabbitMQ 发布信息](https://www.rabbitmq.com/release-information)、[客户端 go.mod](https://github.com/rabbitmq/amqp091-go/blob/v1.15.0/go.mod)
+RabbitMQ 4.3.6 / amqp091-go v1.15.0 已在 P3.1 隔离 Docker 环境验证基本 AMQP、quorum probe、权限与通知顺序前提，版本、镜像 digest、模块校验和与覆盖边界见 [MQ 测试环境](mq-test-environment.md)。正式拓扑/可靠 DLX、有界 publisher、消费传输、重连与接受 API 已完成 P3 范围验收，见 [P3 验收对照](mq-reliability-acceptance.md)；业务 consumer 和端到端恢复仍归后续阶段。客户端 v1.15.0 的 `go.mod` 最低版本为 1.20；项目仍使用 Go 1.27.1，不能误称 AMQP 库要求 Go 1.27。[Go 下载](https://go.dev/dl/?mode=json)、[RabbitMQ 发布信息](https://www.rabbitmq.com/release-information)、[客户端 go.mod](https://github.com/rabbitmq/amqp091-go/blob/v1.15.0/go.mod)
 
 ## 2. 成功语义与可靠性约束
 
@@ -760,14 +760,16 @@ P2.1—P2.7 的协议、schema、幂等、权限、seq/消息/Outbox 原子提�
 - [x] P3.6 显式 api 模式使用新 DTO 和 202 语义；默认配置仍为 legacy，未完成 consumer 时只使用隔离环境积压。
   - [x] P3.6.1 独立确认式 HTTP handler/路由、Bearer 鉴权、共享 DTO/严格有界读取、发布结果映射及客户端协议探测；真实 202/unknown/429/Return+ACK/MySQL 离线已验证，默认入口未切换。
   - [x] P3.6.2 生产 API 角色的受控 HTTP 生命周期、Redis GET 鉴权探测与运行时装配；启动回滚、慢请求、正常/超时退出和实际依赖故障已验证，缺失后台业务角色继续拒绝。
+- [x] P3 验收收口：要求/测试/故障矩阵对照、确认超时后的旧 ACK 直接回归、13 个 MQ/API suite 集中随机顺序验收；业务消费与端到端恢复边界见 [P3 验收对照](mq-reliability-acceptance.md)。
 
 验收：return+ACK 调度反转不误报 accepted；确认丢失重试安全；网络黑洞超时有界；旧 ACK 不污染新请求；拓扑错误不触发自动删队列。
 
-P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)，P3.5.3.3.1 见 [MQ 托管生命周期](mq-lifecycle.md)，P3.5.3.3.2.1 见 [角色构造器与服务实例检查](runtime-assembly.md)，P3.5.3.3.2.2 见 [服务执行与退出编排](runtime-execution.md)，P3.5.3.3.3.1 见 [进程入口分流与现代信号](runtime-process-entry.md)，P3.5.3.3.3.2 见 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)。默认配置保持旧链路，显式 api 模式已装配确认式接受入口；尚不代表业务提交后 ACK、端到端恢复或完整 P3 验收。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础，默认缺失业务能力仍不就绪；P3.6.1 [独立确认式 HTTP 发送适配](command-submission.md)及客户端协议探测已完成隔离验证；P3.6.2 [生产 API 生命周期、Redis GET 鉴权探测与运行时装配](api-runtime-lifecycle.md)已完成；下一项为 P3 总体验收核对与文档收口。
+P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑见 [本地 MQ 拓扑](mq-local-topology.md)，P3.3 判定见 [MQ publisher](mq-publisher.md)，P3.4 I/O/关闭及自动恢复见 [MQ session](mq-session.md) 和 [MQ supervisor](mq-supervisor.md)，P3.5.1 配置见 [MQ 应用配置](mq-application-config.md)，P3.5.2 见 [独立消费者连接](mq-consumer-session.md) 与 [消费 channel / 手动 ACK](mq-consumer-channel.md)，P3.5.3.1 见 [运行模式配置与启动检查](mq-runtime-modes.md)，P3.5.3.2.1 见 [消费者参数与 MQ 依赖计划](mq-runtime-parameters.md)，P3.5.3.2.2 见 [MQ 连接准备与失败清理](mq-runtime-resources.md)，P3.5.3.3.1 见 [MQ 托管生命周期](mq-lifecycle.md)，P3.5.3.3.2.1 见 [角色构造器与服务实例检查](runtime-assembly.md)，P3.5.3.3.2.2 见 [服务执行与退出编排](runtime-execution.md)，P3.5.3.3.3.1 见 [进程入口分流与现代信号](runtime-process-entry.md)，P3.5.3.3.3.2 见 [legacy 统一生命周期与信号](legacy-runtime-lifecycle.md)。默认配置保持旧链路，显式 api 模式已装配确认式接受入口；P3 基础设施与接受入口范围已验收收口，业务提交后 ACK 与端到端恢复仍待后续阶段。P3.5.4.1 [publisher 周期拓扑复核](mq-topology-monitor.md)已完成，P3.5.4.2 [接受就绪汇总与健康接线](runtime-readiness.md)也已完成装配基础，默认缺失业务能力仍不就绪；P3.6.1 [独立确认式 HTTP 发送适配](command-submission.md)及客户端协议探测已完成隔离验证；P3.6.2 [生产 API 生命周期、Redis GET 鉴权探测与运行时装配](api-runtime-lifecycle.md)已完成；阶段证据与后续边界见 [P3 验收对照](mq-reliability-acceptance.md)，下一项为 P4 持久化消费适配。
 
 ### P4：持久化 consumer、失败隔离与恢复
 
 - [ ] 将 MQ delivery 调用 P2 事务仓储，事务成功后单条 ACK。
+  - [ ] P4.1 持久化消费适配：先按 wire 校验、事务结果、ACK/重投与角色生命周期拆为可审查小点；隔离/Outbox 等必需角色未完成时保留 worker/all 门禁。
 - [ ] 区分权限拒绝、内容冲突、数据库暂时故障和技术坏消息。
 - [ ] 实现暂停/退避/恢复、可靠隔离转移、隔离记录 worker 和受控重放 CLI。
 - [ ] 优雅退出和 DB 提交不确定处理。
