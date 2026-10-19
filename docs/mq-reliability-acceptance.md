@@ -84,4 +84,4 @@ go test -mod=readonly -race -tags=integration -p 1 . ./tests/testenv -run '^Test
 
 `-p 1` 控制包间并发；每个 fixture 都使用独立随机 project/vhost/凭证和端口。Docker 故障控制、清理前检查项目/run 标签。保留 JSON 中的失败和 skip，区分包没有匹配用例与测试跳过；未执行的测试不能算通过。版本、随机顺序 seed、runId、耗时及清理结果只以当轮日志/实施记录为准，历史记录不算本轮实测。
 
-后续 [P4.1.1](mq-persistence-consumer.md)补上单条 wire → P2 完整事务 → ACK 及实际强杀重投；[P4.1.2](mq-persistence-lifecycle.md)补上多 worker 受控退出、就绪/角色工厂、真实 ACK 丢帧重投及 RunRuntime drain；[P4.2.1](mq-persistence-retry.md)补上真实死锁/锁超时的有界本地重试与完整错误树分类；[P4.2.2.1](mq-persistence-supervisor.md)及 [P4.2.2.2](mq-persistence-connections.md)补上独立监督、生产连接替换和当前轮次就绪。以上表格仍记录 P3 收口时的覆盖边界，不把后续结果改写为 P3 实测。下一项为 P4.2.2.3 监督恢复的运行时退出验收；默认后台装配和隔离/Outbox 尚未完成，worker/all 门禁继续保留。
+后续 [P4.1.1](mq-persistence-consumer.md)补上单条 wire → P2 完整事务 → ACK 及实际强杀重投；[P4.1.2](mq-persistence-lifecycle.md)补上多 worker 受控退出、就绪/角色工厂、真实 ACK 丢帧重投及 RunRuntime drain；[P4.2.1](mq-persistence-retry.md)补上真实死锁/锁超时的有界本地重试与完整错误树分类；[独立监督器](mq-persistence-supervisor.md)、[运行时连接来源](mq-persistence-connections.md)及 [P4.2.2.3 退出验收](mq-persistence-shutdown.md)补上持久化监督恢复和共享 SQL 责任。以上表格仍记录 P3 收口时的覆盖边界，不把后续结果改写为 P3 实测。下一项为 P4.2.3 可靠隔离转移；默认后台装配和隔离/Outbox 尚未完成，worker/all 门禁继续保留。

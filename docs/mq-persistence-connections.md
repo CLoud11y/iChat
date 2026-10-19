@@ -2,7 +2,7 @@
 
 `application.NewSupervisedPersistenceFactory(pool, options)` 已将 P4.2.2.1 监督器接入生产 RunRuntime 的 MQ 资源来源和聚合健康。数据库故障或明确消费连接退役后，停止领取、完成旧工作及资源清理、带抖动退避，再获取完整的新连接组。就绪只观察当前轮次，初始 session 的 Done 关闭不会永久阻止恢复。
 
-这是可显式注册的生产工厂，默认进程尚未注册完整后台角色。隔离审计与 Outbox 未实现，worker/all 仍在外部 I/O 前拒绝缺失角色；原 NewPersistenceFactory 的单轮行为保留。P4.2.2.3 将继续验证恢复过程与运行时 drain/强制退出/共享存储释放的交叉故障。
+这是可显式注册的生产工厂，默认进程尚未注册完整后台角色。隔离审计与 Outbox 未实现，worker/all 仍在外部 I/O 前拒绝缺失角色；原 NewPersistenceFactory 的单轮行为保留。后续 [P4.2.2.3](mq-persistence-shutdown.md)已验证恢复过程与运行时 drain/强制退出/共享存储释放的交叉故障，下一项为 P4.2.3 可靠隔离转移。
 
 ## 从准备到每轮借用
 

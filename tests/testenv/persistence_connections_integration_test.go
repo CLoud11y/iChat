@@ -30,6 +30,10 @@ type persistenceRuntimeCapture struct {
 }
 
 func (f *persistenceLifecycleFixture) supervisedRuntime(t *testing.T, address string) *persistenceRuntimeCapture {
+	return f.supervisedRuntimeWithOptions(t, address, application.DefaultRuntimeOptions(), false)
+}
+
+func (f *persistenceLifecycleFixture) supervisedRuntimeWithOptions(t *testing.T, address string, runtimeOptions application.RuntimeOptions, allowPending bool) *persistenceRuntimeCapture {
 	t.Helper()
 	o := workers.DefaultPersistenceSupervisorOptions()
 	o.Worker.PollTimeout, o.Worker.ProbeInterval, o.Worker.ProbeTimeout = 100*time.Millisecond, 100*time.Millisecond, 300*time.Millisecond
@@ -64,18 +68,25 @@ func (f *persistenceLifecycleFixture) supervisedRuntime(t *testing.T, address st
 	process, stop := context.WithCancel(f.ctx)
 	r.stop = stop
 	go func() {
-		r.err = application.RunRuntime(process, conf, factories, application.DefaultRuntimeOptions())
+		r.err = application.RunRuntime(process, conf, factories, runtimeOptions)
 		close(r.done)
 	}()
 	t.Cleanup(func() {
 		stop()
 		select {
 		case <-r.done:
-			if r.err != nil {
+			if r.err != nil && !allowPending {
 				t.Error("supervised runtime cleanup failed", r.err)
 			}
 		case <-time.After(20 * time.Second):
 			t.Error("supervised runtime did not join")
+		}
+		if allowPending && r.service != nil {
+			select {
+			case <-r.service.Done():
+			case <-time.After(20 * time.Second):
+				t.Error("pending supervisor still owns fixture storage")
+			}
 		}
 	})
 	select {

@@ -69,4 +69,4 @@ go test -mod=readonly -race -tags=integration -p 1 ./tests/testenv ./workers -ru
 
 既有单条 suite 增加 COMMIT 未知与数据库实际离线的“一次尝试及类别”断言，继续覆盖提交前后强杀重投。既有生命周期 suite 回归多连接、实际 ACK 丢帧及 RunRuntime drain。最终核对唯一终态/消息/事件和连续 seq；所有 SQL 锁/约束故障仅作用于本轮独立 fixture，生产无故障控制接口。
 
-P4.2.1 范围完成。每轮服务在最终错误后仍停止整组领取并受控关闭。后续 [P4.2.2.1 独立监督器](mq-persistence-supervisor.md)及 [P4.2.2.2 运行时连接来源](mq-persistence-connections.md)已能在明确数据库/消费连接故障后退役旧轮次、抖动探测并安全替换连接；它们不把本地重试耗尽或 ACK/技术错误自动换轮。下一项 **P4.2.2.3：监督恢复的运行时退出验收**；可靠隔离转移、隔离审计/重放、Outbox 和完整客户端恢复尚未完成，默认 worker/all 门禁继续保留。
+P4.2.1 范围完成。每轮服务在最终错误后仍停止整组领取并受控关闭。后续 [独立监督器](mq-persistence-supervisor.md)、[运行时连接来源](mq-persistence-connections.md)及 [P4.2.2.3 退出验收](mq-persistence-shutdown.md)已完成明确数据库/消费连接故障的监督恢复和资源责任验证；不把本地重试耗尽或 ACK/技术错误自动换轮。下一项 **P4.2.3：可靠隔离转移**；隔离审计/重放、Outbox 和完整客户端恢复尚未完成，默认 worker/all 门禁继续保留。

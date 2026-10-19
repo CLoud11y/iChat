@@ -71,4 +71,4 @@ go test -mod=readonly -race -tags=integration ./workers -run '^TestPersistenceCo
 - 坏 JSON 处理失败后关旧 channel，完整 body/自定义 headers 仍可重投；不以 fixture ACK 冒充隔离审计。
 - 全部成功处置后先关闭消费者，再用控制连接检查队列为空；最终核验 last_seq、消息数、最大 seq 一致，无序号洞。
 
-本节 P4.1.1 的子进程直接使用本适配器和真实仓储/消费传输。后续 [P4.1.2](mq-persistence-lifecycle.md)补上角色生命周期和真实 ACK 丢帧与已持久化数据的组合；[P4.2.2.1](mq-persistence-supervisor.md)及 [P4.2.2.2](mq-persistence-connections.md)补上独立监督与生产连接来源，退出交叉故障、隔离审计、Outbox 通知、实际客户端及三节点仍待后续阶段。各轮独立证据不能合并称为端到端验收。
+本节 P4.1.1 的子进程直接使用本适配器和真实仓储/消费传输。后续 [P4.1.2](mq-persistence-lifecycle.md)补上角色生命周期和真实 ACK 丢帧与已持久化数据的组合；[监督器](mq-persistence-supervisor.md)、[运行时来源](mq-persistence-connections.md)及 [P4.2.2.3](mq-persistence-shutdown.md)补上持久化监督恢复和退出交叉故障。隔离审计、Outbox 通知、实际客户端及三节点仍待后续阶段。各轮独立证据不能合并称为端到端验收。

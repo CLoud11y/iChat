@@ -551,7 +551,13 @@ func supervisorCancellationOnly(err error) bool {
 		return supervisorCancellationOnly(connection.cause)
 	}
 	if wrapper, ok := err.(*persistenceServiceFailure); ok {
-		return wrapper.stage == "storage" && supervisorCancellationOnly(wrapper.cause)
+		// Start has admitted no deliveries until all subscriptions and the final
+		// SQL probe succeed. Cancelling that setup during an orderly stop is not
+		// a processing failure. Close/ACK/process phases must retain their errors.
+		setup := wrapper.kind == ErrPersistenceServiceStart &&
+			(wrapper.stage == "context" || wrapper.stage == "subscription" || wrapper.stage == "storage")
+		probe := wrapper.kind == ErrPersistenceServiceStopped && wrapper.stage == "storage"
+		return (setup || probe) && supervisorCancellationOnly(wrapper.cause)
 	}
 	if multi, ok := err.(interface{ Unwrap() []error }); ok {
 		children := multi.Unwrap()

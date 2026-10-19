@@ -2,6 +2,8 @@
 
 后续 [P4.1.2 持久化生命周期](mq-persistence-lifecycle.md)已以真实工厂/SQL/ACK 验证本执行器的 drain 顺序；[P4.2.2.2](mq-persistence-connections.md)通过显式监督工厂接入生产连接替换和当前轮次就绪。共享 SQL 仍属外部 owner，服务 Close 返回 pending 时必须等其 Done 后释放；默认后台装配及隔离/Outbox 尚未完成。
 
+[P4.2.2.3 退出验收](mq-persistence-shutdown.md)已进一步验证 RunRuntime 有界返回与监督器实际 Done 的区别：恢复中的 dial/probe/group join 或已提交 SQL 回调尚未返回时，pending owner 继续持有资源；晚成功不能复活健康状态。外部 SQL owner 等监督器 Done 后再释放 pool，不能以执行器返回或 MQ 关闭代替。
+
 `application.RunRuntime(ctx, conf, factories, options)` 提供现代角色的阻塞式执行器：先检查全部必需构造器，再准备 MQ、构造全部服务、验证实例集合，最后激活。运行中等待进程 context 取消或服务意外退出；返回之前负责服务及 MQ 的有界清理。
 
 本小点提供执行器及注入契约。[主程序分流和现代进程信号](runtime-process-entry.md)已接至此执行器，P3.6.2 已装配[生产 API](api-runtime-lifecycle.md)；落库、隔离及 Outbox 业务角色仍缺失，worker/all 继续在连接前拒绝。Check/成功激活均不是某次 accepted 或业务提交后 ACK 的证明。

@@ -2,6 +2,15 @@
 
 P3 的阶段要求、五项接受验收条件、故障矩阵及集中重跑命令见 [MQ 与接受入口验收对照](../docs/mq-reliability-acceptance.md)。集中回归包含 13 个 MQ/API suite；fixture 手动 ACK 不代表业务事务提交后 ACK，后者仍归 P4。
 
+P4.2.2.3 监督恢复的运行时退出验收：
+
+```powershell
+go test -mod=readonly -race ./application ./workers -run '^TestPersistenceShutdown' -count=30 -timeout=90s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceShutdownIntegration$' -count=1 -v -timeout=10m
+```
+
+默认测试执行真实 executor/source/supervisor，覆盖订阅 setup 取消、晚 probe/dial、group join 与 runtime pending；实际六场景覆盖已替换组的 COMMIT/ACK drain、已提交回调及真实 Ping 返回屏障下的强制退出、部分 AMQP 握手中停止、实际 ACK 丢帧、真实数据库 backoff 中停止。明确 RunRuntime 返回不代表监督器 Done，共享 SQL 只由外部 owner 在真正 join 后关闭，见 [退出验收](../docs/mq-persistence-shutdown.md)。
+
 P4.2.2.2 生产连接替换与运行时接线：
 
 ```powershell

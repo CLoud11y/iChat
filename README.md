@@ -38,7 +38,7 @@ P3.5.2 的 [独立消费者连接](docs/mq-consumer-session.md) 与 [有界消�
 
 [legacy cron 生命周期](docs/legacy-worker-lifecycle.md) 已由默认入口复用：批次限时、停止准入、等待全部任务后一次释放注册，支持重复观察退出结果。真实 WebSocket/DB 提交后的正常退出、超时后保留存储与原始前缀重放已验证。[Publisher 周期拓扑复核](docs/mq-topology-monitor.md)已补上空闲连接的只读巡检，失败/超时撤销就绪，不修复拓扑或重发命令；[接受就绪汇总与健康接口](docs/runtime-readiness.md)显式区分鉴权、publisher、消费者和退出状态。[确认式 HTTP 发送适配](docs/command-submission.md)、loadtest 新协议探测和[生产 API 装配](docs/api-runtime-lifecycle.md)已完成隔离验证；api 角色目前仅提供新发送及健康路由。[P3 验收](docs/mq-reliability-acceptance.md)已收口。
 
-[P4.1 单条消费](docs/mq-persistence-consumer.md)及[受控 worker 生命周期/角色工厂](docs/mq-persistence-lifecycle.md)已完成，支持完整事务后 ACK、多连接顺序消费与退出重投。[P4.2.1 分类与有界事务重试](docs/mq-persistence-retry.md)已加入真实死锁/锁超时验证，保留提交/回滚未知、连接故障及重试耗尽的恢复责任。[P4.2.2.1 独立持久化监督器](docs/mq-persistence-supervisor.md)支持数据库故障暂停、抖动退避与旧轮次清理后的自动恢复；[P4.2.2.2 生产连接替换与运行时接线](docs/mq-persistence-connections.md)提供显式监督工厂、实际连接 join 和当前轮次就绪。下一项 P4.2.2.3 验证恢复与运行时退出的交叉故障；默认后台角色门禁、隔离及完整客户端恢复继续保留。
+[P4.1 单条消费](docs/mq-persistence-consumer.md)及[受控 worker 生命周期/角色工厂](docs/mq-persistence-lifecycle.md)已完成，支持完整事务后 ACK、多连接顺序消费与退出重投。[P4.2.1 分类与有界事务重试](docs/mq-persistence-retry.md)已加入真实死锁/锁超时验证，保留提交/回滚未知、连接故障及重试耗尽的恢复责任。[P4.2.2.1 独立持久化监督器](docs/mq-persistence-supervisor.md)及 [P4.2.2.2 运行时连接替换](docs/mq-persistence-connections.md)支持暂停、退避和安全恢复；[P4.2.2.3 退出验收](docs/mq-persistence-shutdown.md)已验证恢复中的 drain/强制退出与共享 SQL 责任，P4.2.2 范围完成。下一项 P4.2.3 可靠隔离转移；默认后台角色门禁、隔离及完整客户端恢复继续保留。
 
 项目中的 Go 服务运行在宿主机，MySQL、Redis 和 RabbitMQ 由 Docker Compose 启动并使用命名卷持久化数据。
 

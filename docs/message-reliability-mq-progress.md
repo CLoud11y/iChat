@@ -2766,3 +2766,48 @@ P4.2.1 范围完成。下一项：**P4.2.2：数据库故障暂停、退避、�
 **P4.2.2.3：监督恢复的运行时退出验收**。集中覆盖连接获取/替换、SQL/ACK、探测及 group join 与 drain/强制退出/pending 的交叉故障；明确 RunRuntime 有界观察返回后共享 pool 仍须持有到监督器 Done。P4.2.2 总项继续保持未完成，可靠隔离、审计/重放、Outbox 与完整客户端恢复仍待后续阶段。
 
 建议 commit message：`feat(worker): wire supervised persistence consumer replacement`
+
+## P4.2.2.3：监督恢复的运行时退出验收（2026-10-20）
+
+### 范围与修正
+
+- 新增 [监督恢复退出验收](mq-persistence-shutdown.md)，明确 RunRuntime 有界观察返回、监督器真正 Done、MQ 退役/清理及共享 SQL pool 最终释放的不同责任。只有外部 owner 在监督器 join 后释放其 pool；pending 返回不能丢弃 SQL/ACK/probe/dial/group owner。
+- 默认测试调用真实 runRuntime、NewSupervisedPersistenceFactory、连接来源及监督器，仅 SQL/AMQP 边缘和尚未实现的 companion 角色使用本地夹具。覆盖恢复订阅 setup 中正常取消、迟到探测/获取、旧组 join 阻塞、observer 到期后 pool/lease 保留，以及停止后不复活。
+- 首轮默认验收真实复现恢复中订阅 setup 取消被误报为 shutdown 失败：错误被包装为 Start/subscription，而此前正常取消判定只支持 storage/连接准备。收紧到有明确责任的纯取消：只有 Start/context、Start/subscription、Start/storage 及原 storage probe 纯取消可在停止路径结束；处理、ACK、Close/清理超时、混合 EOF 和未知原因仍保留。首轮该场景失败，不计为通过；修正后 30 轮通过。
+- 新增 workers 阶段判定回归，保证扩展启动取消规则不吞掉提交后处理、ACK 和清理责任。未改变事务、ACK 次数、投递身份、处理期限、重试预算或连接恢复策略。
+- 原集成 helper 保留默认清洁退出行为，另支持有界 runtime observer 返回后继续等待实际 supervisor Done，确保 pending 测试不会先清理 fixture pool。所有故障屏障仅存在于测试，生产无故障控制接口。
+
+### 实际 MySQL/RabbitMQ 六场景
+
+`TestPersistenceShutdownIntegration` 运行生产显式监督工厂 → RunRuntime，使用独立 schema/vhost；隔离/Outbox 继续为明确占位角色：
+
+1. 先完成真实消费连接替换，再在实际 COMMIT 成功后的 driver 回调处阻塞。正常停止后 work context 保持有效，短 Drain observer 为 pending；释放后完成原 ACK，队列实际为空，没有下一轮。
+2. 同样在第二轮实际 COMMIT 后保留不响应取消的回调；RunRuntime 预算到期返回 ErrRuntimeShutdown/ErrPersistenceSupervisorPending/deadline，监督器 Done 未关闭、SQL InUse>0 且同 pool 可 Ping。释放后原 publishAttempt redelivered，幂等 replay 规范终态；最终由明确外部 owner Close pool，之后 Ping 被拒绝。
+3. 专属 loopback 代理放通新组首个连接，黑洞第二个实际 AMQP 握手。观察部分认证连接后停止，取消并完整清理该组；runtime 正常退出，解除代理故障也不重连。已 accepted 原 attempt 保持首次未领取状态，显式新处理器成功处理。
+4. 真实 MySQL Ping 成功后 driver 返回屏障忽略取消。Runtime observer 返回 pending 时仍持有 SQL lease，pool 可用；解除后 supervisor 真正 Done，晚成功没有更新就绪或获取下一轮，外部 owner 才关闭 pool。
+5. 第二轮连接通过真实代理丢弃消费 ACK；本地处理成功且数据库已提交。正常退出后原 attempt 重投，由新处理器 replay，message/规范终态/两个 Outbox 均唯一。
+6. 核验归属后仅停启本轮 MySQL，在至少两次恢复失败的 backoff 中关闭 runtime；MQ 接受的积压保持。SQL 恢复后旧监督器不复活、Generation 保持 1；显式新处理器核对原 attempt 的首次投递后持久化。
+
+COMMIT/Ping 屏障都是实际 SQL 成功后的 driver 返回屏障，非 SQL TCP 丢包；ACK 丢帧及 AMQP 握手黑洞是实际网络代理控制。未运行默认 main、发送宿主进程信号、启用完整 worker/all 或验证实际客户端。每场景退出后直接 RPC 检查主队列为空，连接回到两个 fixture 控制/publisher owner 基线；逐命令核对唯一业务集合，并最终核对每会话消息数=最大 seq=last_seq。
+
+### 命令与结果
+
+固定 Go 1.27.1，GOROOT 清空，仓库 .gocache 和不存在的 ICHAT_CONFIG_FILE。依赖未升级，无 YAML/env、迁移或默认装配切换。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./application ./workers -run '^TestPersistenceShutdown' -count=30 -timeout=90s` | 30 轮通过，无 race；application 11.310s、workers 1.664s |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.843s、application 3.448s、rabbitmq 7.270s、workers 2.122s |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表执行所有集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceShutdownIntegration$' -count=1 -v -timeout=10m` | 6 场景全部通过，无 fail/skip；suite 60.99s/包 63.682s |
+
+实际 RabbitMQ 4.3.6 / amqp091-go v1.15.0，fixture runId `96c8f10f786a6adcdc69ee3b5d6dde14`。数据库 EOF 日志来自最后一项明确停库/恢复窗口；测试 connector 的地址更新仅处理 Docker 随机宿主端口。
+
+fixture Close 成功，按本 runId 只读核对容器/卷/网络均为 0。Docker 测试及资源查询通过自动审批，无审批拒绝；未读开发 .env/config 或操作共享数据，没有自动提交代码。
+
+### 下一项
+
+P4.2.2.1—P4.2.2.3 均完成，勾选 P4.2.2；P4 整体和隔离/审计/重放/Outbox 保持未完成。下一项 **P4.2.3：可靠隔离转移**，按原始信封与稳定 transport identity、目标可靠发布、原 delivery 处置及故障验收分步实施。只有目标发布 confirm 且无 return 才 ACK 原消息，目标故障或确认未知必须保留原投递责任。默认缺失后台角色门禁保持。
+
+建议 commit message：`test(worker): verify supervised persistence shutdown ownership`

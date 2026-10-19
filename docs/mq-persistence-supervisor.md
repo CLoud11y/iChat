@@ -2,7 +2,7 @@
 
 `workers.PersistenceSupervisor` 在单次 `PersistenceService` 之外串行管理消费轮次。数据库连接故障后，旧服务停止领取，已准入事务/ACK 完整返回，旧订阅及整轮资源释放调用结束，再退避探测；存储恢复后才获取新消费者。原投递通过 broker 重投和 P2 幂等事务恢复，没有应用内 republish、Reject/requeue 或 ACK 重试。
 
-本项提供独立、显式注入资源来源的监督器。后续 [P4.2.2.2](mq-persistence-connections.md)已通过 `application.NewSupervisedPersistenceFactory` 接入生产连接来源、拓扑/部分失败清理和当前轮次聚合健康；原 NewPersistenceFactory 仍提供单次服务。下一项 P4.2.2.3 验证运行时交叉退出。默认 worker/all 缺失隔离与 Outbox 角色的门禁保持。
+本项提供独立、显式注入资源来源的监督器。后续 [P4.2.2.2](mq-persistence-connections.md)已通过 `application.NewSupervisedPersistenceFactory` 接入生产连接来源、拓扑/部分失败清理和当前轮次聚合健康；原 NewPersistenceFactory 仍提供单次服务。[P4.2.2.3](mq-persistence-shutdown.md)已验证运行时交叉退出及共享 SQL 持有责任。P4.2.2 范围完成，下一项 P4.2.3 可靠隔离转移；默认 worker/all 缺失隔离与 Outbox 角色的门禁保持。
 
 ## 构造、状态与恢复
 
