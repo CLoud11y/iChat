@@ -2,6 +2,15 @@
 
 P3 的阶段要求、五项接受验收条件、故障矩阵及集中重跑命令见 [MQ 与接受入口验收对照](../docs/mq-reliability-acceptance.md)。集中回归包含 13 个 MQ/API suite；fixture 手动 ACK 不代表业务事务提交后 ACK，后者仍归 P4。
 
+P4.2.2.1 独立持久化监督器：
+
+```powershell
+go test -mod=readonly -race ./workers -run '^TestPersistenceSupervisor' -count=30 -timeout=90s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceSupervisorIntegration$' -count=1 -v -timeout=9m
+```
+
+默认测试覆盖串行轮次、数据库离线退避、旧工作/资源真实 join、停止期间晚回调、部分启动/清理失败和完整错误树恢复门槛。实际 fixture 验证停库积压与两连接自动恢复、真实 COMMIT 后结果错误的幂等重投、CHECK 技术错误终止及初始离线时关闭后不复活；最后核对唯一业务集合与连续 seq。资源来源是明确的测试适配，生产 MQResources/聚合就绪接线仍为 P4.2.2.2，详见 [持久化监督器](../docs/mq-persistence-supervisor.md)。
+
 P4.2.1 消费失败分类与有界本地重试：
 
 ```powershell

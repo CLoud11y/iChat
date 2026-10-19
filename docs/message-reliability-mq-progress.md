@@ -2665,3 +2665,50 @@ P4.1 持久化消费适配及受控角色范围完成；持续数据库故障的
 P4.2.1 范围完成。下一项：**P4.2.2：数据库故障暂停、退避、恢复及消费者监督**。开始前按监督状态、连接替换和退出所有权拆分；数据库持续故障不能把正常积压隔离为坏消息，恢复不能造成立即 requeue/重连风暴，过期连接/任务不能重新获得就绪。可靠隔离转移、审计/受控重放、Outbox 和端到端恢复继续保留，默认后台装配在角色齐备前仍拒绝。
 
 建议 commit message：`feat(worker): classify persistence failures and bound transaction retries`
+
+## P4.2.2.1：独立持久化监督与数据库故障恢复（2026-10-19）
+
+### 范围与拆分
+
+按阶段文档的要求，在实现前将 P4.2.2 拆成独立监督器（本项）、生产连接替换/运行时接线（P4.2.2.2）、监督恢复的运行时退出验收（P4.2.2.3）。本项完成独立库和显式资源来源的真实恢复验证，不把整个 P4.2.2 标为完成。
+
+- 新增 `workers.PersistenceSupervisor`、参数/状态和 `PersistenceConsumerFactory` / `PersistenceConsumerGroup` 契约。构造纯本地，Start 后一个 owner 串行管理数据库探测、每轮资源获取、子服务激活、退役及退避，没有并存消费轮次。
+- 数据库连接故障撤销就绪、停止领取，保留已准入事务/ACK；旧子服务 join 并关闭订阅，再调用整轮 group Close。所有释放调用真实返回后才可恢复；部分 factory handle+error、晚返回 group 和 cleanup panic/错误均保留清理责任。
+- 数据库持续不可用时不获取新消费者，仅做有界真实 Ping 和可取消指数抖动等待；默认基数 1s、上限 30s，每次等待在本次上限一半至上限之间。失败计数封顶 32，只有连续 ready 达到默认 1min 后，下次故障才重置，清理耗时不算稳定时间。
+- 恢复要求完整错误树都是明确基础设施证据；允许 storage 探测自身超时。提交/回滚未知须同时有纯连接故障原因，之后靠新投递幂等恢复。畸形/约束/未知分支、重试耗尽、ACK 失败、处理取消及当前订阅故障均终止，不自动反复重投，不 ACK/Reject/隔离。
+- 首次明确数据库离线可使 Start 成功进入受管但不可就绪状态，setup 自身取消/超时或确定启动错误仍失败；Start 返回后取消 setup 不影响 lifetime。状态读取无 I/O，Generation 统计资源获取轮次而非 SQL 探测；已恢复的故障保留安全类别，不污染最终正常关闭的 Err。
+- StopAdmission 同步撤销准入、取消 setup/probe/backoff；Drain 保留已准入 work，Close 才取消剩余工作。observer 超时返回 Pending，Done 只在自有回调全部返回后关闭；不会因 probe/factory/SQL/closer 忽略 context 而丢弃 owner 或关闭共享 pool。
+- 新增 [持久化监督器说明](mq-persistence-supervisor.md)，同步主清单、README、消费/生命周期/重试/验收及测试入口。未新增 YAML/env、迁移、依赖或生产故障开关。
+
+### 验证与自审
+
+默认测试覆盖初始离线的五次递增/封顶抖动等待、探测成功前零 factory 调用、旧 SQL/ACK 与整轮 closer 的真实 join、停止/强制取消/pending、late probe/factory、部分获取和 cleanup 错误/panic、完整错误树恢复门槛、并发重复关闭、构造无 I/O、禁止重启及日志脱敏。
+
+首轮单次专项通过后，30 轮压力测试实际发现停止通知与控制 context 取消之间的竞态：owner 可能把正常 drain 当成异常退役。修正为同一停止边界下取消和发布通知，并由 owner 读取受锁保护的停止状态。之后 30 轮通过；扩大退避封顶覆盖后最终 30 轮继续通过。自审同时确保清理耗时不重置连续失败退避，终止状态不被晚 Close 覆盖。
+
+独立 Docker suite 的 4 个实际场景：
+
+1. 两个真实消费者激活后，仅停止本轮 MySQL；等待至少两次恢复失败，旧组释放且 factory 次数仍为 1。MQ 接受四个业务身份各两个物理发布，先观察积压 8，再启动 MySQL；相同 sql.DB 上新一轮两连接自动处理至 broker 0，每个身份只有一份 message/终态/两个事件。
+2. 实际 COMMIT 成功后 integration driver 一次性返回 EOF，触发提交未知；旧轮次退役、抖动等待并自动恢复，新投递 replay 规范终态，两个事务调用而非两个成功业务写入。该项是 driver 返回结果注入，不是 TCP 丢包。
+3. 本轮 schema 增加临时 CHECK，产生实际 MySQL 3819；一笔事务即终止监督器，不自动换轮。删除测试约束后，用新 session 核对原 publishAttempt 的 redelivered 并完整处理，未丢原消息。
+4. 初始数据库离线时 Start 进入受管 backoff，零消费者获取；MQ 接受一条命令后关闭监督器。数据库恢复后旧监督器仍 stopped，原 publishAttempt 仍是未被领取过的首次投递，显式新处理器恢复它。
+
+所有场景最终核对每会话消息数、最大 seq 和 last_seq 无洞，并证明监督器关闭后共享 SQL 可用。容器重启可改变随机宿主端口，只有测试 connector 更新连接地址；监督器全程持有同一个 pool，不把该测试适配冒充生产数据库切换能力。
+
+| 检查 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./workers -run '^TestPersistenceSupervisor' -count=30 -timeout=90s` | 最终 30 轮通过，3.964s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，无 race；主包 11.197s、application 2.882s、rabbitmq 6.924s、workers 1.958s |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过；不代表执行全部集成测试 |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceSupervisorIntegration$' -count=1 -v -timeout=9m` | 最终 4 场景通过，无 fail/skip，suite 62.32s/包 65.032s |
+
+固定 Go 1.27.1，清空 GOROOT，使用仓库 .gocache 和不存在的 ICHAT_CONFIG_FILE。首轮 Docker 命令因 Desktop Linux 引擎未运行而失败，runId `fad4c42ddbc4dae327a65d43aa6e3401`，夹具未创建；后台启动已安装的 Docker Desktop 后重跑。第一次实际四场景 runId `706162e905320c53fae9937904bf158b`，suite 63.90s/包 66.666s 通过；将测试辅助恢复探测降为 200ms 并移除多余 restart 后，最终 runId `87b181fe95cd698b650ae781d6be80e1` 如上通过。实际 RabbitMQ 4.3.6 / amqp091-go v1.15.0，数据库 EOF 日志对应明确停库/恢复窗口，非性能基线。
+
+全部 fixture Close 成功；按三个 runId 只读核对容器/卷/网络均为 0。Docker 启动、测试和资源查询获自动审批，无审批拒绝；未读开发 .env/config、修改共享数据或运行默认 main。
+
+### 下一项
+
+**P4.2.2.2：生产消费者连接替换与运行时接线**。当前 NewPersistenceFactory 仍构造单次服务，MQResources/聚合 readiness 仍引用初始 session；下一项必须提供可替换连接所有权、只读拓扑核验和部分失败清理，再接入监督器。group Close 必须真实 join，不能把仅表示退役的 Done 或有界观察超时当作清理完成。P4.2.2.3 随后验证运行时交叉退出及共享 SQL 最终释放；隔离/Outbox 未齐备前默认 worker/all 门禁继续保留。
+
+建议 commit message：`feat(worker): supervise persistence recovery after database outages`

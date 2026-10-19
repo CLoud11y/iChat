@@ -27,7 +27,7 @@ StopAdmission 与处理器之间有本地准入锁。停止前已准入的任务
 
 任一处理错误、传输终止、存储探测失败、探测状态过期或受控任务 panic，都让整个持久化组停止领取。取消各方 poll/probe，保留已准入任务在各自处理预算内完成的机会，随后自动关闭已经打开的订阅。错误保留原始 errors.Is/As 原因，常用格式仅显示固定阶段，不打印 SQL、正文或 panic 内容。
 
-P4.1.2 的停止策略仍用于最终处理错误；后续 [P4.2.1](mq-persistence-retry.md)已让 handler 在同一处理期限内有限重试明确事务冲突，可通过 PersistenceOptions.Retry 配置。它不立即 requeue、重开 session 或主动隔离，失败/耗尽后的存储恢复不会让旧实例重新 ready。自动暂停/退避/恢复及隔离仍归后续 P4，不能把当前停止策略称为 circuit breaker。
+P4.1.2 的停止策略仍用于每轮最终处理错误；后续 [P4.2.1](mq-persistence-retry.md)已让 handler 在同一处理期限内有限重试明确事务冲突，可通过 PersistenceOptions.Retry 配置。它不立即 requeue、重开 session 或主动隔离，失败/耗尽后的存储恢复不会让旧实例重新 ready。[P4.2.2.1](mq-persistence-supervisor.md)在此之外提供独立监督器来准备新轮次，本文单次服务本身仍不自动恢复或隔离。
 
 ## 退出与资源归属
 
@@ -79,4 +79,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersist
 
 没有运行默认业务 main、切换模式、投递宿主 OS 信号或启用真实隔离/Outbox。P4.1.1 的强杀证据与本轮受控退出/ACK 丢帧证据均保留各自边界；未实现三节点、实际客户端和完整端到端恢复。
 
-[P4.2.1 分类与本地重试](mq-persistence-retry.md)已完成。下一项为 **P4.2.2：数据库故障暂停、退避、恢复及消费者监督**；可靠隔离/审计继续分步推进，默认后台角色门禁保持。
+[P4.2.1 分类与本地重试](mq-persistence-retry.md)及 [P4.2.2.1 独立持久化监督器](mq-persistence-supervisor.md)已完成。本文的 PersistenceService 仍是每轮不可重启的子服务；默认工厂尚未使用监督器。下一项 **P4.2.2.2：生产消费者连接替换与运行时接线**，随后验证监督恢复的运行时退出；可靠隔离/审计继续分步推进，默认后台角色门禁保持。
