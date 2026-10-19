@@ -79,4 +79,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersist
 
 没有运行默认业务 main、切换模式、投递宿主 OS 信号或启用真实隔离/Outbox。P4.1.1 的强杀证据与本轮受控退出/ACK 丢帧证据均保留各自边界；未实现三节点、实际客户端和完整端到端恢复。
 
-[P4.2.1 分类与本地重试](mq-persistence-retry.md)及 [P4.2.2.1 独立持久化监督器](mq-persistence-supervisor.md)已完成。本文的 PersistenceService 仍是每轮不可重启的子服务；默认工厂尚未使用监督器。下一项 **P4.2.2.2：生产消费者连接替换与运行时接线**，随后验证监督恢复的运行时退出；可靠隔离/审计继续分步推进，默认后台角色门禁保持。
+[P4.2.1 分类与本地重试](mq-persistence-retry.md)、[P4.2.2.1 独立监督器](mq-persistence-supervisor.md)及 [P4.2.2.2 运行时连接替换](mq-persistence-connections.md)已完成。本文的 PersistenceService 仍是每轮不可重启的子服务；显式 NewSupervisedPersistenceFactory 使用监督器和当前轮次健康，原 NewPersistenceFactory 保留单轮行为。下一项 **P4.2.2.3：监督恢复的运行时退出验收**；可靠隔离/审计继续分步推进，默认后台角色门禁保持。

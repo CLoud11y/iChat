@@ -120,6 +120,33 @@ func (s *ConsumerSession) Verify(ctx context.Context) error {
 // Done signals stopped admission. Close also waits for owned active checks.
 func (s *ConsumerSession) Done() <-chan struct{} { return s.owner.done }
 
+// WaitClosed joins the close owner and every admitted transport call. Done only
+// signals retirement. Call Close first; a timeout here is an observer timeout,
+// not permission to discard the session or start a replacement.
+func (s *ConsumerSession) WaitClosed(ctx context.Context) error {
+	if s == nil || s.owner == nil || ctx == nil {
+		return ErrConsumerConfig
+	}
+	wait := func(done <-chan struct{}) error {
+		select {
+		case <-done:
+			return nil
+		default:
+		}
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if err := wait(s.owner.closeDone); err != nil {
+		return err
+	}
+	// Admission is permanently closed now. Only now is the idle snapshot final.
+	return wait(s.owner.quiescent())
+}
+
 func (s *ConsumerSession) Close(ctx context.Context) error {
 	if s == nil {
 		return nil

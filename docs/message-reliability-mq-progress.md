@@ -2712,3 +2712,57 @@ P4.2.1 范围完成。下一项：**P4.2.2：数据库故障暂停、退避、�
 **P4.2.2.2：生产消费者连接替换与运行时接线**。当前 NewPersistenceFactory 仍构造单次服务，MQResources/聚合 readiness 仍引用初始 session；下一项必须提供可替换连接所有权、只读拓扑核验和部分失败清理，再接入监督器。group Close 必须真实 join，不能把仅表示退役的 Done 或有界观察超时当作清理完成。P4.2.2.3 随后验证运行时交叉退出及共享 SQL 最终释放；隔离/Outbox 未齐备前默认 worker/all 门禁继续保留。
 
 建议 commit message：`feat(worker): supervise persistence recovery after database outages`
+
+## P4.2.2.2：生产消费者连接替换与运行时接线（2026-10-19）
+
+### 实现与边界
+
+- 新增显式 `application.NewSupervisedPersistenceFactory(sharedPool, options)`，接入真实 PersistenceSupervisor；原 NewPersistenceFactory 保留单轮行为。工厂构造及 idle claim 不做 SQL/MQ I/O，不创建后台任务，不关闭共享 SQL。
+- PrepareMQ 保持初始连接准备/核验行为，成功后保存受控持久化连接来源；runtimeRoleInputs 仅向持久化角色传递 PersistenceConsumers。一个来源只可 claim 一次，在 MQ 资源锁下转移初始持久化 session 的清理条目，publisher/隔离归属保持。默认进程后台工厂、legacy、YAML/env、依赖及迁移未切换；隔离/Outbox 缺失门禁保持。
+- 首次借用复核初始连接的拓扑，后续按同一已验证配置新建各 worker 独立连接，再逐项 Verify；共用 setup deadline，不按连接延长。任一步失败保留部分 group，包括 handle+error、迟到 handle；typed nil、重复连接或缺少真实 join 能力拒绝。
+- 新增 ConsumerSession.WaitClosed：Close owner 完成后才取得最终 idle 快照，等待已准入传输调用。group Close 一次并发 Close/WaitClosed 所有连接，真实返回后才移除活动组；来源 Close 是同一清理 owner 的有界观察，observer 超时不丢弃获取/关闭任务或允许下一轮。
+- 清理错误/panic 保留并阻止替换，关闭调用失败后仍执行 join；来源最终关闭继续报告已退役组的清理错误。group/source 常用错误格式只显示固定阶段，errors.Is/As 保留原原因。直接来源观察也不回显私有 child cause。
+- MQResources.Consumers 与 runtimeHealth 在 claim 后读取当前完整组及原隔离连接；暂停/部分准备/退役均不可 ready，旧 RoleDependencies.Consumers 只作为构造快照，不再参与后续连接判定。健康读取不做 I/O，子服务 SQL/订阅新鲜度和 runtime 停止门禁继续生效。
+- 增加受控连接准备错误边界，允许连接/拓扑暂时不可用、明确订阅退役/receive unavailable、尚未准入 delivery 的已知订阅 setup 失败退避换轮。处理/ACK/约束/畸形/未知并列分支仍否决恢复，不重新发布、Reject/requeue 或重试 ACK。停止引起的纯连接准备取消不误报为运行故障。
+- 新增 [运行时连接来源说明](mq-persistence-connections.md)，同步主清单、README、监督/生命周期/重试、角色装配、MQ 资源、消费者 session、聚合健康、测试入口与 P3 验收的后续边界。初始 broker 离线仍使 PrepareMQ 失败；本项不增加离线启动或消费者周期 MQ 拓扑巡检。
+
+### 默认验证与自审
+
+默认专项覆盖角色隔离、单一纯 claim、idle 工厂及缺失角色门禁、初始复核/后续全新连接、当前快照与聚合就绪、部分失败/typed nil/重复连接、所有步骤共用期限、迟到 factory、关闭 observer 超时与真正 join、清理错误保留/脱敏、连接阶段与处理/ACK 的完整错误树，以及纯 setup 取消和禁止旧轮次复活。
+
+自审补上三项边界：WaitClosed 不能在等待 closeDone 之前缓存 idle；纯连接准备取消不能被当成 graceful shutdown 的新错误；清理错误不能因 active 已清空而被最终 MQ Close 隐藏。group 与 source 的直接错误格式也独立验证不打印底层凭证，保持 errors.Is 诊断。
+
+### 实际 MySQL/RabbitMQ 验证
+
+`TestPersistenceConnectionsIntegration` 使用生产 NewSupervisedPersistenceFactory → RunRuntime 和独立 fixture，隔离/Outbox 为明确测试占位角色。四场景：
+
+1. 实际停启本轮 MySQL，暂停期间 runtime 保持运行，三身份各两个 MQ 发布先形成积压 6，且监督器仍为第一轮；恢复后自动使用第二轮连接消费至 0。初始 session 均已退役，聚合 ready 恢复，隔离仍为原连接，关闭后共享 SQL 可 Ping。
+2. 主动关闭一个空闲消费 session，旧持久化组整体退出后新建；原 Done 持续关闭，当前健康及真实业务处理恢复，隔离不重建。
+3. SQL 暂停后接受一条命令，删除本轮主队列绑定；SQL 恢复后至少两次替换尝试均拒绝漂移，不修复绑定、不消费积压、不结束 runtime。人工恢复本轮绑定后恢复处理。
+4. 专属 loopback 代理保留初始两主一隔离连接，下一轮只放通首个连接，实际黑洞后续 AMQP 握手。管理 API 先观察到部分连接，下一轮前确认回到仅隔离连接的基线；解除故障后全组恢复并处理真实消息。
+
+每个场景都等待独立 SQL 可见性，在 runtime 退出 join 后直接 RPC 检查队列为空，连接回到 fixture 两个控制/publisher owner 基线；最终核对 message/规范终态/两个 Outbox 唯一及每会话消息数=最大 seq=last_seq。测试 SQL connector 仅更新容器重启后的随机宿主端口，生产 pool 归属保持。
+
+首轮 `fc1100b30414c7ed22c15b1af42d1e3e` 因首个管理采样未显示两个已知连接而在场景前失败；改为等待基线。第二轮 `1f726815a611fcd4a5d47f6fb231281a` 的停库/聚合恢复已通过，但健康消费后的旧队列零统计使测试过早检查 SQL，第二场景断言为 0/0/0；补上真实事务可见性等待及退出后直接 broker 检查。这两次不计为完整通过。
+
+随后 `a8bfe5e89c4f47af789aed5fe8b632ab` 四场景全部通过，suite 89.94s/包 92.802s。最终生产连接 suite `0e3bfccd3e427d99f00d9c192bf7bbcf` 四场景全部通过，suite 89.93s；同轮回归原单轮工厂 lifecycle suite `ce73aad812236947198b287cf7190432` 六场景全部通过，suite 42.63s；两 suite 共 10 场景、包 135.352s，无 fail/skip。
+
+主要检查：
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./application ./workers ./messaging/rabbitmq -run 'Test(PersistenceConsumerSource\|SupervisedPersistence\|Persistence(Connection\|Supervisor)\|ConsumerWaitClosed)' -count=30 -timeout=90s` | 30 轮专项通过，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表执行全部集成测试 |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistence(Connections\|Lifecycle)Integration$' -count=1 -v -timeout=12m` | 最终 10 个实际场景通过，135.352s |
+
+固定 Go 1.27.1，GOROOT 清空，仓库 .gocache 和不存在的 ICHAT_CONFIG_FILE；RabbitMQ 4.3.6 / amqp091-go v1.15.0，未升级依赖。上述 SQL EOF 日志对应明确停库/重启窗口，不是性能指标。未读开发 .env/config、操作共享数据、运行默认 main 或提交代码。
+
+全部 fixture Close 成功。按五个 runId 只读核对容器/卷/网络各项均为 0；测试与资源查询通过自动审批，无审批拒绝。
+
+### 下一项
+
+**P4.2.2.3：监督恢复的运行时退出验收**。集中覆盖连接获取/替换、SQL/ACK、探测及 group join 与 drain/强制退出/pending 的交叉故障；明确 RunRuntime 有界观察返回后共享 pool 仍须持有到监督器 Done。P4.2.2 总项继续保持未完成，可靠隔离、审计/重放、Outbox 与完整客户端恢复仍待后续阶段。
+
+建议 commit message：`feat(worker): wire supervised persistence consumer replacement`

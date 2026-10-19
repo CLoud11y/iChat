@@ -47,7 +47,7 @@ ACK 始终调用原 `ConsumerDelivery.Ack`，沿用原 channel/tag、`multiple=f
 | `invalid_terminal_result` | 终态不变量错误，不 ACK |
 | `acknowledgement_failed` | 仓储成功后期限到期、取消或 ACK 错误；保留重投责任 |
 
-P4.1.1 首次范围为一次仓储调用；后续 [P4.2.1](mq-persistence-retry.md)已加入类型化失败分类及明确事务冲突的有界本地重试，仍只 ACK 一次，不做 Next/Reject/重新发布。提交或回滚未知、连接故障、约束/未知错误不做本地事务重试；耗尽仍保留事务冲突类别。调用者遇到最终错误必须停止领取，由原 channel owner 受控关闭并幂等恢复。不能立即 requeue 或把基础设施积压当坏消息。[P4.2.2.1 独立监督器](mq-persistence-supervisor.md)另行管理明确连接故障的暂停与跨轮次恢复，生产运行时接线、可靠隔离和审计仍待后续 P4。
+P4.1.1 首次范围为一次仓储调用；后续 [P4.2.1](mq-persistence-retry.md)已加入类型化失败分类及明确事务冲突的有界本地重试，仍只 ACK 一次，不做 Next/Reject/重新发布。提交或回滚未知、连接故障、约束/未知错误不做本地事务重试；耗尽仍保留事务冲突类别。调用者遇到最终错误必须停止领取，由原 channel owner 受控关闭并幂等恢复。不能立即 requeue 或把基础设施积压当坏消息。[P4.2.2.1 独立监督器](mq-persistence-supervisor.md)及 [P4.2.2.2 运行时来源](mq-persistence-connections.md)另行管理明确连接故障的暂停与跨轮次恢复，可靠隔离和审计仍待后续 P4。
 
 ## 验证
 
@@ -71,4 +71,4 @@ go test -mod=readonly -race -tags=integration ./workers -run '^TestPersistenceCo
 - 坏 JSON 处理失败后关旧 channel，完整 body/自定义 headers 仍可重投；不以 fixture ACK 冒充隔离审计。
 - 全部成功处置后先关闭消费者，再用控制连接检查队列为空；最终核验 last_seq、消息数、最大 seq 一致，无序号洞。
 
-本节 P4.1.1 的子进程直接使用本适配器和真实仓储/消费传输。后续 [P4.1.2](mq-persistence-lifecycle.md)补上角色生命周期和真实 ACK 丢帧与已持久化数据的组合；[P4.2.2.1](mq-persistence-supervisor.md)补上独立监督恢复，生产运行时接线、隔离审计、Outbox 通知、实际客户端及三节点仍待后续阶段。各轮独立证据不能合并称为端到端验收。
+本节 P4.1.1 的子进程直接使用本适配器和真实仓储/消费传输。后续 [P4.1.2](mq-persistence-lifecycle.md)补上角色生命周期和真实 ACK 丢帧与已持久化数据的组合；[P4.2.2.1](mq-persistence-supervisor.md)及 [P4.2.2.2](mq-persistence-connections.md)补上独立监督与生产连接来源，退出交叉故障、隔离审计、Outbox 通知、实际客户端及三节点仍待后续阶段。各轮独立证据不能合并称为端到端验收。

@@ -192,6 +192,11 @@ func runtimeRoleInputs(resources *MQResources, plan config.MQRuntimePlan) (map[R
 			return nil, ErrRuntimeServices
 		}
 		inputs[role] = RoleDependencies{Consumers: matching}
+		if role == RolePersistence {
+			input := inputs[role]
+			input.PersistenceConsumers = resources.persistence
+			inputs[role] = input
+		}
 	}
 	return inputs, nil
 }

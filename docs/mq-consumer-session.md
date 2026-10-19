@@ -41,6 +41,8 @@ err = consumer.Verify(checkCtx) // 显式复核，不会自动周期运行。
 
 连接 owner 复用 P3.4.1 的每次 Write deadline、Read EOF/错误停止 admission、socket 中断实际阻塞 RPC 与有界关闭。没有为阻塞 RPC 另起被请求遗弃的 goroutine。`Close(ctx)` 停止 admission，按自身 close 上限或更短父 deadline 关闭 AMQP connection，随后等待该 owner 自有核验调用退出。重复/并发 Close 遵守首轮结果及各自期限；Done 表示停止 admission，不表示所有客户端任务已经析构。机制及时间边界见 [MQ session](mq-session.md)。
 
+[P4.2.2.2](mq-persistence-connections.md)增加 `WaitClosed(ctx)`：调用 Close 后等待 close owner 及全部已准入传输调用真正退出，不重复关闭、不把超时当作 join。持久化连接来源先调用 Close，再持续持有并等待 WaitClosed，之后才允许新连接组。
+
 错误仅包含 `ErrConsumerConfig`、`ErrConsumerTopology`、`ErrConsumerUnavailable`、`ErrConsumerBusy` 或已有脱敏的 `ErrSessionConnect` / `ErrSessionClose` 与 context 错误；不回传底层 broker 诊断、URL 或密码。关闭缺少响应属于失败/超时，不能报告优雅关闭成功。
 
 ## 验证与后续

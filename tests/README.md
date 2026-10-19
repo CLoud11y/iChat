@@ -2,6 +2,15 @@
 
 P3 的阶段要求、五项接受验收条件、故障矩阵及集中重跑命令见 [MQ 与接受入口验收对照](../docs/mq-reliability-acceptance.md)。集中回归包含 13 个 MQ/API suite；fixture 手动 ACK 不代表业务事务提交后 ACK，后者仍归 P4。
 
+P4.2.2.2 生产连接替换与运行时接线：
+
+```powershell
+go test -mod=readonly -race ./application ./workers ./messaging/rabbitmq -run 'Test(PersistenceConsumerSource|SupervisedPersistence|Persistence(Connection|Supervisor)|ConsumerWaitClosed)' -count=30 -timeout=90s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistence(Connections|Lifecycle)Integration$' -count=1 -v -timeout=12m
+```
+
+新实际 suite 使用生产 NewSupervisedPersistenceFactory → RunRuntime，验证停库恢复后的当前轮次健康、空闲连接退役、缺失绑定期间不修复/消费，以及实际后续 AMQP 握手黑洞的部分连接清理。每轮退出直接检查队列，并等待连接返回独立 fixture 基线；旧单轮工厂生命周期 suite 同轮回归。隔离/Outbox 仍为测试占位，默认门禁保持，见 [连接来源与退出归属](../docs/mq-persistence-connections.md)。
+
 P4.2.2.1 独立持久化监督器：
 
 ```powershell
@@ -9,7 +18,7 @@ go test -mod=readonly -race ./workers -run '^TestPersistenceSupervisor' -count=3
 go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceSupervisorIntegration$' -count=1 -v -timeout=9m
 ```
 
-默认测试覆盖串行轮次、数据库离线退避、旧工作/资源真实 join、停止期间晚回调、部分启动/清理失败和完整错误树恢复门槛。实际 fixture 验证停库积压与两连接自动恢复、真实 COMMIT 后结果错误的幂等重投、CHECK 技术错误终止及初始离线时关闭后不复活；最后核对唯一业务集合与连续 seq。资源来源是明确的测试适配，生产 MQResources/聚合就绪接线仍为 P4.2.2.2，详见 [持久化监督器](../docs/mq-persistence-supervisor.md)。
+默认测试覆盖串行轮次、数据库离线退避、旧工作/资源真实 join、停止期间晚回调、部分启动/清理失败和完整错误树恢复门槛。实际 fixture 验证停库积压与两连接自动恢复、真实 COMMIT 后结果错误的幂等重投、CHECK 技术错误终止及初始离线时关闭后不复活；最后核对唯一业务集合与连续 seq。此 suite 的资源来源是明确测试适配，生产 MQResources/聚合就绪另由上方 P4.2.2.2 suite 验证，详见 [持久化监督器](../docs/mq-persistence-supervisor.md)。
 
 P4.2.1 消费失败分类与有界本地重试：
 

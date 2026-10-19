@@ -76,11 +76,12 @@ type MQResources struct {
 	owned     []mqCloser
 	cancel    context.CancelFunc
 
-	mu      sync.Mutex
-	stopped bool
-	closing bool
-	closed  bool
-	attempt *mqCloseAttempt
+	mu          sync.Mutex
+	stopped     bool
+	closing     bool
+	closed      bool
+	attempt     *mqCloseAttempt
+	persistence *PersistenceConsumerSource
 }
 
 type mqCloseAttempt struct {
@@ -108,7 +109,8 @@ func (r *MQResources) Consumers() []PreparedConsumer {
 	if r.stopped {
 		return nil
 	}
-	return append([]PreparedConsumer(nil), r.consumers...)
+	consumers, _ := r.consumerSnapshotLocked()
+	return consumers
 }
 
 type mqFactories struct {
@@ -203,6 +205,11 @@ func prepareMQ(ctx context.Context, c config.Config, o MQOptions, f mqFactories)
 				return nil, &mqFailure{kind: ErrMQPrepare, stage: fmt.Sprintf("consumer %s #%d", group.Queue, i+1), cause: e}
 			}
 			r.consumers = append(r.consumers, PreparedConsumer{Queue: group.Queue, Prefetch: group.Settings.Prefetch, Session: s})
+		}
+	}
+	for _, group := range plan.Consumers {
+		if group.Queue == rabbitmq.PersistQueue {
+			r.persistence = newPersistenceConsumerSource(r, group.Settings, f.consumer, lifetime)
 		}
 	}
 	return r, nil

@@ -1,6 +1,6 @@
 # 接受就绪汇总与健康接口（P3.5.4.2）
 
-[P4.1.2 持久化服务](mq-persistence-lifecycle.md)已实现具体 ConsumerReady：本地订阅/准入/lifetime 加真实 SQL 探测的新鲜度；处理、探测或传输失败会停止整个持久化组，不自动恢复。实际 RunRuntime 集成证明该角色的退出撤销就绪及事务/ACK drain；隔离/Outbox 仍是明确的测试占位服务，不代表完整生产 worker 已装配。
+[P4.1.2 持久化服务](mq-persistence-lifecycle.md)已实现具体 ConsumerReady：本地订阅/准入/lifetime 加真实 SQL 探测的新鲜度。后续 [P4.2.2.2](mq-persistence-connections.md)的显式监督工厂通过生产连接来源管理恢复，聚合健康改读当前轮次，旧 session 的 Done 不再阻止新轮次 ready；旧单轮工厂保持停止策略。隔离/Outbox 在集成中仍是明确测试占位服务，不代表完整生产 worker 已装配。
 
 RunRuntime 现在为每次现代运行实例创建一个只读 Health capability，通过 RoleDependencies.Health 传给选中的服务工厂。它组合运行阶段、业务能力和当前 MQ 状态，不把 Start 成功或一个可连接的 publisher 当作业务接受就绪。
 
@@ -11,11 +11,11 @@ P3.6.2 已装配[生产 API 与 Redis GET 鉴权监控](api-runtime-lifecycle.md
 | 观察 | 必要条件 | 不作为该观察的条件 |
 | --- | --- | --- |
 | Acceptance | api/all 模式；全部选中服务成功激活；API 显式 RuntimeAcceptance 能力；AcceptanceReady 与 AuthenticationReady 为真；publisher State=ready、Ready=true 且 epoch 非零；运行未退出 | MySQL 在线、本地消费者在线或远程 worker 的状态 |
-| Consumers | worker/all 模式；全部选中服务成功激活；每个已准备消费者连接 Done 非 nil 且未关闭；持久化/隔离角色显式 ConsumerReady 为真；运行未退出 | publisher 或 API 鉴权是否在线 |
+| Consumers | worker/all 模式；全部选中服务成功激活；当前连接组完整且每个 session 的 Done 非 nil/未关闭；持久化/隔离角色显式 ConsumerReady 为真；运行未退出 | publisher 或 API 鉴权是否在线 |
 
 RuntimeAcceptance 的 AcceptanceReady 必须表示新的确认式接受 handler 已装配且仍接单；AuthenticationReady 必须包括 Redis 鉴权依赖的有时效缓存状态，不能只表示 JWT key 已配置。生产 API 已实现这些能力及实际 handler。缺少接口、方法返回 false 都保持未就绪。
 
-RuntimeConsumerReadiness.ConsumerReady 必须包含本角色已激活订阅、业务准入和存储可用性。准备阶段的空闲 ConsumerSession 不足以证明业务消费就绪；缺少接口或任一连接关闭均不可 ready。消费者重连/暂停/周期核验仍由 P4 的业务角色实现，健康请求不会调用 Verify、OpenConsumer 或 ACK。
+RuntimeConsumerReadiness.ConsumerReady 必须包含本角色已激活订阅、业务准入和存储可用性。准备阶段的空闲 ConsumerSession 不足以证明业务消费就绪；缺少接口或当前任一连接关闭均不可 ready。持久化重连/暂停由具体监督器负责；当前仅在准备/替换时核验 MQ 拓扑，健康请求不会调用 Verify、OpenConsumer 或 ACK。
 
 任一选中服务 Done 关闭会触发整个 RunRuntime 退出，因此健康观察先报告服务不可用，随后变为 stopping。本地消费者连接关闭而服务仍在恢复时，只影响 Consumers；MySQL 故障时命令仍可由 MQ 接受，不因等待落库而撤销接受能力。是否能返回某次 accepted 仍必须由该次 publish 的完整 confirm/return 判定决定。
 

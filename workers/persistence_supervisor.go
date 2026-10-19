@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"iChat/database"
+	"iChat/messaging/rabbitmq"
 	"sync"
 	"time"
 )
@@ -479,7 +480,27 @@ func persistenceRecoveryAllowed(err error) bool {
 		if current == database.ErrCommandCommitUnknown || current == database.ErrCommandRollbackUnknown {
 			return true
 		}
+		if connection, ok := current.(*persistenceConnectionFailure); ok && connection != nil {
+			evidence = connection.cause != nil || evidence
+			return connection.cause != nil
+		}
 		if wrapper, ok := current.(*persistenceServiceFailure); ok {
+			if wrapper.kind == ErrPersistenceServiceStart && wrapper.stage == "subscription" {
+				switch wrapper.cause {
+				case nil, rabbitmq.ErrConsumerUnavailable, rabbitmq.ErrConsumerChannelSetup, context.DeadlineExceeded:
+					evidence = true
+					return true // No delivery loops start until every subscription opens.
+				}
+				return false
+			}
+			if wrapper.kind == ErrPersistenceServiceStopped && wrapper.stage == "subscription closed" && wrapper.cause == nil {
+				evidence = true
+				return true
+			}
+			if wrapper.kind == ErrPersistenceServiceStopped && wrapper.stage == "receive" && wrapper.cause == rabbitmq.ErrConsumerUnavailable {
+				evidence = true
+				return true
+			}
 			if wrapper.stage != "storage" && wrapper.stage != "process" {
 				return false
 			}
@@ -525,6 +546,9 @@ func supervisorCancellationOnly(err error) bool {
 	}
 	if err == context.Canceled || err == context.DeadlineExceeded {
 		return true
+	}
+	if connection, ok := err.(*persistenceConnectionFailure); ok && connection != nil {
+		return supervisorCancellationOnly(connection.cause)
 	}
 	if wrapper, ok := err.(*persistenceServiceFailure); ok {
 		return wrapper.stage == "storage" && supervisorCancellationOnly(wrapper.cause)

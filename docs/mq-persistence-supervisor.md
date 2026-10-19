@@ -2,7 +2,7 @@
 
 `workers.PersistenceSupervisor` 在单次 `PersistenceService` 之外串行管理消费轮次。数据库连接故障后，旧服务停止领取，已准入事务/ACK 完整返回，旧订阅及整轮资源释放调用结束，再退避探测；存储恢复后才获取新消费者。原投递通过 broker 重投和 P2 幂等事务恢复，没有应用内 republish、Reject/requeue 或 ACK 重试。
 
-本项提供独立、显式注入资源来源的监督器。`application.NewPersistenceFactory`、MQResources 和聚合健康仍使用原先单次服务及初始 session，尚未接入监督器；不能只替换工厂而保留旧就绪引用。P4.2.2.2 负责生产连接来源、拓扑/部分失败清理和运行时接线，P4.2.2.3 验证运行时交叉退出。默认 worker/all 缺失隔离与 Outbox 角色的门禁保持。
+本项提供独立、显式注入资源来源的监督器。后续 [P4.2.2.2](mq-persistence-connections.md)已通过 `application.NewSupervisedPersistenceFactory` 接入生产连接来源、拓扑/部分失败清理和当前轮次聚合健康；原 NewPersistenceFactory 仍提供单次服务。下一项 P4.2.2.3 验证运行时交叉退出。默认 worker/all 缺失隔离与 Outbox 角色的门禁保持。
 
 ## 构造、状态与恢复
 
@@ -28,13 +28,13 @@ Status/ConsumerReady 只读本地状态及当前子服务，均不做 I/O。Gene
 
 恢复检查完整错误树，所有有效分支都必须是可识别的基础设施错误，并至少有一份连接故障证据。`storage` 探测自身的 DeadlineExceeded 可进入恢复；处理阶段取消/期限耗尽不凭超时推定数据库故障。
 
-提交/回滚未知只有在其底层也完全是连接故障时才自动换轮，由新投递判定已有终态。单独的未知标记、混合技术/未知分支、畸形信封、终态校验失败、事务重试耗尽、ACK 失败和订阅终止均终止监督器。当前小项没有自动处理所有 AMQP 故障，也没有可靠隔离能力。数据库故障不被当成业务拒绝或技术坏消息，任何恢复分支都不授权 ACK/隔离。
+提交/回滚未知只有在其底层也完全是连接故障时才自动换轮，由新投递判定已有终态。单独的未知标记、混合技术/未知分支、畸形信封、终态校验失败、事务重试耗尽和 ACK 失败仍终止监督器。P4.2.2.1 原先将订阅终止留为终止错误；后续 [P4.2.2.2](mq-persistence-connections.md)已允许明确 transport 退役、尚未准入 delivery 的已知订阅 setup 失败，以及受控连接/拓扑准备错误换轮，错误树中的处理/ACK/未知并列分支仍会否决恢复。数据库故障不被当成业务拒绝或技术坏消息，任何恢复分支都不授权 ACK/隔离。
 
 ## 每轮资源与退出责任
 
 factory 返回 `PersistenceConsumerGroup`，必须提供新鲜、已核验拓扑的独立 session；获取部分资源后失败也要返回 group+error。`Consumers` 返回本轮输入，`Close` 负责所有 session，包括尚未打开订阅的连接。服务先 join 并关闭已打开的订阅，随后 group Close 补齐整轮清理，底层 session Close 须幂等。
 
-group.Close 仅调用一次，必须等其自有释放工作结束后返回；这属于注入方契约，不能拿仅表示退役/停止准入的 session.Done 充当清理 join。group Close 返回错误或 panic 均使监督器终止，禁止继续换轮。现有 MQResources 的有界观察接口不能未经适配直接当成该契约，生产实现留给 P4.2.2.2。
+group.Close 仅调用一次，必须等其自有释放工作结束后返回；这属于注入方契约，不能拿仅表示退役/停止准入的 session.Done 充当清理 join。group Close 返回错误或 panic 均使监督器终止，禁止继续换轮。[P4.2.2.2](mq-persistence-connections.md)已提供生产适配：group Close 真正 join session Close/WaitClosed，资源来源 Close 则是该清理 owner 的有界观察接口。
 
 StopAdmission 同步撤销就绪、取消 setup/等待/探测并停止子服务领取，保留已准入 work context。Drain 等当前激活回调与 SQL/ACK 工作实际返回，健康退出时保留订阅直到 Close。Close 取消剩余工作并观察最终清理。observer 期限耗尽返回 `ErrPersistenceSupervisorPending`，不会释放共享 SQL 或宣布 Done；忽略 context 的 factory、probe、SQL 和 closer 仍由原 owner 持有，真实返回后才完成退出。停止恰逢退役或 backoff 时也不会准备下一轮。
 

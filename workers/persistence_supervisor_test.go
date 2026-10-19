@@ -319,7 +319,6 @@ func TestPersistenceSupervisorTerminalFailuresNeverReconnect(t *testing.T) {
 		"ack":         &PersistenceError{Kind: AcknowledgementFailed, cause: io.EOF},
 		"unknown":     errors.New("private raw payload"),
 		"mixed":       errors.Join(io.EOF, &PersistenceError{Kind: InvalidDelivery}),
-		"transport":   persistenceServiceError(ErrPersistenceServiceStopped, "subscription closed", nil),
 		"commit_only": database.ErrCommandCommitUnknown,
 	} {
 		t.Run(name, func(t *testing.T) {

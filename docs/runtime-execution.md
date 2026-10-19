@@ -1,6 +1,6 @@
 # 受控服务构造、激活与退出（P3.5.3.3.2.2）
 
-后续 [P4.1.2 持久化生命周期](mq-persistence-lifecycle.md)已以真实工厂/SQL/ACK 验证本执行器的 drain 顺序。共享 SQL 仍属外部 owner，服务 Close 返回 pending 时必须等其 Done 后释放；默认后台装配、自动恢复及隔离/Outbox 尚未完成。
+后续 [P4.1.2 持久化生命周期](mq-persistence-lifecycle.md)已以真实工厂/SQL/ACK 验证本执行器的 drain 顺序；[P4.2.2.2](mq-persistence-connections.md)通过显式监督工厂接入生产连接替换和当前轮次就绪。共享 SQL 仍属外部 owner，服务 Close 返回 pending 时必须等其 Done 后释放；默认后台装配及隔离/Outbox 尚未完成。
 
 `application.RunRuntime(ctx, conf, factories, options)` 提供现代角色的阻塞式执行器：先检查全部必需构造器，再准备 MQ、构造全部服务、验证实例集合，最后激活。运行中等待进程 context 取消或服务意外退出；返回之前负责服务及 MQ 的有界清理。
 

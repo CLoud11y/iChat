@@ -95,10 +95,11 @@ func (h *runtimeHealth) RuntimeReadiness() health.RuntimeStatus {
 	}
 	var publisher MQPublisher
 	var consumers []PreparedConsumer
+	consumerResourcesReady := false
 	if resources != nil {
 		resources.mu.Lock()
 		publisher = resources.publisher
-		consumers = append([]PreparedConsumer(nil), resources.consumers...)
+		consumers, consumerResourcesReady = resources.consumerSnapshotLocked()
 		stopped = resources.stopped
 		resources.mu.Unlock()
 	}
@@ -130,7 +131,7 @@ func (h *runtimeHealth) RuntimeReadiness() health.RuntimeStatus {
 	}
 	if hasConsumers {
 		status.Consumers = health.Ready
-		if len(consumers) == 0 {
+		if len(consumers) == 0 || !consumerResourcesReady {
 			status.Consumers = health.ConsumerUnavailable
 		}
 		for _, consumer := range consumers {

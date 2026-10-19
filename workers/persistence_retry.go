@@ -54,6 +54,10 @@ func ClassifyPersistenceFailure(err error) PersistenceFailureClass {
 		if current == nil || current == ErrPersistenceRetriesExhausted {
 			return
 		}
+		if connection, ok := current.(*persistenceConnectionFailure); ok && connection != nil {
+			infrastructure = true
+			return
+		}
 		if service, ok := current.(*persistenceServiceFailure); ok && service != nil {
 			// Lifecycle tags describe where the failure was observed; they are
 			// not additional SQL evidence that changes a delivery's classification.

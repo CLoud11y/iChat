@@ -1,5 +1,7 @@
 # 按角色准备 MQ 连接与失败清理（P3.5.3.2.2）
 
+后续 [P4.2.2.2 持久化连接来源](mq-persistence-connections.md)已加入单一 claim 的可替换资源 owner。原单轮使用保持本页初始连接行为；显式监督工厂 claim 后，MQResources 的持久化清理条目转交来源，Consumers/聚合健康读取当前轮次，部分组真实 join 后才允许替换。来源 Close 是有界观察，group Close 则等待实际 session Close/WaitClosed 完成。
+
 `application.PrepareMQ` 将配置计划变成显式持有的 MQ 资源。它从 `config.Config` 重新生成并验证计划，不接收可被任意修改的 MQRuntimePlan。配置错误、缺失必需工厂和已经取消的 setup context 在外部 I/O 前失败。
 
 这仍是独立的依赖准备层。默认 runProcess 已装配 legacy 和显式 api，兼容 bootstrap 仍拒绝现代模式。准备连接本身不代表业务 ready；[生产 API](api-runtime-lifecycle.md)另行管理 handler/鉴权/HTTP，后台业务事务、隔离审计及 Outbox 仍未实现。

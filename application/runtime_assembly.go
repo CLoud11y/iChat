@@ -51,6 +51,9 @@ type RuntimeService interface {
 type RoleDependencies struct {
 	Publisher MQPublisher
 	Consumers []PreparedConsumer
+	// PersistenceConsumers can be claimed once by the supervised persistence
+	// factory. It owns only this role's connections, never publisher/quarantine.
+	PersistenceConsumers *PersistenceConsumerSource
 	// Health is a read-only aggregate. It is never proof of this role's own
 	// readiness; RuntimeAcceptance/RuntimeConsumerReadiness must not consult it.
 	Health health.RuntimeHealth
