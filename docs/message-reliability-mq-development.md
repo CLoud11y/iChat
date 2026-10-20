@@ -784,7 +784,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
   - [ ] P4.2.3 可靠隔离转移：保留原文/headers、稳定 transport identity、目标 confirm 且无 return 后才 ACK 原投递；目标故障/确认未知保留原消息。拆分与协议见 [隔离信封](mq-quarantine-envelope.md)。
     - [x] P4.2.3.1 隔离信封与稳定传输身份：完整原文、带类型 headers、来源元数据、稳定重投/DLX 身份、严格解码及有界输入；纯函数验证，不改变 ACK 或默认装配。
     - [x] P4.2.3.2 隔离目标可靠发布：独立发布通路，持久化/mandatory、有界 I/O、confirm 与 return 合并判定及 unknown 责任；共享确认内核与真实四场景见 [隔离发布](mq-quarantine-publisher.md)。
-    - [ ] P4.2.3.3 消费处置接线：明确失败分类，转移确认且无 return 后才 ACK 原 delivery；失败/取消不丢弃原投递。
+    - [x] P4.2.3.3 消费处置接线：明确失败分类，转移确认且无 return 后才 ACK 原 delivery；失败/取消不丢弃原投递。显式借入 publisher、保守数据约束白名单及真实六场景见 [消费处置](mq-persistence-disposition.md)。
     - [ ] P4.2.3.4 可靠隔离转移故障验收：真实目标不可用/拒绝/确认未知、重复转移、ACK 未知与退出交叉验证；未覆盖边界明确报告。
 - [ ] P4 整体优雅退出和 DB 提交不确定恢复；持久化监督恢复及退出已覆盖，隔离/重放与 Outbox 角色仍待后续验证。
 

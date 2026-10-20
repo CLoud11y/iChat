@@ -26,6 +26,7 @@ const (
 	FailureRollbackUnknown      PersistenceFailureClass = "rollback_unknown"
 	FailureCancelled            PersistenceFailureClass = "cancelled"
 	FailureAcknowledgement      PersistenceFailureClass = "acknowledgement"
+	FailureQuarantine           PersistenceFailureClass = "quarantine"
 	FailureTechnical            PersistenceFailureClass = "technical"
 	FailureUnclassified         PersistenceFailureClass = "unclassified"
 )
@@ -47,7 +48,7 @@ func ClassifyPersistenceFailure(err error) PersistenceFailureClass {
 		return FailureRollbackUnknown
 	}
 	cancelled := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-	var commit, acknowledgement, malformed bool
+	var commit, acknowledgement, quarantine, malformed bool
 	var retryable, infrastructure, technical, unknown bool
 	var visit func(error)
 	visit = func(current error) {
@@ -75,6 +76,9 @@ func ClassifyPersistenceFailure(err error) PersistenceFailureClass {
 				return
 			case AcknowledgementFailed:
 				acknowledgement = true
+				return
+			case QuarantineFailed:
+				quarantine = true
 				return
 			case InvalidDelivery:
 				malformed = true
@@ -135,6 +139,8 @@ func ClassifyPersistenceFailure(err error) PersistenceFailureClass {
 		return FailureCommitUnknown
 	case acknowledgement:
 		return FailureAcknowledgement
+	case quarantine:
+		return FailureQuarantine
 	case cancelled:
 		return FailureCancelled
 	case infrastructure:

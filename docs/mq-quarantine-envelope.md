@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | P4.2.3.1 | 原文、带类型 headers、来源属性与稳定 transport identity；纯函数往返与边界验收 | 已完成 |
 | P4.2.3.2 | 独立隔离 publisher；持久、mandatory、有界 I/O；confirm 与 return 合并判定，失败/未知不得视为转移成功 | 已完成，见[隔离发布](mq-quarantine-publisher.md) |
-| P4.2.3.3 | 消费失败分类与转移接线；仅目标确认且无 return 后调用原 delivery 单条 ACK；取消/失败保留原责任 | 待实现 |
+| P4.2.3.3 | 消费失败分类与转移接线；仅目标确认且无 return 后调用原 delivery 单条 ACK；取消/失败保留原责任 | 已完成，见[消费处置](mq-persistence-disposition.md) |
 | P4.2.3.4 | 实际 MySQL/RabbitMQ 目标故障、确认丢失、重复转移、ACK 未知及退出交叉验收 | 待实现 |
 
 隔离记录 worker、审计幂等写库、受控 CLI 重放与 Outbox 另属后续任务。默认 worker/all 的缺失角色门禁保留。本项不改变持久化 handler、监督器、主程序装配、broker 拓扑或数据库 migration。

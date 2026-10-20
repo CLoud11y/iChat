@@ -17,11 +17,14 @@
 | `rollback_unknown` | 回滚调用失败，即使原错误是 1205/1213 | 不本地重试，保留原错误与回滚不确定性 |
 | `cancelled` | 处理取消或期限耗尽 | 中止等待，不新增尝试、不 ACK |
 | `acknowledgement` | 仓储成功后 ACK 阶段失败/取消 | 不重发 ACK，不进入事务重试循环 |
+| `quarantine` | P4.2.3.3 的快照、目标发布或回执失败 | 保留源投递，不冒充 SQL 故障触发恢复循环 |
 | `malformed_delivery` | 严格 wire、版本、身份/hash 校验失败 | 零 SQL/ACK，保留原文与 headers |
 | `technical` | 终态不变量、已知 SQL/约束/表结构错误 | 不自动重试，保留诊断和原投递 |
 | `unclassified` | 未知错误号/类型、只有类似死锁文字的错误 | 保守停止，不自动重试或隔离 |
 
 `technical` 也可能表示程序或 schema 故障，不证明某条业务消息是坏消息。**任何类别都不单独授权 ACK、Reject 或隔离**。持续基础设施故障、未知错误及重试耗尽不能被重写为“坏消息已处理”。同一树出现提交/回滚未知时优先保留这些责任；ACK 阶段和取消也不会因带有暂时错误号而被误当事务冲突。
+
+后续 [P4.2.3.3](mq-persistence-disposition.md)提供显式可选处置器：仅直接坏信封边界或完整回滚后的纯数据约束白名单允许转移，仍不从 technical 类别直接推断。目标确认后源 ACK 的失败保留 acknowledgement 阶段；原 handler 的本地事务重试规则不变。
 
 本地重试的白名单依据 MySQL 的事务边界：死锁会回滚整个事务，锁等待超时通常只回滚当前语句，因此处理器必须等 P2 仓储完成整笔事务的回滚后才能重试。[InnoDB 错误处理](https://dev.mysql.com/doc/refman/8.0/en/innodb-error-handling.html)、[服务器错误号](https://dev.mysql.com/doc/mysql-errors/8.0/en/server-error-reference.html)。
 

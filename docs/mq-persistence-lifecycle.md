@@ -2,6 +2,8 @@
 
 `workers.PersistenceService` 在 P4.1.1 单条处理器之上实现受控消费组，并满足 `application.RuntimeService` 和 `RuntimeConsumerReadiness`。`application.NewPersistenceFactory` 可将明确持有的共享 SQL pool 和执行器准备的持久化消费者接入 RunRuntime。
 
+后续 [P4.2.3.3](mq-persistence-disposition.md)允许在 Go options 中显式借入独立 QuarantinePublisher，将目标发布/原 ACK 纳入同一处理与 drain/join 期限；nil 保留本阶段的终态处理路径。监督器及现有工厂透传同一依赖，默认装配门禁保持。
+
 P4.1 的单条处理和生命周期范围完成。默认进程工厂仍只装配 API；隔离审计与 Outbox 尚未实现，worker/all 缺失角色门禁保持，不能把测试占位角色用于生产装配。默认 legacy、YAML/env、迁移和共享开发数据均未切换。
 
 ## 构造与激活

@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P4.2.3.3 消费处置与可靠隔离接线：
+
+```powershell
+go test -mod=readonly -race ./workers ./application -run '^Test(PersistenceDisposition|PersistenceFactory|PersistenceSupervisor)' -count=30 -timeout=90s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceDispositionIntegration$' -count=1 -v -timeout=10m
+```
+
+默认回归覆盖明确失败白名单、目标确认前零 ACK、无效回执、取消/ACK 失败及 pending 下的 publisher 所有权。真实六场景覆盖坏信封后继续处理、真实 SQL 约束回滚、目标 Return、实际 confirm/源 ACK 丢帧和提交未知不隔离。隔离队列的 fixture ACK 不代表审计 SQL，完整运行时交叉故障归下一小点；详见 [消费处置](../docs/mq-persistence-disposition.md)。
+
 P4.2.3.2 隔离目标可靠发布及共用内核回归：
 
 ```powershell

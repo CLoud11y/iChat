@@ -2892,3 +2892,52 @@ fixture Close 成功。首轮引擎未就绪的三个 runId 为 `a38f6e701ee2daf
 **P4.2.3.3：消费处置接线**。根据明确失败分类选择隔离，目标 accepted 且无错误后才尝试原 delivery 单条 ACK；目标失败/未知、取消及源 ACK 未知必须保留对应恢复责任。P4.2.3 总项继续未完成，完整 SQL/MQ 转移交叉故障验收归 P4.2.3.4。
 
 建议 commit message：`feat(mq): add bounded reliable quarantine publishing`
+
+## P4.2.3.3：消费处置与可靠隔离接线（2026-10-20）
+
+### 实现与责任
+
+- 新增 [PersistenceProcessor](mq-persistence-disposition.md)，在原 PersistenceHandler 之外明确返回 terminal/quarantined；原 handler 的业务终态、仓储事务、本地重试与 ACK 契约不变。成功隔离不伪装成空业务 execution。
+- `PersistenceOptions.QuarantinePublisher` 允许显式借入独立目标发布能力，nil 保留原路径，typed nil 拒绝。服务、监督器每轮新组及现有工厂透传同一 options，不新增 YAML/env、默认角色、共享连接或 migration。
+- 仅直接坏信封边界，或原仓储完整回滚后的纯数据约束错误树（1048/1062/1264/1366/1406/1451/1452/3819）自动隔离。数据库离线、提交/回滚未知、事务重试耗尽、schema/syntax、不变量、无效终态、ACK、未知或混合叶子均否决；没有依据错误文字/重投次数扩大范围。
+- 快照构造、目标 publish、完整回执复核与原 handle 单条 ACK 共用原处理 context。只有无错误 accepted、transport ID 匹配及有效 epoch/tag/物理 attempt 才尝试原 ACK；禁止 Reject/requeue 和 ACK 重试。
+- 新增 QuarantineFailed/FailureQuarantine，区分快照、目标及回执责任；不会将目标失败误当数据库断线反复探测/重建源消费者。监督器 fail closed，真实 join 后由外部 owner 修复/替换目标、显式恢复。
+- 目标已确认而源 context 取消/ACK 失败时，processor 返回有效 Transfer、空 Disposition 和原 ACK 阶段错误。普通错误格式隐藏正文、headers、SQL；原失败及目标/ACK 原因仍通过错误展开保留。
+- 正常 drain 保留准入转移，强制退出取消后仍等待 publisher 调用真实返回；observer pending 不释放借入目标连接。外部 owner 必须等服务/监督器 Done 后再 Close publisher/共享 pool。
+
+### 测试与实际故障
+
+默认测试覆盖等待目标确认时零 ACK、完整坏字节与 nested headers、正常终态不隔离、纯/混合约束、坏回执、目标 accepted+error、各阶段取消、ACK 一次、typed nil，以及 transfer 不响应取消时的 drain/强制 join。
+
+首轮真实 suite 的前两项通过，第三项因测试在消费者启动前移除 binding，被既有只读拓扑校验拒绝。调整为先激活监督器、再移除目标 binding 后完整重跑；没有放宽生产校验。首轮 runId `2843228557d96464771aa3c18beca1fa` 的失败不计作通过。
+
+最终 `TestPersistenceDispositionIntegration` 六项全部通过，runId `53d6255a149ad8231996ed620e6050fa`：
+
+1. 同一个单连接顺序 worker 先隔离坏字节/header 原文，再正常持久化后一条有效命令，继续保持就绪；受控关闭后主队列为空，message/终态/两个 Outbox 唯一。
+2. 仅本轮 schema 的临时 CHECK 产生真实 MySQL 3819，验证一笔事务/一次回滚/零提交，无 message、命令占位或 Outbox 残留；完整原 attempt 转入隔离，随后移除测试约束。
+3. 已启动消费者后移除目标 binding，真实 Return 导致监督器 FailureQuarantine，Generation/获取次数均保持一轮，旧组真正关闭；恢复 binding、新目标 session 与显式 processor 读回原 redelivered attempt，确认目标后才 ACK。
+4. 专属代理丢弃实际目标 confirm，旧监督器停止并保留源；目标第一副本仍在队列，显式恢复原 attempt 后出现同一 transport ID/新目标 attempt 的第二副本。
+5. 实际目标确认后由源专属代理丢弃真实消费 ACK；本地 ACK 方法成功不能证明 broker 收到。关闭旧 channel 后原 attempt 重投，再次隔离保持相同 transport ID，物理目标 attempt 不同。
+6. 实际 COMMIT 成功后测试 driver 返回 EOF，原消息不隔离；受控关闭源后原业务 attempt 幂等 replay，规范消息/seq/Outbox 不重复。
+
+COMMIT 场景是实际提交成功后的 driver 返回注入，非 SQL TCP 丢包；目标 confirm 和源 ACK 均为真实网络代理丢帧。隔离队列的读取/ACK 仅为 fixture 观察与清理，不冒充 SQL 审计。最终检查每个 conversation 的 last_seq、消息数与最大 seq 一致。
+
+### 命令与结果
+
+固定 Go 1.27.1，GOROOT 清空，仓库 `.gocache` 和不存在的 ICHAT_CONFIG_FILE。实际 RabbitMQ 4.3.6 / amqp091-go v1.15.0，未读开发 .env/config 或操作共享数据。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./workers ./application -run '^Test(PersistenceDisposition\|PersistenceFactory\|PersistenceSupervisor)' -count=30 -timeout=90s` | 30 轮通过，workers 5.249s、application 1.990s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 10.927s、rabbitmq 8.203s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表执行所有集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceDispositionIntegration$' -count=1 -v -timeout=10m` | 修正测试注入顺序后完整重跑，6 项通过，无 fail/skip；suite 25.49s、包 28.426s |
+
+两个 fixture Close 均成功；按各自项目标签只读核对，容器/卷/网络均为 0。Docker 操作通过自动审批，无审批拒绝。`gofmt -l` 无输出、`git diff --check` 通过，201 个本地 Markdown 链接可解析；没有自动提交。
+
+### 下一项
+
+**P4.2.3.4：可靠隔离转移故障验收**。集中核对 RunRuntime 中的借入目标 owner、源连接替换/故障、取消/退出与目标/ACK 未知的交叉责任，补全尚未覆盖的转移故障矩阵，之后才能收口 P4.2.3。隔离审计 worker、受控 CLI、Outbox、完整客户端恢复和默认 worker/all 装配仍待后续。
+
+建议 commit message：`feat(worker): wire reliable quarantine disposition`

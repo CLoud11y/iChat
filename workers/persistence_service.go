@@ -23,6 +23,8 @@ var (
 type PersistenceOptions struct {
 	PollTimeout, ProcessingTimeout, ProbeInterval, ProbeTimeout, CloseTimeout time.Duration
 	Retry                                                                     PersistenceRetryOptions
+	// Explicit borrowed dependency; nil preserves terminal-only processing.
+	QuarantinePublisher QuarantinePublisher
 }
 
 func DefaultPersistenceOptions() PersistenceOptions {
@@ -31,6 +33,9 @@ func DefaultPersistenceOptions() PersistenceOptions {
 }
 
 func ValidatePersistenceOptions(o PersistenceOptions) error {
+	if o.QuarantinePublisher != nil && nilPersistenceValue(o.QuarantinePublisher) {
+		return ErrPersistenceServiceInput
+	}
 	for _, d := range []time.Duration{o.PollTimeout, o.ProcessingTimeout, o.ProbeInterval, o.ProbeTimeout, o.CloseTimeout} {
 		if d <= 0 || d > time.Minute {
 			return ErrPersistenceServiceInput
@@ -118,10 +123,21 @@ func NewPersistenceService(pool *sql.DB, consumers []PersistenceConsumer, option
 	if err != nil {
 		return nil, err
 	}
-	return newPersistenceService(inputs, options, pool.PingContext, func(ctx context.Context, d *rabbitmq.ConsumerDelivery) error {
+	handle := func(ctx context.Context, d *rabbitmq.ConsumerDelivery) error {
 		_, err := handler.Handle(ctx, d)
 		return err
-	}), nil
+	}
+	if options.QuarantinePublisher != nil {
+		processor, err := newPersistenceProcessor(handler, options.QuarantinePublisher)
+		if err != nil {
+			return nil, err
+		}
+		handle = func(ctx context.Context, d *rabbitmq.ConsumerDelivery) error {
+			_, err := processor.Handle(ctx, d)
+			return err
+		}
+	}
+	return newPersistenceService(inputs, options, pool.PingContext, handle), nil
 }
 
 func newPersistenceService(inputs []persistenceSubscription, options PersistenceOptions, probe func(context.Context) error,

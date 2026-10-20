@@ -21,6 +21,7 @@ const (
 	CommitUnknown         PersistenceFailure = "commit_unknown"
 	InvalidTerminalResult PersistenceFailure = "invalid_terminal_result"
 	AcknowledgementFailed PersistenceFailure = "acknowledgement_failed"
+	QuarantineFailed      PersistenceFailure = "quarantine_failed"
 )
 
 // PersistenceError classifies a failed handoff without including body, headers,

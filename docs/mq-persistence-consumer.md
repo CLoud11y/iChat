@@ -2,6 +2,8 @@
 
 `workers.PersistenceHandler` 将一个 `rabbitmq.ConsumerDelivery` 交给 P2 的 `MessageRepository.PersistCommand`，仓储成功结束后才调用原 handle 的单条 ACK。构造不联网，不启动循环，也不持有数据库或消费者连接的关闭权。
 
+原 handler 终态返回契约保持；后续 [P4.2.3.3 PersistenceProcessor](mq-persistence-disposition.md)另行组合可靠隔离，区分 terminal 与 quarantined，并仅在独立目标确认后尝试原 ACK。
+
 P4.1 拆为两个可审查小点：P4.1.1 完成 wire 校验、事务结果、ACK 与重投验证；[P4.1.2](mq-persistence-lifecycle.md)已实现顺序 worker 的准入、停止、drain、取消、join、角色工厂与就绪。P4.1 范围完成，P4 整体尚未验收；默认进程未装配后台角色，worker/all 继续在 I/O 前拒绝缺失角色。
 
 ## 输入与信封校验
