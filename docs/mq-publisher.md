@@ -1,5 +1,7 @@
 # RabbitMQ 有界 publisher 与发布结果
 
+P4.2.3.2 新增[隔离目标发布](mq-quarantine-publisher.md)，复用本状态机的私有写入/确认步骤，并使用独立连接与固定隔离目标；本页 Command 发布 API、HTTP 接受语义和命令 wire 保持原契约。
+
 P3.3 完成 publisher slot 池、服务器信封构造与 confirm/return 判定。固定 RabbitMQ `4.3.6`、`amqp091-go v1.15.0`。拥有底层连接的有界入口见 [MQ session](mq-session.md)，已由[生产 API](api-runtime-lifecycle.md)接入 HTTP 202；默认 legacy 入口和未实现的业务 consumer 不使用本 publisher。阶段验收及故障边界见 [P3 验收对照](mq-reliability-acceptance.md)。
 
 ## 调用边界

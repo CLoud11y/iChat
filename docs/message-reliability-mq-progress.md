@@ -2843,3 +2843,52 @@ P4.2.2.1—P4.2.2.3 均完成，勾选 P4.2.2；P4 整体和隔离/审计/重放
 **P4.2.3.2：隔离目标可靠发布**。复用既有 publisher 的有界 session/epoch、confirm 与 return 判定约束，提供独立隔离目标发布通路；目标故障或结果未知必须保留源责任。原 delivery 处置接线归 P4.2.3.3，真实转移故障验收归 P4.2.3.4，审计 worker/重放 CLI 与 Outbox 后续实施。
 
 建议 commit message：`feat(mq): add lossless quarantine envelopes and stable transport identity`
+
+## P4.2.3.2：隔离目标可靠发布（2026-10-20）
+
+### 实现与边界
+
+- 新增 [独立隔离 publisher session](mq-quarantine-publisher.md)：独立 socket/AMQP 连接、固定隔离 exchange/key、persistent + mandatory，复用原 P3.4 的连接准备、可中断写入、总操作预算和有界关闭。接口不接收 source handle，不执行 ACK/Reject，不修改默认主程序或缺失后台角色门禁。
+- 原 publisher 的写入/等待步骤提取到私有共用内核，目标在构造时固定；原 Command 发布保留输入校验、取得 slot 后生成信封/attempt 的顺序、原 wire 和公开 API。Return 改为核对实例目标，并补充 ContentEncoding/Type 一致性。没有复制第二套 confirm/return 算法。
+- 隔离外层使用独立 ContentType/Type、稳定 transport MessageId 和新的 128-bit 随机物理 CorrelationId；body 使用原快照编码，不继承源 TTL、broker headers、优先级或 UserID。新 `QuarantinePublishResult` 区分传输身份与业务 CommandID。
+- 只有匹配 confirm 且原始 Return channel 排空/通知状态正常才 accepted；Return/NACK/unknown 退休原 slot，旧通知不能进入剩余 slot。独立 session 不隐式恢复或重发未知消息，外部 owner 显式提供新 epoch/session。
+- 默认回归覆盖 ACK-first 的真实生产判定分支、坏 return/tag/正文/attempt/Type、负确认、写失败、通知关闭、池容量、迟到旧确认及零写入错误。受控 AMQP peer 使用真实固定客户端，验证握手、confirm setup、写阻塞、确认丢失与关闭的硬期限，另验证独立 API 连接不被隔离 session 关闭影响。
+
+### 真实 MQ 与恢复测试环境
+
+首轮集成命令在 fixture 创建前发现本机 Docker 引擎未运行，三个 suite 因连接不存在的 dockerDesktopLinuxEngine pipe 失败，未计作通过。随后显式启动本机 Docker Desktop、确认引擎就绪，再完整重跑。未以跳过替代验证，也没有读取开发 .env/config。
+
+`TestRabbitMQQuarantinePublisherIntegration` 的实际四项全部通过：
+
+1. 两 slots 并发发布 8 次同一坏字节审计快照；检查独立物理 attempt、完整编码和稳定 transport ID；关闭隔离 session 后独立 API session 仍能发布有效命令。
+2. 移除本轮隔离 binding，真实 mandatory Return+ACK 不被视为转移成功；恢复绑定后原 slot 仍不可用，显式新 session 可发布。
+3. 仅在专属 vhost 注入目标容量策略，得到真实 reject-publish NACK；以前确认的审计副本完整保留，随后移除策略并核验正式拓扑。
+4. 专属 loopback 代理丢弃实际 broker confirm，调用在操作期限内返回 unknown，旧 session 停止准入；新 epoch 显式重试，队列中两个副本具有同一 transport ID/原快照及不同物理 attempt，无隐式重连/重发。
+
+原 `TestRabbitMQPublisherIntegration` 的 3 项、`TestRabbitMQSessionIntegration` 的 5 项也全部回归通过。固定 RabbitMQ 4.3.6 / amqp091-go v1.15.0；三套独立环境 runId 分别为：
+
+- 隔离发布：`a9e9ccde98de329b8a5d99f46cc613ed`，suite 22.88s。
+- 原 publisher：`a1f4cb18ad6388ccde5275eb220a0d06`，suite 22.22s。
+- 原 session：`6c9da58e229cd9dc607557db97a58135`，suite 22.84s。
+
+fixture 直接读取与 ACK 仅用于观察/清理，不证明源 delivery 的业务 ACK 或 SQL 隔离审计。未启用完整 worker/all、审计 worker/CLI、Outbox 或实际客户端，也未运行三节点故障验收。
+
+### 命令与结果
+
+固定 Go 1.27.1，GOROOT 清空，仓库 `.gocache` 和不存在的 `ICHAT_CONFIG_FILE`。依赖、配置和 migration 未变化。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./messaging/rabbitmq -run '^Test(Publisher\|Quarantine(Publisher\|Session))' -count=30 -timeout=90s` | 30 轮通过，21.615s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 11.030s、rabbitmq 7.663s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库 integration 标签编译通过，不代表执行所有集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQ(Publisher\|Session\|QuarantinePublisher)Integration$' -count=1 -v -timeout=12m` | 引擎启动后完整重跑通过，12 个实际场景无 fail/skip，包 70.760s |
+
+fixture Close 成功。首轮引擎未就绪的三个 runId 为 `a38f6e701ee2daf4e573fb75e9be873c`、`765084b6c86e9145affc1c5a1f3e73f0`、`e874b5f1aaa3273c558394320465634f`；与三轮成功 fixture 一同按项目标签只读核对，六项的容器/卷/网络均为 0。Docker 操作通过自动审批，无审批拒绝。`gofmt -l` 无输出、`git diff --check` 通过，176 个本地 Markdown 链接可解析。未自动提交代码。
+
+### 下一项
+
+**P4.2.3.3：消费处置接线**。根据明确失败分类选择隔离，目标 accepted 且无错误后才尝试原 delivery 单条 ACK；目标失败/未知、取消及源 ACK 未知必须保留对应恢复责任。P4.2.3 总项继续未完成，完整 SQL/MQ 转移交叉故障验收归 P4.2.3.4。
+
+建议 commit message：`feat(mq): add bounded reliable quarantine publishing`

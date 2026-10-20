@@ -57,35 +57,7 @@ func dialPublisher(ctx context.Context, address string, options SessionOptions, 
 
 // Preparation and all confirm channels share one setup deadline/watchdog.
 func dialPreparedPublisher(ctx context.Context, address string, options SessionOptions, dial func(context.Context, string, string) (net.Conn, error), prepare func(context.Context, *amqp.Connection) error) (*PublisherSession, error) {
-	if ctx == nil || !validSessionOptions(address, options) {
-		return nil, ErrSessionConfig
-	}
-	var p *Publisher
-	owner, err := dialOwnedConnection(ctx, address, options.connectionOptions(), dial, func(ctx context.Context, owner *connectionOwner) error {
-		if prepare != nil {
-			if err := prepare(ctx, owner.connection); err != nil {
-				return err
-			}
-		}
-		var err error
-		p, err = newPublisher(func() (publishChannel, error) { return owner.connection.Channel() }, options.Publisher)
-		if err != nil {
-			return err
-		}
-		p.interrupt, p.closeTimeout = owner.abort, options.CloseTimeout
-		owner.mu.Lock()
-		owner.stopWork, owner.closeWork = p.stopAdmission, p.Close
-		closed := owner.closed
-		owner.mu.Unlock()
-		if closed {
-			return ErrSessionSetup
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &PublisherSession{connectionOwner: owner, publisher: p, verify: prepare}, nil
+	return dialTargetPublisher(ctx, address, options, dial, prepare, CommandsExchange, SubmitRoutingKey)
 }
 
 // Only the supervisor calls this, serially. The check shares this connection's

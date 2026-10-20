@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -97,6 +96,8 @@ type Publisher struct {
 	slots           []*publisherSlot
 	done            chan struct{}
 	connectionEpoch uint64
+	exchange        string // Immutable target, assigned before publication is possible.
+	routingKey      string
 	// Set only by an owned, bounded session. Plain NewPublisher callers still
 	// own their transport and must provide their own interruption policy.
 	interrupt    func()
@@ -111,10 +112,14 @@ func NewPublisher(connection *amqp.Connection, options PublisherOptions) (*Publi
 }
 
 func newPublisher(open func() (publishChannel, error), options PublisherOptions) (*Publisher, error) {
+	return newTargetPublisher(open, options, CommandsExchange, SubmitRoutingKey)
+}
+
+func newTargetPublisher(open func() (publishChannel, error), options PublisherOptions, exchange, routingKey string) (*Publisher, error) {
 	if options.Slots < 1 || options.Slots > MaxPublisherSlots || options.ConnectionEpoch == 0 {
 		return nil, errors.New("publisher requires 1 to 64 slots and a nonzero connection epoch")
 	}
-	p := &Publisher{available: make(chan *publisherSlot, options.Slots), done: make(chan struct{}), connectionEpoch: options.ConnectionEpoch}
+	p := &Publisher{available: make(chan *publisherSlot, options.Slots), done: make(chan struct{}), connectionEpoch: options.ConnectionEpoch, exchange: exchange, routingKey: routingKey}
 	for i := 0; i < options.Slots; i++ {
 		ch, err := open()
 		if err != nil || ch == nil {
@@ -143,78 +148,24 @@ func newPublisher(open func() (publishChannel, error), options PublisherOptions)
 // transport write deadlines are a separate requirement (P3.4).
 func (p *Publisher) Publish(ctx context.Context, command messaging.Command, receivedAt time.Time) (PublishResult, error) {
 	r := PublishResult{Outcome: PublishNotStarted}
-	if ctx == nil {
-		return publishFailure(r, ErrPublisherDeadline)
-	}
-	if err := ctx.Err(); err != nil {
+	if err := publishContext(ctx); err != nil {
 		return publishFailure(r, err)
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return publishFailure(r, ErrPublisherDeadline)
 	}
 	if err := messaging.ValidateCommand(command); err != nil {
 		return publishFailure(r, err)
 	}
 	r.CommandID = command.CommandID
-	if p == nil {
-		return publishFailure(r, ErrPublisherUnavailable)
-	}
-	s, err := p.acquire()
-	if err != nil {
-		return publishFailure(r, err)
-	}
-	// Until accepted, an acquired slot stays exclusively owned by this call.
-	envelope, err := messaging.NewEnvelope(command, receivedAt)
-	if err != nil {
-		p.release(s)
-		return publishFailure(r, err)
-	}
-	body, err := json.Marshal(envelope)
-	if err != nil {
-		p.release(s)
-		return publishFailure(r, messaging.ErrInvalidInput)
-	}
-	r.PublishAttemptID, r.ConnectionEpoch, r.ChannelEpoch = envelope.PublishAttemptID, p.connectionEpoch, s.epoch
-	if err := ctx.Err(); err != nil {
-		p.release(s)
-		return publishFailure(r, err)
-	}
-	if !s.clean() || !p.active(s) || s.nextTag == 0 || s.nextTag == math.MaxUint64 || s.channel.GetNextPublishSeqNo() != s.nextTag {
-		p.retire(s)
-		return publishFailure(r, ErrPublisherNotifications)
-	}
-	r.DeliveryTag = s.nextTag
-	message := amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, MessageId: command.CommandID, CorrelationId: envelope.PublishAttemptID, Body: body}
-	r.Outcome = PublishUnknown // Set before handing control to a network write.
-	if p.interrupt != nil {
-		stop := watchCancellation(ctx, p.interrupt)
-		defer stop()
-	}
-	if err := s.channel.PublishWithContext(ctx, CommandsExchange, SubmitRoutingKey, true, false, message); err != nil {
-		p.retire(s)
-		return publishFailure(r, ErrPublisherWrite)
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			p.retire(s)
-			return publishFailure(r, ctx.Err())
-		case <-p.done:
-			p.retire(s)
-			return publishFailure(r, ErrPublisherUnavailable)
-		case <-s.closes:
-			p.retire(s)
-			return publishFailure(r, ErrPublisherUnavailable)
-		case returned, ok := <-s.returns:
-			return p.returned(s, r, message, returned, ok)
-		case confirm, ok := <-s.confirms:
-			if !ok || confirm.DeliveryTag != r.DeliveryTag {
-				p.retire(s)
-				return publishFailure(r, ErrPublisherNotifications)
-			}
-			return p.confirmed(ctx, s, r, message, confirm)
+	return p.publish(ctx, r, func() (amqp.Publishing, error) {
+		envelope, err := messaging.NewEnvelope(command, receivedAt)
+		if err != nil {
+			return amqp.Publishing{}, err
 		}
-	}
+		body, err := json.Marshal(envelope)
+		if err != nil {
+			return amqp.Publishing{}, messaging.ErrInvalidInput
+		}
+		return amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, MessageId: command.CommandID, CorrelationId: envelope.PublishAttemptID, Body: body}, nil
+	})
 }
 
 // confirmed drains the ORIGINAL Return channel before interpreting an ACK.
@@ -253,7 +204,7 @@ func (p *Publisher) confirmed(ctx context.Context, s *publisherSlot, r PublishRe
 
 func (p *Publisher) returned(s *publisherSlot, r PublishResult, msg amqp.Publishing, returned amqp.Return, ok bool) (PublishResult, error) {
 	p.retire(s)
-	if !ok || returned.MessageId != msg.MessageId || returned.CorrelationId != msg.CorrelationId || returned.Exchange != CommandsExchange || returned.RoutingKey != SubmitRoutingKey || returned.ReplyCode != 312 || returned.ContentType != msg.ContentType || returned.DeliveryMode != msg.DeliveryMode || !bytes.Equal(returned.Body, msg.Body) {
+	if !ok || returned.MessageId != msg.MessageId || returned.CorrelationId != msg.CorrelationId || returned.Exchange != p.exchange || returned.RoutingKey != p.routingKey || returned.ReplyCode != 312 || returned.ContentType != msg.ContentType || returned.ContentEncoding != msg.ContentEncoding || returned.Type != msg.Type || returned.DeliveryMode != msg.DeliveryMode || !bytes.Equal(returned.Body, msg.Body) {
 		return publishFailure(r, ErrPublisherNotifications)
 	}
 	r.Outcome = PublishUnroutable

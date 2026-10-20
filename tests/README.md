@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P4.2.3.2 隔离目标可靠发布及共用内核回归：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq -run '^Test(Publisher|Quarantine(Publisher|Session))' -count=30 -timeout=90s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQ(Publisher|Session|QuarantinePublisher)Integration$' -count=1 -v -timeout=12m
+```
+
+新 suite 定义并发稳定快照、独立 API 连接、目标 Return+ACK、容量 NACK、确认丢帧与显式重复发布验证；原 publisher/session 真实 suite 一同回归。实际结果见 [隔离发布](../docs/mq-quarantine-publisher.md)及[进度记录](../docs/message-reliability-mq-progress.md)。fixture 的队列 ACK 只用于检查/清理，源投递处置和 SQL 审计仍归后续子项。
+
 P4.2.3.1 隔离信封与稳定传输身份（纯函数，无外部依赖）：
 
 ```powershell

@@ -1,13 +1,13 @@
 # 隔离信封与稳定传输身份（P4.2.3.1）
 
-`messaging/rabbitmq.NewQuarantineEnvelope` 将原 `ConsumerMessage` 转为独立 v1 隔离信封，不要求 body 可解析或含有可信业务身份。构造、编码和解码均不联网，没有 SQL、发布或 ACK 副作用。P4.2.3 整体仍未完成；下一项为 P4.2.3.2 隔离目标可靠发布。
+`messaging/rabbitmq.NewQuarantineEnvelope` 将原 `ConsumerMessage` 转为独立 v1 隔离信封，不要求 body 可解析或含有可信业务身份。构造、编码和解码均不联网，没有 SQL、发布或 ACK 副作用。后续 [P4.2.3.2](mq-quarantine-publisher.md)提供独立隔离目标发布；P4.2.3 整体仍未完成。
 
 ## 范围与交接
 
 | 子项 | 责任与完成标准 | 当前状态 |
 | --- | --- | --- |
 | P4.2.3.1 | 原文、带类型 headers、来源属性与稳定 transport identity；纯函数往返与边界验收 | 已完成 |
-| P4.2.3.2 | 独立隔离 publisher；持久、mandatory、有界 I/O；confirm 与 return 合并判定，失败/未知不得视为转移成功 | 待实现 |
+| P4.2.3.2 | 独立隔离 publisher；持久、mandatory、有界 I/O；confirm 与 return 合并判定，失败/未知不得视为转移成功 | 已完成，见[隔离发布](mq-quarantine-publisher.md) |
 | P4.2.3.3 | 消费失败分类与转移接线；仅目标确认且无 return 后调用原 delivery 单条 ACK；取消/失败保留原责任 | 待实现 |
 | P4.2.3.4 | 实际 MySQL/RabbitMQ 目标故障、确认丢失、重复转移、ACK 未知及退出交叉验收 | 待实现 |
 
