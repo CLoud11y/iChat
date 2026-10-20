@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P4.2.3.1 隔离信封与稳定传输身份（纯函数，无外部依赖）：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq -run '^TestQuarantine' -count=30 -timeout=90s
+go test -mod=readonly ./messaging/rabbitmq -run '^$' -fuzz '^FuzzDecodeQuarantineEnvelope$' -fuzztime=15s -parallel=2
+```
+
+覆盖原始坏字节、带类型 headers、快照所有权、稳定重投/DLX 身份、篡改和资源边界。当前 DLX 为数据模型验收，没有运行真实隔离发布或审计写库；协议和 P4.2.3 后续拆分见 [隔离信封](../docs/mq-quarantine-envelope.md)。
+
 P3 的阶段要求、五项接受验收条件、故障矩阵及集中重跑命令见 [MQ 与接受入口验收对照](../docs/mq-reliability-acceptance.md)。集中回归包含 13 个 MQ/API suite；fixture 手动 ACK 不代表业务事务提交后 ACK，后者仍归 P4。
 
 P4.2.2.3 监督恢复的运行时退出验收：

@@ -2811,3 +2811,35 @@ fixture Close 成功，按本 runId 只读核对容器/卷/网络均为 0。Dock
 P4.2.2.1—P4.2.2.3 均完成，勾选 P4.2.2；P4 整体和隔离/审计/重放/Outbox 保持未完成。下一项 **P4.2.3：可靠隔离转移**，按原始信封与稳定 transport identity、目标可靠发布、原 delivery 处置及故障验收分步实施。只有目标发布 confirm 且无 return 才 ACK 原消息，目标故障或确认未知必须保留原投递责任。默认缺失后台角色门禁保持。
 
 建议 commit message：`test(worker): verify supervised persistence shutdown ownership`
+
+## P4.2.3.1：隔离信封与稳定传输身份（2026-10-20）
+
+### 范围与实现
+
+- 按开发规范将 P4.2.3 拆为四项：信封/身份、目标可靠发布、消费处置接线、实际故障验收。本次仅勾选第一项，P4.2.3 总项保持未完成，详见 [隔离信封](mq-quarantine-envelope.md)。
+- 新增无 I/O 的不可变 `QuarantineEnvelope`：保留完整原始 body、来源属性、带类型递归 headers、投递元数据、受控错误码和观察时间；编码/解码提供独立副本，原 ACK 能力仍由 `ConsumerDelivery` 持有。
+- byte/string/key 使用字节编码，保留坏 JSON、NUL、无效 UTF-8；headers 区分整数宽度、decimal、时间、空值、数组/table/二进制及特殊浮点位，不经 JSON float64 丢失大整数精度。类型范围按本地固定 amqp091-go v1.15.0 源码核对。
+- 稳定 `mq:v1:<sha256>` 身份包含原文、稳定属性和应用 headers；排除消费 tag、路由/TTL 及根死信头、delivery/acquired count。另核对官方 RabbitMQ 4.3 quorum 与 DLX 文档，包含 4.3 新增 `x-acquired-count`；这些可变信息仍完整保存供审计。
+- 4 MiB 编码/累计字节预算、16 层深度和 4096 节点预算；不支持类型、循环引用、超限、篡改、未知/重复字段、非规范信封均返回固定错误及零值，不截断或伪造转移成功。普通格式化隐藏原文和 headers。
+- 固定 v1 哈希向量，明确无物理身份且稳定内容完全相同的外部输入无法区分发送次数。哈希不等于认证；审计入库仍需在后续阶段核对原始稳定内容，禁止覆盖。
+
+### 验证
+
+固定 Go 1.27.1，清空 GOROOT，使用仓库 `.gocache` 和不存在的 ICHAT_CONFIG_FILE。验证覆盖原文/完整类型往返、嵌套副本所有权、稳定重投与模拟 DLX 属性变化、不同 attempt、篡改及资源边界。解码器另运行 15 秒 fuzz（2 workers），完成 82,658 次执行，无崩溃。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./messaging/rabbitmq -run '^TestQuarantine' -count=30 -timeout=90s` | 最终 30 轮通过，3.517s，无 race |
+| `go test -mod=readonly ./messaging/rabbitmq -run '^$' -fuzz '^FuzzDecodeQuarantineEnvelope$' -fuzztime=15s -parallel=2` | 82,658 次执行通过，包 17.926s，无崩溃 |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 最终全仓库通过，主包 11.404s、rabbitmq 7.149s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过 |
+| `gofmt -l`、`git diff --check`、本地 Markdown 链接检查 | 无格式差异，160 个本地链接可解析 |
+
+全仓库 integration 标签编译不代表执行真实集成测试；本次未启动 Docker、读开发 .env/config、执行审计 SQL、改变默认后台门禁或自动提交。
+
+### 下一项
+
+**P4.2.3.2：隔离目标可靠发布**。复用既有 publisher 的有界 session/epoch、confirm 与 return 判定约束，提供独立隔离目标发布通路；目标故障或结果未知必须保留源责任。原 delivery 处置接线归 P4.2.3.3，真实转移故障验收归 P4.2.3.4，审计 worker/重放 CLI 与 Outbox 后续实施。
+
+建议 commit message：`feat(mq): add lossless quarantine envelopes and stable transport identity`
