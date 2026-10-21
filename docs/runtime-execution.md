@@ -4,6 +4,8 @@
 
 [P4.2.2.3 退出验收](mq-persistence-shutdown.md)已进一步验证 RunRuntime 有界返回与监督器实际 Done 的区别：恢复中的 dial/probe/group join 或已提交 SQL 回调尚未返回时，pending owner 继续持有资源；晚成功不能复活健康状态。外部 SQL owner 等监督器 Done 后再释放 pool，不能以执行器返回或 MQ 关闭代替。
 
+[P4.2.3.4 隔离转移验收](mq-quarantine-acceptance.md)将同一边界扩展到显式借入的独立目标 publisher：runtime pending 时，未返回的目标调用仍需由原 owner 持有；目标迟到确认不恢复已取消 ACK。监督器真正 Done 后才最终释放目标/SQL，源连接和目标发布的不同失败阶段仍保留。
+
 `application.RunRuntime(ctx, conf, factories, options)` 提供现代角色的阻塞式执行器：先检查全部必需构造器，再准备 MQ、构造全部服务、验证实例集合，最后激活。运行中等待进程 context 取消或服务意外退出；返回之前负责服务及 MQ 的有界清理。
 
 本小点提供执行器及注入契约。[主程序分流和现代进程信号](runtime-process-entry.md)已接至此执行器，P3.6.2 已装配[生产 API](api-runtime-lifecycle.md)；落库、隔离及 Outbox 业务角色仍缺失，worker/all 继续在连接前拒绝。Check/成功激活均不是某次 accepted 或业务提交后 ACK 的证明。

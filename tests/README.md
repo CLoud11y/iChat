@@ -1,5 +1,15 @@
 # 独立测试环境
 
+P4.2.3.4 可靠隔离转移的运行时交叉故障：
+
+```powershell
+go test -mod=readonly -race ./workers -run '^TestPersistenceQuarantine' -count=30 -timeout=90s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineRuntimeIntegration$' -count=1 -v -timeout=12m
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistence(Connections|Shutdown)Integration$' -count=1 -v -timeout=12m
+```
+
+新 suite 的九项覆盖第二轮源组正常 drain、runtime pending 后借入目标/SQL owner、目标 confirm 丢帧/Return/NACK/断线、目标确认后源退役、真实源 ACK 丢帧与自动 DLX 身份。目标返回屏障和实际网络丢帧分别报告；队列 ACK 仅用于 fixture 检查/清理，不代表 SQL 审计。原连接/退出两套 suite 回归保持旧夹具语义，完整范围见 [转移验收](../docs/mq-quarantine-acceptance.md)。
+
 P4.2.3.3 消费处置与可靠隔离接线：
 
 ```powershell

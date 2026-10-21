@@ -4,6 +4,8 @@
 
 [P4.2.2.3](mq-persistence-shutdown.md)已验证停止中的真实 SQL/Ping 返回屏障、ACK 丢帧和部分替换握手：即使 RunRuntime observer 已超时返回，健康仍保持 stopping，旧任务晚成功也不会重新 ready；共享 SQL 的释放须另等监督器 Done。
 
+[P4.2.3.4](mq-quarantine-acceptance.md)进一步验证目标确认/原 ACK 与退出交叉：目标 Return/NACK/unknown 或源 ACK 责任导致当前角色停止；目标晚确认、SQL 健康或旧 session 事件都不能让退出中的消费者重新 ready。独立目标 publisher 的借用不等于完整隔离审计角色已经装配。
+
 RunRuntime 现在为每次现代运行实例创建一个只读 Health capability，通过 RoleDependencies.Health 传给选中的服务工厂。它组合运行阶段、业务能力和当前 MQ 状态，不把 Start 成功或一个可连接的 publisher 当作业务接受就绪。
 
 P3.6.2 已装配[生产 API 与 Redis GET 鉴权监控](api-runtime-lifecycle.md)，显式 api 模式可运行确认式接受入口。worker/all 仍因缺失后台业务角色在外部 I/O 前拒绝；默认 legacy Router 继续返回接受未配置。

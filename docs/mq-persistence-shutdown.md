@@ -1,6 +1,6 @@
 # 监督恢复的运行时退出验收（P4.2.2.3）
 
-后续进度：[P4.2.3.1 隔离信封](mq-quarantine-envelope.md)、[P4.2.3.2 独立目标发布](mq-quarantine-publisher.md)及 [P4.2.3.3 消费处置](mq-persistence-disposition.md)已完成，下一项 P4.2.3.4 可靠隔离转移故障验收；可靠隔离转移整体仍未完成。
+后续进度：[P4.2.3 隔离信封](mq-quarantine-envelope.md)、[独立目标发布](mq-quarantine-publisher.md)、[消费处置](mq-persistence-disposition.md)及[运行时故障验收](mq-quarantine-acceptance.md)已完成，下一项 P4.2.4 隔离记录 worker；P4 整体仍未完成。
 
 本项验证生产 NewSupervisedPersistenceFactory → RunRuntime 在恢复过程中停止时的责任边界。持久化监督的 P4.2.2 范围完成；默认进程仍未注册完整后台角色，隔离/Outbox 门禁保持。下一项 P4.2.3 为可靠隔离转移，不把本轮测试中的占位角色当成隔离或通知实现。
 

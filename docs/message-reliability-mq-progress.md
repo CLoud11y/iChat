@@ -2941,3 +2941,63 @@ COMMIT 场景是实际提交成功后的 driver 返回注入，非 SQL TCP 丢�
 **P4.2.3.4：可靠隔离转移故障验收**。集中核对 RunRuntime 中的借入目标 owner、源连接替换/故障、取消/退出与目标/ACK 未知的交叉责任，补全尚未覆盖的转移故障矩阵，之后才能收口 P4.2.3。隔离审计 worker、受控 CLI、Outbox、完整客户端恢复和默认 worker/all 装配仍待后续。
 
 建议 commit message：`feat(worker): wire reliable quarantine disposition`
+
+## P4.2.3.4：可靠隔离转移故障验收（2026-10-20）
+
+### 范围与结论
+
+- 新增 [运行时隔离转移验收](mq-quarantine-acceptance.md)，收口 P4.2.3.1—P4.2.3.4 的 MQ 转移范围；P4 整体、审计 worker、CLI、Outbox 和默认完整后台装配仍未完成。下一项明确为 P4.2.4 隔离记录 worker，要求先拆分解析、审计事务、生命周期/角色工厂与故障验收。
+- 默认测试运行真实监督器/服务/processor，验证正常 drain、强制 pending 及源故障交叉时借入目标调用和旧 group 的所有权。目标迟到确认后不能复活已取消 ACK 或下一轮；混合 EOF/源 ACK 失败不能单靠 SQL 健康恢复。
+- QuarantineFailed 的取消/期限/EOF 仍保留目标阶段，不会被吞成正常退出或改作数据库恢复证据。
+- 原 supervisedRuntimeWithOptions 夹具仅增加可选 publisher；旧调用不传入时保留原参数和清理逻辑。新实际 suite 使用公开生产显式工厂 → RunRuntime，隔离审计/Outbox 仍为明确 companion 占位。
+- 本项未发现需要修改生产代码的问题，没有新增 failpoint、改变发布/事务/ACK 算法、默认装配、配置或迁移。
+
+### 实际九项与故障证据
+
+`TestQuarantineRuntimeIntegration` 最终九项全部通过：
+
+1. Generation 2 的目标实际已确认、借入回调尚未返回时正常退出：短 drain 为 pending、原处理 context 有效；释放后完成原 ACK，目标/SQL 由外部 owner 在 join 后释放。
+2. 同样在第二轮阻塞回调，runtime drain/close 各 150ms 到期返回 pending；监督器 Done 尚未关闭、目标调用仍活跃、目标未停止准入、共享 pool 可 Ping。释放后原 context 已取消，不尝试源 ACK或新 generation；外部 owner 随后真正关闭目标/pool，原 attempt 重投并显式恢复。
+3. 实际目标 confirm 被专属代理丢弃：角色失败经 RunRuntime 退出保留，目标第一副本及原源投递均在；新 session 显式恢复产生同 transport ID、新物理 attempt 的副本。
+4. 激活后移除隔离 binding：已知 mandatory Return 不被运行时清理包装掩盖，源不 ACK；恢复绑定后显式恢复。
+5. 专属目标 operator policy 产生真实 NACK：源保持，已经确认的目标积压完整；移除策略并通过正式拓扑复核后恢复。
+6. 目标已确认但回调持有期间退出源连接：旧组 retiring 期间没有新 generation，释放后旧 ACK 失败否决自动恢复，原源/目标副本均保持。
+7. 源连接替换后实际源 ACK 丢帧，本地 ACK 成功后 runtime 正常退出；原 attempt 重投，重复隔离 ID 稳定，目标物理 attempt 独立。
+8. 空闲目标专属连接中断后发送源输入：not_published/unavailable 保留为目标阶段错误，runtime 退出，不触发数据库恢复循环。
+9. fixture Reject(false) 触发实际 broker 自动 DLX：检查原始 body、x-death 及非 wrapper 形态；转换为快照后 transport ID 与主动隔离输入相同。此 Reject 只是 broker 对照，不是应用主动隔离策略。
+
+实际目标确认后的回调返回屏障仅在测试 wrapper 内，不等同于网络确认丢失；网络 confirm/ACK 另有真实代理丢帧。每项清理后主/隔离队列直接 RPC 检查为空、连接回到两个 fixture owner。最终坏输入没有产生 message、command、Outbox 或 SQL quarantine 行；隔离队列 Get/ACK 不冒充审计 SQL 提交。
+
+### 注入修正与回归
+
+第一次 run `4144da80129283fdcadd807e0dbaae40` 的容量测试假定策略生效后单条发布即 NACK，实际未触发角色退出；前四项通过但 suite 失败，不计为完成。改为独立填充 publisher 先实际收到 NACK，保持积压后再发送待验收源命令。
+
+第二次 run `110f11cab911c7d3ff224a11aaf0f5d9` 已验证运行时 NACK/源保留，恢复时仍被正式拓扑复核拒绝：删除策略不等于 broker 已完成异步应用。补上 VerifyLocal 真正通过后才创建恢复消费者；未放宽生产校验。该轮 suite 失败也不计通过。
+
+最终完整 run `c6007502a431ea8860a70fdedbefb692` 九项无 fail/skip，suite 43.40s、包 46.320s。另回归旧默认路径：
+
+- `TestPersistenceConnectionsIntegration` 四项全部通过，run `4b6a8738e91a8fdbc599a6dcb1b309d0`，suite 84.46s。
+- `TestPersistenceShutdownIntegration` 六项全部通过，run `e822af5c1335af1457e326311527b353`，suite 48.47s。
+
+旧回归包 135.809s，无 race/fail/skip；MySQL EOF 日志来自既有明确停启本轮数据库的场景。固定 RabbitMQ 4.3.6 / amqp091-go v1.15.0。
+
+### 命令与结果
+
+固定 Go 1.27.1，清空 GOROOT，仓库 `.gocache` 和不存在的 ICHAT_CONFIG_FILE。不读取开发 .env/config 或操作共享数据。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./workers -run '^TestPersistenceQuarantine' -count=30 -timeout=90s` | 30 轮通过，3.264s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 11.110s、rabbitmq 7.926s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终修改后通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不代表执行所有集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineRuntimeIntegration$' -count=1 -v -timeout=12m` | 完整最终重跑 9 项通过，包 46.320s |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistence(Connections\|Shutdown)Integration$' -count=1 -v -timeout=12m` | 原两套 10 项全部通过，包 135.809s |
+
+五个 runId 的 fixture Close 均成功。按各自项目标签只读核对，容器/卷/网络全部为 0；Docker 操作通过自动审批，无审批拒绝。`gofmt -l` 无输出、`git diff --check` 通过，224 个本地 Markdown 链接可解析。没有自动提交代码。
+
+### 下一项
+
+**P4.2.4：隔离记录 worker**。先拆分主动 wrapper/自动 DLX 原文解析与身份校验，再实现完整 body/带类型 headers 的幂等审计事务、提交后 ACK、生命周期与故障验收；后续 P4.2.5 受控重放 CLI 不因“已经重发”就标记 resolved。P4 总项继续保持未完成。
+
+建议 commit message：`test(worker): verify quarantine transfer runtime ownership`

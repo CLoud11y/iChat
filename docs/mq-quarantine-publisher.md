@@ -72,4 +72,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 实际 Docker suite `TestRabbitMQQuarantinePublisherIntegration` 定义四项：并发发布相同审计快照及独立 API 连接；移除目标绑定的真实 Return+ACK；专属 vhost 临时容量策略产生真实 NACK；代理丢弃实际 broker confirm 后 unknown，显式新 session 重试留下两个稳定身份/不同 attempt 的完整副本。读取队列及 ACK 仅用于 fixture 检验/清理，不冒充审计事务或源 delivery 的业务 ACK。原 publisher/session 两套真实 suite 同时回归，验证共享内核改造。
 
-实际执行结果及资源归属记录见 [实施进度](message-reliability-mq-progress.md)。本页仅验收目标 publisher；后续 [P4.2.3.3 消费处置](mq-persistence-disposition.md)已接入白名单策略及源 ACK，下一项为 P4.2.3.4 完整转移故障验收。隔离 SQL 审计、完整运行时退出交叉故障和三节点可靠转移仍待后续验证。
+实际执行结果及资源归属记录见 [实施进度](message-reliability-mq-progress.md)。本页仅验收目标 publisher；后续 [P4.2.3.3 消费处置](mq-persistence-disposition.md)及 [P4.2.3.4 运行时故障验收](mq-quarantine-acceptance.md)已接入白名单策略、源 ACK 与退出交叉责任。下一项为 P4.2.4 隔离记录 worker；SQL 审计、完整后台角色和三节点可靠转移仍待后续验证。

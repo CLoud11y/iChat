@@ -33,11 +33,17 @@ func (f *persistenceLifecycleFixture) supervisedRuntime(t *testing.T, address st
 	return f.supervisedRuntimeWithOptions(t, address, application.DefaultRuntimeOptions(), false)
 }
 
-func (f *persistenceLifecycleFixture) supervisedRuntimeWithOptions(t *testing.T, address string, runtimeOptions application.RuntimeOptions, allowPending bool) *persistenceRuntimeCapture {
+func (f *persistenceLifecycleFixture) supervisedRuntimeWithOptions(t *testing.T, address string, runtimeOptions application.RuntimeOptions, allowPending bool, publisher ...workers.QuarantinePublisher) *persistenceRuntimeCapture {
 	t.Helper()
 	o := workers.DefaultPersistenceSupervisorOptions()
 	o.Worker.PollTimeout, o.Worker.ProbeInterval, o.Worker.ProbeTimeout = 100*time.Millisecond, 100*time.Millisecond, 300*time.Millisecond
 	o.BaseDelay, o.MaxDelay, o.SetupTimeout = 200*time.Millisecond, 800*time.Millisecond, 8*time.Second
+	if len(publisher) > 1 {
+		t.Fatal("runtime fixture accepts at most one borrowed quarantine publisher")
+	}
+	if len(publisher) == 1 {
+		o.Worker.QuarantinePublisher = publisher[0]
+	}
 	factory, err := application.NewSupervisedPersistenceFactory(f.pool, o)
 	if err != nil {
 		t.Fatal(err)
