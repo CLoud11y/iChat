@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P4.2.5.1 隔离审计只读 CLI：
+
+```powershell
+go test -mod=readonly -race ./database ./cmd/mqadmin -run '^TestQuarantine(Query|CLI|SQL)' -count=30 -timeout=120s
+go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantineCLIIntegration$' -count=1 -v -timeout=7m
+```
+
+独立 MySQL/Redis fixture，经 `mqadmin quarantine list/show` 实际入口验证状态筛选、逐条游标、精确 transport ID、完整带类型文档和原文显式展示；逐字段核对查询前后六条审计全部列不变、业务五表为空、schema 指纹不变。坏文档可列表发现但详情拒绝且保留。未启动 RabbitMQ，DLX 输入为协议夹具；重发/终态更新仍待后续，见[查询契约](../docs/mq-quarantine-query.md)。
+
 P4.2.4.4 隔离审计故障验收及 P4.2.4 收口：
 
 ```powershell

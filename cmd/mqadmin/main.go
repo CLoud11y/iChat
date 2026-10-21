@@ -1,4 +1,4 @@
-// Command mqadmin explicitly initializes or checks the local RabbitMQ topology.
+// Command mqadmin manages local MQ topology and queries quarantine audits.
 package main
 
 import (
@@ -26,14 +26,17 @@ func main() {
 }
 
 func run(args []string, output io.Writer) (err error) {
+	if len(args) > 0 && args[0] == "quarantine" {
+		return runQuarantine(args[1:], output, openQuarantineReader)
+	}
 	if len(args) == 0 || (args[0] != "init" && args[0] != "check") {
-		return errors.New("usage: mqadmin init|check [--env-file .env]")
+		return errors.New("usage: mqadmin init|check [--env-file .env] | quarantine list|show [options]")
 	}
 	flags := flag.NewFlagSet("mqadmin", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	envFile := flags.String("env-file", ".env", "explicit local Compose environment file; empty uses process environment only")
 	if flags.Parse(args[1:]) != nil || flags.NArg() != 0 {
-		return errors.New("usage: mqadmin init|check [--env-file .env]")
+		return errors.New("usage: mqadmin init|check [--env-file .env] | quarantine list|show [options]")
 	}
 	settings, err := loadSettings(*envFile)
 	if err != nil {

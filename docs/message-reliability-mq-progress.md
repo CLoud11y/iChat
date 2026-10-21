@@ -3222,3 +3222,50 @@ driver EOF、实际 SQL TCP 丢响应、实际 AMQP ACK 丢帧和进程强杀分
 **P4.2.5：受控重放 CLI**，实施前拆分只读查询/选择、确认式重发/独立 replay attempt、终态核验/resolved 和故障验收。保持业务身份与 payload hash，未知结果继续保留责任；“已重发”不能当成“已修复”。本次不验收 CLI、Outbox 发布/lease、默认完整 worker/all、实际客户端、宿主信号编排、三节点多数故障、磁盘损坏或管理员删除数据，P4 总项继续保持未完成。
 
 建议 commit message：`test(worker): verify quarantine audit failure recovery`
+
+## 2026-10-22：P4.2.5 拆分与 P4.2.5.1 隔离审计只读查询
+
+状态：P4.2.5 已拆分为四个小点，本次只完成 P4.2.5.1。后续依次为确认式重发/独立 replay attempt、终态核验/resolved、重放故障验收。P4.2.5、P4 总项、Outbox 和默认完整后台角色保持未完成。
+
+### 实现与契约
+
+- `cmd/mqadmin quarantine list`：默认 open/50 条，支持 open/replay_pending/resolved/all 筛选、1—100 条上限和精确 transport ID 的 exclusive keyset 游标。只取元数据/长度，返回 audit_verified=false；按 transport_id 排序，不提供跨页固定快照。
+- `show --transport-id`：精确选择一行，复用既有完整审计校验，对比原文、全部冗余身份/hash、错误字段、UTC 微秒时间、状态组合及请求/主键/文档身份。缺失、损坏或冲突不输出成功详情，不修改原行。
+- 默认详情只返回元数据、格式及 audit_verified=true；`--include-raw` 显式增加 base64 源正文和可恢复的带类型 v1 审计 JSON，保持无效 UTF-8/NUL、binary/int64/decimal 和首份观察。
+- `QuarantineRepository.List/Get` 借入 pool，使用非锁定 SELECT，不开事务、不写业务/审计/重放状态、不访问 MQ。命令自己拥有单连接 pool，在查询/输出错误时仍释放。
+- SQL 配置仅加载 MYSQL 键，支持显式文件和 ICHAT_MYSQL_* 覆盖、ICHAT_CONFIG_FILE 或项目根目录默认 config/config.yml；`--config=` 为纯进程环境。无 Compose .env、Redis/MQ 或运行时角色依赖。输入先校验，15 秒查询 context，拨号/单次读写 3/5 秒；底层配置/SQL/输出错误不直接展示。
+- 不修改依赖、migration、model、业务 worker 或默认角色装配，不自动提交。查询/选择不是重放授权，后续发布前必须重新核验。
+
+命令示例和分页/原文边界见[隔离审计查询](mq-quarantine-query.md)。README、测试说明、开发清单和各相关协议文档的当前下一项均指向 P4.2.5.2。
+
+### 真实 MySQL 验收
+
+新增 `TestQuarantineCLIIntegration`，独立 MySQL/Redis fixture，不启用 RabbitMQ；六条 wrapper/DLX 协议输入同时覆盖有效/空业务身份，夹具显式设置 open/replay_pending/resolved。通过真实 mqadmin 命令入口：
+
+1. 核对三状态/all 与默认 open，逐条游标遍历的 ID 集合完全相同，无遗漏/重复；末页后为非 null 空数组。
+2. 每条详情默认不带原文；显式 raw 视图恢复的完整审计和源正文逐字节等于输入，可空身份/hash 不变。查询前后逐字段比较六条审计的全部 13 列。
+3. 缺失记录无输出且返回 not found。只在归属已核验的 fixture 中将一条审计文档版本改为 99：仍能列举元数据，详情拒绝且原损坏记录所有列不变。
+
+业务五表均为空，schema 指纹复核通过。DLX 是已验收协议数据夹具，本项没有 broker 死信或发布确认验收；新默认 SQL adapter 另检查无事务/锁定读、完整性/主键冲突、分页、取消、SQL/遍历/关闭错误及无部分结果。
+
+首轮 run `0c4af41dcbc1481cbda00cb4553e0ea6` 的筛选/分页和原文核验通过，缺失记录测试因直接比较被 defer errors.Join 包装的错误而失败（命令实际返回正确 not found），suite 20.54s、包 22.471s。改为 errors.Is 判断，并修正子测试 helper 使用当前 testing.T；生产逻辑没有为该断言改写。
+
+最终 run `6e34044c2cdfc6fc449f0770c94d9e01` 三项全部通过，无 fail/skip/race，suite 20.30s、包 23.001s。两轮 fixture Close 均成功，按各自 Compose 项目标签只读核对 containers/volumes/networks 均为 0；Docker 操作自动审批通过，无审批拒绝。
+
+### 命令与结果
+
+固定 Go 1.27.1、空 GOROOT、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE；真实 suite 内显式改为仅含本轮 fixture 凭证的临时文件，且给无关 MQ/角色配置无效值。未读取开发 .env/config。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./database ./cmd/mqadmin -run '^TestQuarantine(Query\|CLI\|SQL)' -count=30 -timeout=120s` | 最终 30 轮通过，database 3.898s、mqadmin 2.353s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 10.592s、rabbitmq 8.342s、database 2.742s、mqadmin 2.552s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不代表执行其他集成 suite |
+| `go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantineCLIIntegration$' -count=1 -v -timeout=7m` | 最终三项通过，包 23.001s |
+
+### 下一项
+
+**P4.2.5.2：确认式重发与独立 replay attempt**。重读并验证选择的审计，保持业务身份及 payload hash，生成独立物理尝试；只有确认发布且无 return 后才能记录重发状态，发布/SQL 未知继续保留责任。规范业务终态核验与 resolved 属于 P4.2.5.3，“已重发”不能当成“已修复”。
+
+建议 commit message：`feat(mqadmin): add read-only quarantine audit queries`
