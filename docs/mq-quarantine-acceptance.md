@@ -75,6 +75,6 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersist
 
 ## 后续边界
 
-P4.2.3 的范围是保守白名单下从主 MQ 到隔离 MQ 的可靠责任交接，不等于完整 P4 或端到端完成。[P4.2.4.1 输入契约](mq-quarantine-input.md)已完成主动 wrapper/自动 DLX 解析及身份校验，下一项 P4.2.4.2 幂等保存完整审计；SQL 提交后才 ACK、worker 生命周期和受控 CLI 重放仍待后续实现。
+P4.2.3 的范围是保守白名单下从主 MQ 到隔离 MQ 的可靠责任交接，不等于完整 P4 或端到端完成。[P4.2.4.1 输入契约](mq-quarantine-input.md)及[P4.2.4.2 审计事务](mq-quarantine-audit.md)已完成两格式解析、完整保存与重复核验；下一项 P4.2.4.3 接线提交后 ACK、worker 生命周期和角色工厂，受控 CLI 重放仍待后续实现。
 
 本项未运行生产默认 worker/all、独立隔离进程强杀、宿主 OS 信号、三节点 quorum 故障、磁盘损坏、目标数据被管理员删除或完整实际客户端。明确数据约束以外的 schema/未知技术失败仍按 P4.2.3.3 保守停止；未扩大自动隔离范围。审计、重放、Outbox 和完整运行时角色的交叉验收继续属于后续阶段。

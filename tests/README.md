@@ -1,5 +1,15 @@
 # 独立测试环境
 
+P4.2.4.2 幂等隔离审计事务：
+
+```powershell
+go test -mod=readonly -race ./database ./messaging/rabbitmq -run '^TestQuarantine(Audit|Repository)' -count=30 -timeout=120s
+go test -mod=readonly ./messaging/rabbitmq -run '^$' -fuzz '^FuzzDecodeQuarantineAudit$' -fuzztime=15s -parallel=2
+go test -mod=readonly -race -tags=integration ./database -run '^TestQuarantineRepositoryIntegration$' -count=1 -v -timeout=8m
+```
+
+真实 MySQL suite 验证完整文档、空/有效业务身份、状态查询、12 路唯一审计、首份观察与重放状态保留、内容冲突、大数据、既有 CHECK、取消和实际事务后的提交/回滚结果错误。SQL 返回结果注入不冒充 TCP 丢包；1062 后缺少请求主键的拒绝行为另由默认测试覆盖。没有 MQ ACK 或生产隔离 worker，详见[隔离审计事务](../docs/mq-quarantine-audit.md)。
+
 P4.2.4.1 隔离审计输入解析与身份契约：
 
 ```powershell

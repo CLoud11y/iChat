@@ -31,7 +31,7 @@
 
 Timestamp 按 UTC `time.Time.MarshalBinary` 保存，另保存 DeliveryMode、Priority、DeliveryTag 和 Redelivered。时间保留实际解码后的值；时区/单调时钟元数据不属于 AMQP 传输内容。快照保存的是消费 API 提供的完整数据，不声称保留 broker 原始 frame 或 header table 原始排列。
 
-headers 使用递归带类型节点：table 按原始 key 字节排序；array 保留顺序；整数保留宽度和符号；浮点保留二进制位（含 NaN、Infinity、负零）；decimal 保留 Scale/Value；时间归一到 UTC；字符串和 byte array 各自区分。支持固定 amqp091-go v1.15.0 `Table.Validate` 接受的全部 Go 类型（本地缓存 `types.go:416` 与 `write.go` 已核对），不增加依赖。nil 与空 table/array/byte array 也分别保存。`RawHeaders()` 返回这种带类型 JSON，适合后续 `message_quarantine.raw_headers`，不能先反序列化为普通 `map[string]any` 再当成 AMQP headers。
+headers 使用递归带类型节点：table 按原始 key 字节排序；array 保留顺序；整数保留宽度和符号；浮点保留二进制位（含 NaN、Infinity、负零）；decimal 保留 Scale/Value；时间归一到 UTC；字符串和 byte array 各自区分。支持固定 amqp091-go v1.15.0 `Table.Validate` 接受的全部 Go 类型（本地缓存 `types.go:416` 与 `write.go` 已核对），不增加依赖。nil 与空 table/array/byte array 也分别保存。`RawHeaders()` 返回这种带类型 JSON，不能先反序列化为普通 `map[string]any` 再当成 AMQP headers。[P4.2.4.2 审计事务](mq-quarantine-audit.md)使用的 `message_quarantine.raw_headers` 是版本化完整审计文档，带类型源 headers 保存在其中的源信封内；恢复须使用 `DecodeQuarantineAudit()`，不只保存单独的 headers 节点。
 
 `QuarantineEnvelope` 只持有私有编码；`Encode()`、`Source()` 与 `RawHeaders()` 返回独立数据。输入和返回的 body、nested table、array 或 byte slice 的后续修改均不影响快照。Source 是数据副本，没有原 channel/tag 的 ACK 能力；后续处置必须继续持有原 `ConsumerDelivery`。正常 `%v`、`%+v`、`%#v` 输出仅包含 transport ID。
 
@@ -54,7 +54,7 @@ headers 使用递归带类型节点：table 按原始 key 字节排序；array �
 
 `DecodeQuarantineEnvelope` 只接受构造器输出的规范 v1 JSON；解码来源后重新构造并逐字节比较，拒绝身份篡改、未知/重复字段、不支持版本、额外 JSON、非规范编码、未知类型及错误长度。它不用于接收 broker 自动 DLX 的原命令；[P4.2.4.1 输入解析器](mq-quarantine-input.md)已明确区分主动包装与自动 DLX 原文，并提供经校验的可选业务身份。
 
-`StableContent()` 返回与 v1 身份生成共用的规范内容字节副本，供后续审计事务核对重复输入；不包含哈希的命名域前缀。原 v1 编码和固定哈希向量保持不变。完整源数据仍须保存，稳定内容排除项不能导致原始元数据被丢弃。
+`StableContent()` 返回与 v1 身份生成共用的规范内容字节副本，供[审计事务](mq-quarantine-audit.md)核对重复输入；不包含哈希的命名域前缀。原 v1 编码和固定哈希向量保持不变。完整源数据仍须保存，稳定内容排除项不能导致原始元数据被丢弃。
 
 单个编码信封最多 4 MiB；构造过程有同量级累计字节预算，headers 最大递归深度 16、累计节点预算 4096，根集合也预检查数量。类型不支持、循环引用或超出边界返回 `ErrQuarantineEnvelope` 和零值，没有截断/降级快照。base64 与类型标签有额外开销，允许的原文大小会小于 4 MiB。未来接线遇到这种错误必须保留原投递责任，不能 ACK、静默丢 headers 或仅保存摘要。默认 handler 的 16 KiB 命令正文校验上限保持。
 

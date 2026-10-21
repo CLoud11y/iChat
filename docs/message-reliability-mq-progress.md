@@ -3049,3 +3049,63 @@ COMMIT 场景是实际提交成功后的 driver 返回注入，非 SQL TCP 丢�
 **P4.2.4.2：幂等隔离审计事务**。明确完整源快照/投递观察/稳定内容的 SQL 保存契约，同 transport ID 比较稳定内容而不覆盖原文，验证重复/并发/冲突、取消和 COMMIT 未知。SQL 提交后 ACK、数据库暂停恢复、角色工厂/资源 join 和故障交叉验收仍归 P4.2.4.3/.4；重放 CLI 归 P4.2.5。
 
 建议 commit message：`feat(mq): parse quarantine audit inputs and verify source identity`
+
+## 2026-10-21：P4.2.4.2 幂等隔离审计事务
+
+状态：本小点完成。隔离输入现在可完整、幂等写入现有 `message_quarantine`，新事务提交成功或已提交记录核验结束后才返回成功；本次没有 MQ ACK 或隔离 worker 接线，P4.2.4 父项及 P4 总项继续保持未完成。
+
+### 实现与保存契约
+
+- `rabbitmq.QuarantineInput.EncodeAudit()` / `DecodeQuarantineAudit()` 提供 v1 审计 JSON 文档：规范源信封字节、wrapper 外层投递元数据、接收观察与精确稳定内容。源/稳定内容用 base64 字节串保存，外层 JSON 允许 MySQL 重排；恢复后重新核验格式、完整元数据、来源、稳定身份、观察和规范性。
+- `database.QuarantineRepository.Save` 借用 pool，普通 INSERT 后按主键 FOR SHARE 核验。只将 driver 直接返回的确定 1062 作为进入重复核验的依据；没有 IGNORE、REPLACE 或覆盖式 upsert。新行完整复核并 COMMIT，重复行核验后 ROLLBACK，不修改首份观察或重放状态。
+- raw_body 保留源原文；raw_headers 保存完整版本化审计文档，所有带类型 headers/AMQP 属性均在其中。完整验证后的四项业务身份一起保存，否则全部 SQL NULL。error_detail 是受控标记，created_at 使用 UTC 微秒；文档保留接收纳秒时间。
+- 精确稳定内容不同/主键与快照身份不同返回内容冲突；损坏文档、raw_body/身份/分类/时间不符返回不变量错误，均返回空结果并保留已有行。新记录和重复核验的 COMMIT/ROLLBACK 未知分别保留可检查的阶段标记与底层原因，普通日志输出不泄露底层 SQL 内容。
+- 文档最多 24 MiB，保留 body 与独立外层元数据的既有预算，不截断。JSON 使用 UTF-8 string 参数，raw_body 使用二进制参数。没有修改 schema、migration、模型、配置或依赖；旧的非完整审计 JSON 不自动升级为成功。
+- 更新[审计事务](mq-quarantine-audit.md)、输入/信封/处置文档、README、测试说明及阶段清单。
+
+### 真实 MySQL 与故障范围
+
+最终 `TestQuarantineRepositoryIntegration` 的 12 项全部通过，独立 schema 使用非 UTC session/driver、READ COMMITTED 验证显式时间与锁定读：
+
+1. 完整首次观察通过 MySQL JSON 保存/读取后恢复一致。
+2. wrapper/原文 DLX 数据 fixture × 坏/有效 wire：可选身份完整 NULL/完整有效，已有状态查询可发现匹配审计，重复输入成功且不新增行。
+3. 同一源的 wrapper 与 DLX 在 12 路并发下恰好一个 inserted、11 个 existing、一条审计。
+4. 后续 replay_pending/resolved 状态、独立 replay attempt 和原始文档均不被重复输入覆盖。
+5. raw_body、文档、可选身份损坏均失败；将另一合法快照放到错误 transport key 下模拟主键/内容不一致，保留已有行并返回冲突，不声称制造了 SHA-256 碰撞。
+6. 2,097,152 字节坏原文、1,572,864 字节外层元数据完整保存恢复；实际审计文档 9,556,296 字节，未丢属性或截断。
+7. fixture driver 将 INSERT 的 transport_id 参数改为空，正式既有 CHECK 返回真实 3819；事务失败不产生审计，恢复原输入可保存。
+8. 实际 INSERT 成功后由 driver 返回 EOF，回滚后无行，再试 inserted。
+9. COMMIT 调用前 fixture 实际回滚再返回错误，仓储保守返回 commit unknown；恢复后 inserted。
+10. 实际 COMMIT 成功后返回错误，仓储返回 commit unknown/空结果；原身份恢复为 existing，只有一条审计。
+11. 已有行核验后实际 ROLLBACK 再返回错误，仓储返回 rollback unknown/空结果；后续仍可验证为 existing。
+12. 实际 INSERT 后屏障暂停，外部观察未提交行不可见，取消后失败；原身份重试成功。
+
+最后确认 conversation/message/message_command/message_outbox/message_delivery_cursor 均为空，重新运行正式迁移只读校验通过，schema 指纹不变。COMMIT/ROLLBACK 错误是实际事务完成后的 driver 结果注入，不是 SQL TCP 丢包；原文 DLX 为符合前项协议的数据 fixture，真实 broker rejected/expired 解析已在 P4.2.4.1 验证。本次不包含 MQ ACK、worker 运行时、进程强杀、CLI 或三节点验收。
+
+### 失败轮次与修正
+
+- 初轮 run `688df278408b2723e5820e010555aa00`：审计 JSON 以 []byte 参数进入插值 SQL，使用 binary 字符集语义，导致 INSERT 失败；屏障场景未监听提前返回而等到整体 context 到期。改为 UTF-8 string 参数并让夹具监听提前失败，未将该轮计为通过。
+- 第二轮 run `e7dd2d3ad511ea696953307e8d23075e`：12 项功能场景均通过，大文档完整恢复；最终 schema 指纹失败，因此 suite 不计通过。
+- 诊断 run `ba2aaaa128d7f1872870e08da01b50f5`：重现临时索引/约束增删后 SHOW CREATE TABLE 将原 CHECK 字面量 `_utf8mb4` 改为 `_ascii`。保留严格指纹验证，移除夹具 ALTER；正式既有 CHECK 改由 driver 参数故障触发。1062 后缺失请求主键的拒绝行为保留在默认故障 driver 测试中，最终真实 suite 不再声称验收额外唯一索引。
+- 最终完整 run `16fc2f858f395fbd5236fa1ed3ee0e0b`：12 项无 fail/skip，suite 36.72s、包 39.465s，无 race，最终业务表与 schema 指纹检查通过。
+
+### 命令与结果
+
+固定 Go 1.27.1、空 GOROOT、仓库 `.gocache`、不存在的 ICHAT_CONFIG_FILE，不读取开发 .env/config。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./database ./messaging/rabbitmq -run '^TestQuarantine(Audit\|Repository)' -count=30 -timeout=120s` | 两包 30 轮通过，database 7.310s、rabbitmq 4.633s，无 race；JSON 参数修正及最终测试补充后 database 再完整跑 30 轮通过，7.396s |
+| `go test -mod=readonly ./messaging/rabbitmq -run '^$' -fuzz '^FuzzDecodeQuarantineAudit$' -fuzztime=15s -parallel=2` | 通过，568 次执行、4 个新覆盖输入，包 18.213s |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | JSON 参数修正后全仓库通过，主包 11.468s、rabbitmq 8.808s、database 2.702s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终修改后通过，修正新增 sql.NullString 字面量为具名字段 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不代表运行全部集成 suite |
+| `go test -mod=readonly -race -tags=integration ./database -run '^TestQuarantineRepositoryIntegration$' -count=1 -v -timeout=8m` | 最终完整 12 项通过，包 39.465s |
+
+四轮 fixture Close 成功；按每轮项目标签只读核对容器/卷/网络全部为 0。Docker 操作通过自动审批，无审批拒绝。没有执行开发环境迁移、修改共享数据或自动提交代码。
+
+### 下一项
+
+**P4.2.4.3：隔离 worker 生命周期与角色工厂**。实际调用审计仓储成功后才 ACK 原隔离投递，补齐数据库暂停恢复、独立消费者连接、就绪、多 worker 与 drain/pending 资源责任；P4.2.4.4 再做跨系统故障验收。默认后台角色门禁仍按完整角色实现情况收口。
+
+建议 commit message：`feat(db): persist idempotent quarantine audit snapshots`
