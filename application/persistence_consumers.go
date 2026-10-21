@@ -22,6 +22,7 @@ type joinedMQConsumer interface {
 // cleanup registry; later generations use the same validated configuration.
 // Construction/claim perform no I/O and create no background tasks.
 type PersistenceConsumerSource struct {
+	queue            string
 	resources        *MQResources
 	settings         config.ConsumerConfig
 	dial             func(context.Context, config.ConsumerConfig) (ownedConsumer, error)
@@ -37,20 +38,17 @@ type PersistenceConsumerSource struct {
 	closeErr         error
 }
 
-func (s *PersistenceConsumerSource) String() string   { return "persistence consumer source" }
+func (s *PersistenceConsumerSource) String() string {
+	if s.queue == rabbitmq.QuarantineQueue {
+		return "quarantine consumer source"
+	}
+	return "persistence consumer source"
+}
 func (s *PersistenceConsumerSource) GoString() string { return s.String() }
 
 func newPersistenceConsumerSource(r *MQResources, settings config.ConsumerConfig,
 	dial func(context.Context, config.ConsumerConfig) (ownedConsumer, error), lifetime context.Context) *PersistenceConsumerSource {
-	s := &PersistenceConsumerSource{resources: r, settings: settings, dial: dial, lifetime: lifetime, closed: make(chan struct{})}
-	g := newPersistenceMQGroup(s)
-	for _, consumer := range r.consumers {
-		if consumer.Queue == rabbitmq.PersistQueue {
-			g.sessions = append(g.sessions, consumer.Session.(ownedConsumer))
-		}
-	}
-	s.initial = g
-	return s
+	return newRoleConsumerSource(r, settings, dial, lifetime, rabbitmq.PersistQueue)
 }
 
 func (s *PersistenceConsumerSource) claim(inputs []PreparedConsumer) (workers.PersistenceConsumerFactory, error) {
@@ -67,7 +65,7 @@ func (s *PersistenceConsumerSource) claim(inputs []PreparedConsumer) (workers.Pe
 	}
 	seen := make(map[<-chan struct{}]bool, len(inputs))
 	for _, input := range inputs {
-		if input.Queue != rabbitmq.PersistQueue || input.Prefetch != s.settings.Prefetch || nilRoleCapability(input.Session) {
+		if input.Queue != s.queue || input.Prefetch != s.settings.Prefetch || nilRoleCapability(input.Session) {
 			return nil, ErrPersistenceConsumers
 		}
 		done := input.Session.Done()
@@ -86,7 +84,7 @@ func (s *PersistenceConsumerSource) claim(inputs []PreparedConsumer) (workers.Pe
 	if len(initialSeen) != len(inputs) {
 		return nil, ErrPersistenceConsumers
 	}
-	// Keep publisher/quarantine ownership unchanged. No mutation can race Close:
+	// Keep every other role's ownership unchanged. No mutation can race Close:
 	// Close sets stopped under r.mu before reading this registry.
 	owned := make([]mqCloser, 0, len(r.owned)-len(inputs)+1)
 	for _, resource := range r.owned {
@@ -198,29 +196,33 @@ func (s *PersistenceConsumerSource) prepare(ctx context.Context) (result workers
 }
 
 // consumerSnapshotLocked is called with r.mu held. Only the active generation
-// replaces persistence entries; the quarantine connection remains independent.
+// replaces its own queue entries; other roles' generations remain independent.
 func (r *MQResources) consumerSnapshotLocked() ([]PreparedConsumer, bool) {
-	if r.persistence == nil {
-		return append([]PreparedConsumer(nil), r.consumers...), true
-	}
-	s := r.persistence
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.claimed {
-		return append([]PreparedConsumer(nil), r.consumers...), true
-	}
-	var consumers []PreparedConsumer
-	for _, consumer := range r.consumers {
-		if consumer.Queue != rabbitmq.PersistQueue {
-			consumers = append(consumers, consumer)
+	consumers := append([]PreparedConsumer(nil), r.consumers...)
+	ready := true
+	for _, s := range []*PersistenceConsumerSource{r.persistence, r.quarantine} {
+		if s == nil {
+			continue
 		}
-	}
-	g := s.active
-	ready := !s.stopped && s.failure == nil && g != nil && g.prepared && !g.closing.Load()
-	if ready {
-		for _, session := range g.sessions {
-			consumers = append(consumers, PreparedConsumer{Queue: rabbitmq.PersistQueue, Prefetch: s.settings.Prefetch, Session: session})
+		s.mu.Lock()
+		if s.claimed {
+			filtered := consumers[:0]
+			for _, consumer := range consumers {
+				if consumer.Queue != s.queue {
+					filtered = append(filtered, consumer)
+				}
+			}
+			consumers = filtered
+			g := s.active
+			active := !s.stopped && s.failure == nil && g != nil && g.prepared && !g.closing.Load()
+			ready = ready && active
+			if active {
+				for _, session := range g.sessions {
+					consumers = append(consumers, PreparedConsumer{Queue: s.queue, Prefetch: s.settings.Prefetch, Session: session})
+				}
+			}
 		}
+		s.mu.Unlock()
 	}
 	return consumers, ready
 }

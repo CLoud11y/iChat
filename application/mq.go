@@ -82,6 +82,7 @@ type MQResources struct {
 	closed      bool
 	attempt     *mqCloseAttempt
 	persistence *PersistenceConsumerSource
+	quarantine  *PersistenceConsumerSource
 }
 
 type mqCloseAttempt struct {
@@ -210,6 +211,9 @@ func prepareMQ(ctx context.Context, c config.Config, o MQOptions, f mqFactories)
 	for _, group := range plan.Consumers {
 		if group.Queue == rabbitmq.PersistQueue {
 			r.persistence = newPersistenceConsumerSource(r, group.Settings, f.consumer, lifetime)
+		}
+		if group.Queue == rabbitmq.QuarantineQueue {
+			r.quarantine = newRoleConsumerSource(r, group.Settings, f.consumer, lifetime, rabbitmq.QuarantineQueue)
 		}
 	}
 	return r, nil

@@ -477,7 +477,7 @@ func persistenceRecoveryAllowed(err error) bool {
 		if current == nil {
 			return false
 		}
-		if current == database.ErrCommandCommitUnknown || current == database.ErrCommandRollbackUnknown {
+		if current == database.ErrCommandCommitUnknown || current == database.ErrCommandRollbackUnknown || current == database.ErrQuarantineCommitUnknown || current == database.ErrQuarantineRollbackUnknown {
 			return true
 		}
 		if connection, ok := current.(*persistenceConnectionFailure); ok && connection != nil {
@@ -511,6 +511,12 @@ func persistenceRecoveryAllowed(err error) bool {
 				return false
 			}
 			return visit(boundary.cause, false)
+		}
+		if boundary, ok := current.(*QuarantineError); ok {
+			if boundary.Kind != QuarantineAuditFailed {
+				return false
+			}
+			return visit(boundary.cause, true)
 		}
 		if storage && current == context.DeadlineExceeded {
 			evidence = true

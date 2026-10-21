@@ -789,7 +789,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
   - [ ] P4.2.4 隔离记录 worker：区分主动 wrapper/自动 DLX 原文，核验稳定身份并幂等保存完整 body/带类型 headers，审计 SQL 提交后才 ACK 隔离队列。
     - [x] P4.2.4.1 输入解析与身份契约：严格区分两种格式，校验 wrapper 稳定身份与 DLX 最近来源，保留原文、带类型 headers 和属性，提供稳定内容比较材料及完整校验后的可选业务身份；纯函数/真实 broker 边界见[隔离审计输入](mq-quarantine-input.md)。
     - [x] P4.2.4.2 幂等隔离审计事务：保存完整源快照、当前投递观察及精确稳定内容，同 transport ID 核对内容而不覆盖原文；重复提交、并发、内容冲突、取消和 COMMIT 未知均保留责任。现有 schema 的版本化审计 JSON、事务及真实 MySQL 验收见[隔离审计事务](mq-quarantine-audit.md)。
-    - [ ] P4.2.4.3 隔离 worker 生命周期与角色工厂：实际审计提交后才 ACK 原隔离投递，数据库失败暂停/恢复、独立消费连接、多 worker、就绪及 drain/pending 的资源所有权；默认装配门禁按完整角色实现情况收口。
+    - [x] P4.2.4.3 隔离 worker 生命周期与角色工厂：实际审计提交后才 ACK 原隔离投递，数据库失败暂停/恢复、独立消费连接、多 worker、就绪及 drain/pending 的资源所有权；显式生产工厂、双角色独立来源及真实验收见[隔离生命周期](mq-quarantine-lifecycle.md)。默认装配门禁按完整角色实现情况保持。
     - [ ] P4.2.4.4 审计故障验收：真实提交前/后与 ACK 前故障、COMMIT 未知、重复 wrapper/自动 DLX、内容冲突和数据库停机恢复；核对唯一审计及完整原文，不以 fixture ACK 代替事务证明。
   - [ ] P4.2.5 受控重放 CLI：列举/查看/选择审计记录，保持业务身份，确认式重发并记录独立 replay attempt；确认业务终态后才 resolved，未知结果保留责任。
 - [ ] P4 整体优雅退出和 DB 提交不确定恢复；持久化监督恢复及退出已覆盖，隔离/重放与 Outbox 角色仍待后续验证。

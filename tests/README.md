@@ -1,5 +1,15 @@
 # 独立测试环境
 
+P4.2.4.3 隔离 worker 生命周期、角色工厂与恢复：
+
+```powershell
+go test -mod=readonly -race ./workers ./application -run '^Test(Quarantine|Persistence)' -count=30 -timeout=120s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineLifecycleIntegration$' -count=1 -v -timeout=12m
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceConnectionsIntegration$' -count=1 -v -timeout=12m
+```
+
+真实六项覆盖双 worker 合并 wrapper/自动 DLX 审计、停库恢复、独立隔离连接替换、提交后屏障中的 graceful/pending SQL 所有权及损坏 wrapper 保留。成功路径等待实际 broker ACK 数，再检查空队列，不将 SQL 行存在当成 ACK。复用原持久化连接四场景回归；默认 Outbox/完整角色仍受门禁限制，详见[隔离生命周期](../docs/mq-quarantine-lifecycle.md)。
+
 P4.2.4.2 幂等隔离审计事务：
 
 ```powershell

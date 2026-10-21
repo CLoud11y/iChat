@@ -20,7 +20,7 @@ func NewSupervisedPersistenceFactory(pool *sql.DB, options workers.PersistenceSu
 		return nil, workers.ErrPersistenceSupervisorInput
 	}
 	return func(ctx context.Context, inputs RoleDependencies) (RuntimeService, error) {
-		if ctx == nil || inputs.PersistenceConsumers == nil || !nilRoleCapability(inputs.Publisher) {
+		if ctx == nil || inputs.PersistenceConsumers == nil || inputs.QuarantineConsumers != nil || !nilRoleCapability(inputs.Publisher) {
 			return nil, workers.ErrPersistenceSupervisorInput
 		}
 		if err := ctx.Err(); err != nil {
@@ -57,7 +57,7 @@ func NewPersistenceFactory(pool *sql.DB, options workers.PersistenceOptions) (Ru
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if !nilRoleCapability(inputs.Publisher) {
+		if inputs.QuarantineConsumers != nil || !nilRoleCapability(inputs.Publisher) {
 			return nil, workers.ErrPersistenceServiceInput
 		}
 		consumers := make([]workers.PersistenceConsumer, 0, len(inputs.Consumers))

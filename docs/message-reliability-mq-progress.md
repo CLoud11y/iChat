@@ -3109,3 +3109,60 @@ COMMIT 场景是实际提交成功后的 driver 返回注入，非 SQL TCP 丢�
 **P4.2.4.3：隔离 worker 生命周期与角色工厂**。实际调用审计仓储成功后才 ACK 原隔离投递，补齐数据库暂停恢复、独立消费者连接、就绪、多 worker 与 drain/pending 资源责任；P4.2.4.4 再做跨系统故障验收。默认后台角色门禁仍按完整角色实现情况收口。
 
 建议 commit message：`feat(db): persist idempotent quarantine audit snapshots`
+
+## 2026-10-22：P4.2.4.3 隔离 worker 生命周期与角色工厂
+
+状态：本小点完成。隔离 worker 已实际调用审计事务，只有匹配身份的 inserted/existing 回执且处理 context 仍有效时才 ACK 原隔离 delivery。提供独立服务、监督恢复及显式生产角色工厂，父项仍等待 P4.2.4.4 故障验收；默认后台角色、Outbox、CLI 和 P4 总项没有收口。
+
+### 实现
+
+- 新增 `QuarantineHandler`，严格解析 wrapper/自动 DLX，保存完整审计后校验回执和 context，再调用原 handle 的单条 ACK。存储失败/未知、损坏输入/回执、取消与 ACK 失败返回零成功结果，不 Reject 或重新隔离，不改变 resolved 状态；错误打印隐藏 SQL/原文。
+- `QuarantineService` / `QuarantineSupervisor` 复用已验收的顺序服务与监督器内核，专用构造器固定隔离队列/审计 handler，复用独立操作期限、SQL 探测、准入、graceful drain、强制退出与真实 join。没有第二套复制的生命周期状态机，也不借入隔离 publisher。
+- 共用错误分类/完整错误树恢复判定增加审计阶段：明确存储/连接证据允许退役后探测恢复；COMMIT/ROLLBACK 未知保留分类，解析/回执/内容冲突/SQL 约束/ACK/混合未知原因否决自动恢复。停止期间不创建下一轮，也不重新使用旧 ACK handle。
+- `MQResources` 为隔离角色增加独立来源，复用原单 claim/拓扑复核/部分连接清理/WaitClosed owner；主队列与隔离队列分别替换自己的快照和资源，不互相退役。运行时只向隔离角色提供 `QuarantineConsumers` 能力，错误角色/重复 claim 被拒绝。
+- `NewQuarantineFactory` / `NewSupervisedQuarantineFactory` 无 I/O 构造，借入 SQL pool，角色结束不关闭 pool。库级支持多个隔离连接；现有 MQRuntime 计划仍是一个隔离消费者，本次没有扩大配置或改变默认后台门禁。
+- 同步[隔离生命周期](mq-quarantine-lifecycle.md)、输入/审计/处置文档、README、测试入口和阶段清单。
+
+### 真实隔离生命周期验收
+
+`TestQuarantineLifecycleIntegration` 使用独立 MySQL/RabbitMQ fixture 与生产隔离工厂 → RunRuntime。持久化/Outbox 仅为明确测试 companion，没有冒充完整默认后台。RabbitMQ 4.3.6 / amqp091-go v1.15.0。
+
+1. 两个真实隔离连接处理同一 wrapper 的两个物理发布；再由 fixture 主队列 Reject 触发真实 broker 自动 DLX，审计仍是一条，完整原文/类型头/稳定内容一致，三个实际隔离 ACK 均可观察。
+2. MySQL 停机撤销就绪、退役隔离连接，在离线稳定阶段只探测、不新增消费者代次；积压三个源身份、六个物理 wrapper。更新本轮测试数据库动态端口后自动恢复，只有三条审计；主队列连接未被替换，聚合就绪由当前隔离轮次恢复。
+3. 关闭空闲隔离 session 后只重建隔离组，旧隔离连接退出、主队列连接仍存活，恢复后实际审计/ACK。
+4. 真实 COMMIT 后由测试 driver 持有返回，正常 drain 的短 observer 为 pending，但工作 context 仍有效；释放后允许原 ACK、正常退出。
+5. 同样的提交后返回屏障下，运行时 drain/close 各 100ms。RunRuntime 返回 pending 时监督器 Done 未关闭、SQL pool 仍可 Ping；释放回调后不再 ACK，原 wrapper 实际 redelivered。fixture 检查后恢复原投递，再由新的真实隔离 worker 验证已有审计并 ACK，审计只有一条。共享 SQL 最终清理由外部 owner 在 join 后承担。
+6. 明确篡改外层 MessageID 的 wrapper 令运行时停止，代次不自动重建，SQL 无对应审计；原文 redelivered 完整保留。最终 fixture ACK 只清理该故障输入。
+
+成功路径按已发布物理投递数量等待 broker 的实际 ACK 统计，再通过直接 RPC 检查主/隔离队列为空；不能用 SQL 已有一行作为重复输入已经 ACK 的证明。每项退出后连接回到三个独立 fixture owner。最后检查业务五表为空、正式 schema 指纹/拓扑不变。
+
+真实 COMMIT 后的返回屏障不是 SQL TCP 响应丢失；fixture 的主队列 Reject、pending 检查后的 Nack 和损坏输入清理 ACK 都不是生产处置策略。本项没有独立进程强杀、网络 ACK 丢帧、完整持久化+隔离双角色同时运行、重放 CLI、Outbox 或三节点验收，这些继续按后续阶段实施。
+
+### 夹具修正与原路径回归
+
+首轮 run `3d98d02d6ecf8ab43e24db32255a998b` 的双 worker wrapper 场景通过；停库场景假定 Generation 必定为 1，但实际 MySQL 平滑停机中短暂成功的探测已触发一次连接重建，观察到 backoff / Generation 2 / unready。该轮失败不计完成。修正为记录数据库已离线后的当前代次，验证整个离线积压阶段没有再获取新组，恢复后必须进入更高代次并恢复就绪；未放宽生产恢复门槛。
+
+最终完整 run `18a30df7d0ef34fe092ba0da4cc6957a` 加入实际 broker DLX 对照后六项无 fail/skip，suite 64.90s、包 67.622s，无 race。
+
+共用连接来源改造后回归 `TestPersistenceConnectionsIntegration`：停库恢复、空闲连接退役、缺失 binding 不修复、后续握手黑洞的部分组清理四项全部通过，run `0ca7e61ae1a0f210ae1b464b400f9838`，suite 82.63s、包 85.774s，无 race/fail/skip。MySQL EOF 日志来自本轮明确停启数据库的场景。
+
+### 命令与结果
+
+固定 Go 1.27.1、空 GOROOT、仓库 `.gocache`、不存在的 ICHAT_CONFIG_FILE，不读取开发 .env/config。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./workers ./application -run '^Test(Quarantine\|Persistence)' -count=30 -timeout=120s` | 两包新旧相关测试 30 轮通过，workers 12.050s、application 12.623s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 10.395s、rabbitmq 8.167s、application 3.533s、workers 2.222s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终修改后通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不代表执行全部集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineLifecycleIntegration$' -count=1 -v -timeout=12m` | 最终六项通过，包 67.622s |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersistenceConnectionsIntegration$' -count=1 -v -timeout=12m` | 原四项通过，包 85.774s |
+
+三轮 fixture Close 成功；分别按项目标签只读核对容器/卷/网络均为 0。Docker 操作通过自动审批，无审批拒绝；没有修改依赖、migration、开发配置或执行自动提交。
+
+### 下一项
+
+**P4.2.4.4：审计故障验收**。在现有解析/事务/生命周期基础上继续构造实际提交不确定、ACK 丢失、进程故障和持久化/隔离角色同时运行的恢复/退出交叉场景，核对完整审计集合与未确认责任；该验收完成后才能收口 P4.2.4。P4.2.5 受控重放仍须保持业务身份并确认业务终态后才 resolved。
+
+建议 commit message：`feat(worker): add quarantine audit lifecycle and recovery`

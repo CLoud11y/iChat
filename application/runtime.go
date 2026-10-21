@@ -197,6 +197,11 @@ func runtimeRoleInputs(resources *MQResources, plan config.MQRuntimePlan) (map[R
 			input.PersistenceConsumers = resources.persistence
 			inputs[role] = input
 		}
+		if role == RoleQuarantine && resources.quarantine != nil {
+			input := inputs[role]
+			input.QuarantineConsumers = &QuarantineConsumerSource{source: resources.quarantine}
+			inputs[role] = input
+		}
 	}
 	return inputs, nil
 }

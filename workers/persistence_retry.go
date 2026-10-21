@@ -41,10 +41,10 @@ func ClassifyPersistenceFailure(err error) PersistenceFailureClass {
 	if err == nil {
 		return FailureNone
 	}
-	if errors.Is(err, database.ErrCommandCommitUnknown) {
+	if errors.Is(err, database.ErrCommandCommitUnknown) || errors.Is(err, database.ErrQuarantineCommitUnknown) {
 		return FailureCommitUnknown
 	}
-	if errors.Is(err, database.ErrCommandRollbackUnknown) {
+	if errors.Is(err, database.ErrCommandRollbackUnknown) || errors.Is(err, database.ErrQuarantineRollbackUnknown) {
 		return FailureRollbackUnknown
 	}
 	cancelled := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
@@ -88,11 +88,24 @@ func ClassifyPersistenceFailure(err error) PersistenceFailureClass {
 				return
 			}
 		}
+		if boundary, ok := current.(*QuarantineError); ok && boundary != nil {
+			switch boundary.Kind {
+			case QuarantineInputInvalid:
+				malformed = true
+				return
+			case QuarantineReceiptInvalid:
+				technical = true
+				return
+			case QuarantineAcknowledgementFailed:
+				acknowledgement = true
+				return
+			}
+		}
 		switch current {
-		case driver.ErrBadConn, mysql.ErrInvalidConn, sql.ErrConnDone, io.EOF, io.ErrUnexpectedEOF, net.ErrClosed, database.ErrCommandRepositoryUnavailable:
+		case driver.ErrBadConn, mysql.ErrInvalidConn, sql.ErrConnDone, io.EOF, io.ErrUnexpectedEOF, net.ErrClosed, database.ErrCommandRepositoryUnavailable, database.ErrQuarantineRepositoryUnavailable:
 			infrastructure = true
 			return
-		case database.ErrCommandInvariant, database.ErrInvalidCommandDecision, database.ErrConversationInvariant, database.ErrConversationExhausted, ErrPersistenceInput:
+		case database.ErrCommandInvariant, database.ErrInvalidCommandDecision, database.ErrConversationInvariant, database.ErrConversationExhausted, ErrPersistenceInput, database.ErrQuarantineInvariant, database.ErrQuarantineConflict, ErrQuarantineHandlerInput:
 			technical = true
 			return
 		}

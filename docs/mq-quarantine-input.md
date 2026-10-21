@@ -1,6 +1,6 @@
 # P4.2.4.1：隔离审计输入契约
 
-`rabbitmq.ParseQuarantineInput(delivery, receivedAt)` 解析隔离队列的主动 wrapper 与 broker 自动 DLX 原文，返回不可变 `QuarantineInput`。本项提供解析、稳定内容核对材料和经过校验的可选业务身份；后续[P4.2.4.2 审计事务](mq-quarantine-audit.md)已实现，worker 生命周期和提交后 ACK 在 P4.2.4.3 实现。
+`rabbitmq.ParseQuarantineInput(delivery, receivedAt)` 解析隔离队列的主动 wrapper 与 broker 自动 DLX 原文，返回不可变 `QuarantineInput`。本项提供解析、稳定内容核对材料和经过校验的可选业务身份；后续[P4.2.4.2 审计事务](mq-quarantine-audit.md)及[P4.2.4.3 生命周期与提交后 ACK](mq-quarantine-lifecycle.md)已实现。
 
 ## 输入判定
 
@@ -46,4 +46,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarant
 
 默认测试覆盖两格式等价身份、全部支持类型的无损副本、四种 DLX 原因及历史、可选身份校验、部分标记/篡改拒绝、零值/时间/超限/循环边界和大 wrapper 的独立元数据预算。真实 suite 使用 RabbitMQ 4.3.6 / amqp091-go v1.15.0，六项覆盖主动坏正文/有效源 wrapper 及未 ACK 重投、实际 rejected/expired 原文、有效命令的真实 DLX、篡改 wrapper 解析失败后保留原投递。队列 ACK 仅为 fixture 检查清理；没有执行审计 SQL、生产隔离 worker、CLI 重放或三节点故障验收。
 
-实际运行结果、失败夹具修正和资源清理记录见[实施进度](message-reliability-mq-progress.md)。后续[P4.2.4.2 审计事务](mq-quarantine-audit.md)已完成，下一项 **P4.2.4.3：隔离 worker 生命周期与角色工厂**。
+实际运行结果、失败夹具修正和资源清理记录见[实施进度](message-reliability-mq-progress.md)。后续[审计事务](mq-quarantine-audit.md)及[隔离生命周期](mq-quarantine-lifecycle.md)已完成，下一项 **P4.2.4.4：审计故障验收**。

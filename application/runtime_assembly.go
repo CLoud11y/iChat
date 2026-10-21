@@ -54,6 +54,8 @@ type RoleDependencies struct {
 	// PersistenceConsumers can be claimed once by the supervised persistence
 	// factory. It owns only this role's connections, never publisher/quarantine.
 	PersistenceConsumers *PersistenceConsumerSource
+	// QuarantineConsumers owns only the independently replaceable audit role.
+	QuarantineConsumers *QuarantineConsumerSource
 	// Health is a read-only aggregate. It is never proof of this role's own
 	// readiness; RuntimeAcceptance/RuntimeConsumerReadiness must not consult it.
 	Health health.RuntimeHealth
