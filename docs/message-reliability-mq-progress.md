@@ -3269,3 +3269,49 @@ driver EOF、实际 SQL TCP 丢响应、实际 AMQP ACK 丢帧和进程强杀分
 **P4.2.5.2：确认式重发与独立 replay attempt**。重读并验证选择的审计，保持业务身份及 payload hash，生成独立物理尝试；只有确认发布且无 return 后才能记录重发状态，发布/SQL 未知继续保留责任。规范业务终态核验与 resolved 属于 P4.2.5.3，“已重发”不能当成“已修复”。
 
 建议 commit message：`feat(mqadmin): add read-only quarantine audit queries`
+
+## 2026-10-22：P4.2.5.2 确认式重发与独立 replay attempt
+
+状态：本小点完成；P4.2.5.3 终态核验/resolved、P4.2.5.4 重放故障验收仍待实现。P4.2.5、P4 总项、Outbox、默认完整后台角色和客户端恢复未收口。
+
+### 实现
+
+- 新增 `mqadmin quarantine replay --transport-id id --confirm`；每次只操作精确选择的一条审计。语法/确认在读配置、建 SQL/MQ 连接前校验。已有 latest replay_attempt_id 时，还须给出匹配的 `--expect-replay-attempt`；默认拒绝重复选择旧版本，不隐式批量发布。
+- 新增 `application.ReplayQuarantine`：重新获取完整验证后的审计，拒绝 resolved、旧 attempt 不符或没有完整业务身份的输入；严格恢复原 wire/Command，保留业务身份/hash/正文/目标/媒体/clientSentAt 和原 receivedAt。MQ 连接按需建立，校验失败不接触发布通道。
+- 复用现有 RabbitMQ 命令 publisher，独立 session/单 slot/无自动重连或重发，mandatory+persistent，依靠完整 confirm/return 判定。新 publishAttemptId 同时用于 wire、CorrelationId 和后续 replay_attempt_id，不改变原 commandId/MessageId。
+- `config.LoadRabbitMQFile` 复用原严格 MQ 字段/环境覆盖校验，独立于 RuntimePlan/Redis；重放前只读 VerifyLocal，既不初始化也不修复拓扑。SQL 配置仍沿用只读 CLI 入口，不读取开发 Compose .env。
+- 新增 `QuarantineRepository.RecordReplay`：确认后才开 SQL 事务，FOR UPDATE 重新验证当前完整文档/原文/全部冗余字段与旧快照，比较旧 state/attempt 并拒绝已 resolved/变更/缺失行；条件 UPDATE 只改 replay_pending 和新 attempt，必须影响一行。SQL COMMIT 成功才报告 recorded，提交/回滚未知保留原错误类型。
+- 业务 SQL 与 MQ 不跨同一事务，没有宣称原子发布。新 JSON 含本次 transport/command/hash/attempt、publish_outcome、attempt_record；发布失败/未知不记状态，accepted 后 SQL 失败则保留 accepted/unconfirmed 与尝试身份，不自动再发。输出/关闭失败也不能被解释为从未发布。
+- 原审计 body/typed headers/首份观察和非重放字段保持不变；不写业务五表、不改终态、不标记 resolved。现有 schema 只保存 latest attempt，不引入多次尝试历史表，不修改依赖、migration/model 或默认运行时装配，也没有自动提交。
+
+使用方式、状态组合及重复发布责任见[确认式重发](mq-quarantine-replay.md)。README、相关协议文档及查询入口当前下一项均更新为 P4.2.5.3。
+
+### 验证
+
+默认测试覆盖精确选择/显式确认、原命令/原接收时间、未连接 MQ 的预检失败、Return/NACK/未知/接受但带错误/无效回执、确认后才调用状态记录、SQL 事务错误及 COMMIT/ROLLBACK 未知、旧快照/已解决/损坏数据保留、配置独立加载、输出错误和 publisher→SQL 关闭顺序。
+
+真实 suite `TestQuarantineReplayCLIIntegration` 通过默认 CLI 入口与真实 MySQL/RabbitMQ 验证三个小场景：
+
+1. wrapper 与 DLX 协议审计各执行两次确认重发，共四条真实物理发布。逐条 Get 核对全部 wire 业务字段/hash/时间不变、新 UUID 与结果/AMQP CorrelationId 一致、MessageId 为原 commandId、无旧 TTL/headers；再核对完整原审计和全部非重放元数据保持。旧快照 SQL 写入被拒绝；未显式选择当前 attempt 的再次重放没有产生新消息。
+2. 无有效业务身份与 fixture resolved 记录均拒绝发布，无结果 JSON，两队列为空。
+3. 默认只读拓扑核验和 publisher 连接成功后，fixture 暂时解除主绑定，生产 mandatory publisher 获得真实 Return。结果为 unroutable/not_attempted，原审计仍 open/无 attempt；fixture 恢复绑定后正式 VerifyLocal 通过。
+
+重放 suite 最终五条审计：两条 replay_pending、一条无业务身份 open、一条 fixture resolved、一条 Return 后 open；业务五表保持为空，schema 指纹不变。DLX 文档为已验收协议夹具；Get 后 ACK 仅用于观察/清理四条物理发布，不是生产消费事务或业务终态证明。本次没有执行真实发布确认丢失、重放 SQL 提交响应丢失、发布后更新前进程退出或并发发布交叉故障；对应 P4.2.5.4。
+
+同一命令先回归 `TestQuarantineCLIIntegration` 原三场景，run `81425d1c3ecd45d50543421868a78e78`，suite 20.37s 全通过。随后重放 run `69435330f16bdecdc670121bc76c81a1`，suite 22.65s 全通过；合并包 45.958s，无 fail/skip/race。两套 fixture Close 均成功，并按各自 Compose 项目标签只读核对容器/卷/网络均为 0。Docker 操作自动审批通过，无拒绝；未访问开发配置/数据。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./database ./cmd/mqadmin ./config -run '^Test(QuarantineReplay\|RabbitMQOnlyFile)' -count=30 -timeout=120s` | 最终 30 轮通过，database 4.557s、mqadmin 4.263s、config 1.924s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 11.170s、rabbitmq 8.275s、database 2.656s、mqadmin 2.497s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不代表执行其他集成 suite |
+| `go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantine(ReplayCLI\|CLI)Integration$' -count=1 -v -timeout=10m` | 原只读三项和新增重发三项均通过，包 45.958s |
+
+固定 Go 1.27.1、空 GOROOT、仓库 .gocache 和不存在的单元测试 ICHAT_CONFIG_FILE；集成 suite 内显式换为本轮私有临时配置，不把凭证放入 CLI 参数或结果 JSON。未调整 migration 指纹或拓扑契约。
+
+### 下一项
+
+**P4.2.5.3：终态核验与 resolved**。按原业务身份/hash 确认规范 persisted/rejected 终态，再事务更新隔离解决状态；“已重发”不代表“已修复”，业务 rejected 不会因管理员重放而改变。
+
+建议 commit message：`feat(mqadmin): add confirmed quarantine replay attempts`

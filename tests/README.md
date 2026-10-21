@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P4.2.5.2 确认式重发与独立 replay attempt：
+
+```powershell
+go test -mod=readonly -race ./database ./cmd/mqadmin ./config -run '^Test(QuarantineReplay|RabbitMQOnlyFile)' -count=30 -timeout=120s
+go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantine(ReplayCLI|CLI)Integration$' -count=1 -v -timeout=10m
+```
+
+真实 CLI→MySQL/RabbitMQ：wrapper/DLX 协议审计各两次确认重发，四条实际物理发布均保持业务内容/hash/时间、生成新 attempt；审计原文及非重放字段不变。精确选择/旧 attempt/resolved/空身份门禁、旧快照写状态拒绝与实际 mandatory Return 不记状态，最终五条审计、业务五表为空，schema/拓扑不变。原只读 CLI 三场景同时回归；真实网络丢确认/提交未知/进程崩溃交叉留给后续故障验收，见[重发契约](../docs/mq-quarantine-replay.md)。
+
 P4.2.5.1 隔离审计只读 CLI：
 
 ```powershell

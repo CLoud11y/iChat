@@ -52,6 +52,24 @@ RABBITMQ:
   managementPassword: 'secret-management'
 `
 
+func TestRabbitMQOnlyFile(t *testing.T) {
+	file := mqConfigFile(t, validMQYAML+"RUNTIME:\n  role: invalid\nREDIS: invalid\n")
+	c, err := LoadRabbitMQFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Publisher(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ICHAT_RABBITMQ_URL", "")
+	if _, err := LoadRabbitMQFile(file); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatal("explicit empty URL reused file or leaked secret")
+	}
+	if _, err := LoadRabbitMQFile(filepath.Join(t.TempDir(), "secret.yml")); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatal("file error leaked path")
+	}
+}
+
 func TestRabbitMQDefaultsAndIndependentReload(t *testing.T) {
 	path := mqConfigFile(t, "APP:\n  name: legacy\n")
 	c, err := Load()

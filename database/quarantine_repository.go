@@ -35,7 +35,8 @@ type QuarantineAuditResult struct {
 }
 
 // QuarantineRepository borrows the pool. It never owns MQ deliveries, pool
-// shutdown, retries, business writes, replay state changes or resolved status.
+// shutdown, retries, business writes or resolved status. RecordReplay is a
+// separate, explicitly invoked transition after confirmed publication.
 type QuarantineRepository struct{ db *sql.DB }
 
 func NewQuarantineRepository(db *sql.DB) (*QuarantineRepository, error) {

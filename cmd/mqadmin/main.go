@@ -27,16 +27,19 @@ func main() {
 
 func run(args []string, output io.Writer) (err error) {
 	if len(args) > 0 && args[0] == "quarantine" {
+		if len(args) > 1 && args[1] == "replay" {
+			return runQuarantineReplay(args[2:], output, openQuarantineReplayStore, dialQuarantineReplayPublisher)
+		}
 		return runQuarantine(args[1:], output, openQuarantineReader)
 	}
 	if len(args) == 0 || (args[0] != "init" && args[0] != "check") {
-		return errors.New("usage: mqadmin init|check [--env-file .env] | quarantine list|show [options]")
+		return errors.New("usage: mqadmin init|check [--env-file .env] | quarantine list|show|replay [options]")
 	}
 	flags := flag.NewFlagSet("mqadmin", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	envFile := flags.String("env-file", ".env", "explicit local Compose environment file; empty uses process environment only")
 	if flags.Parse(args[1:]) != nil || flags.NArg() != 0 {
-		return errors.New("usage: mqadmin init|check [--env-file .env] | quarantine list|show [options]")
+		return errors.New("usage: mqadmin init|check [--env-file .env] | quarantine list|show|replay [options]")
 	}
 	settings, err := loadSettings(*envFile)
 	if err != nil {

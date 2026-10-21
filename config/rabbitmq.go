@@ -80,6 +80,19 @@ func (c RabbitMQConfig) Publisher() (PublisherConfig, error) {
 	return PublisherConfig{URL: c.URL, VHost: c.VHost, Management: m, Options: o}, nil
 }
 
+// LoadRabbitMQFile loads only MQ settings, without runtime-role or Redis
+// requirements. An empty path selects process environment only.
+func LoadRabbitMQFile(file string) (RabbitMQConfig, error) {
+	v := viper.New()
+	if file != "" {
+		v.SetConfigFile(file)
+		if err := v.ReadInConfig(); err != nil {
+			return RabbitMQConfig{}, errors.New("read RabbitMQ configuration failed")
+		}
+	}
+	return loadRabbitMQ(v)
+}
+
 func loadRabbitMQ(v *viper.Viper) (RabbitMQConfig, error) {
 	var c RabbitMQConfig
 	known := map[string]bool{
