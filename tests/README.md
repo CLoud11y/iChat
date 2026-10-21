@@ -1,5 +1,15 @@
 # 独立测试环境
 
+P4.2.4.1 隔离审计输入解析与身份契约：
+
+```powershell
+go test -mod=readonly -race ./messaging/rabbitmq -run '^TestQuarantine' -count=30 -timeout=120s
+go test -mod=readonly ./messaging/rabbitmq -run '^$' -fuzz '^FuzzParseQuarantineInput$' -fuzztime=15s -parallel=2
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineInputIntegration$' -count=1 -v -timeout=8m
+```
+
+默认测试覆盖两格式、不可变快照、稳定内容/身份、完整校验后的可选业务身份、四种 DLX 原因、篡改/歧义及预算。真实六项覆盖 wrapper 重投、自动 rejected/expired、有效命令身份及篡改输入保留；fixture 时间比较使用 UTC 规范快照，ACK 仅用于检查清理，没有审计 SQL 或生产隔离 worker。协议与结果见[隔离审计输入](../docs/mq-quarantine-input.md)。
+
 P4.2.3.4 可靠隔离转移的运行时交叉故障：
 
 ```powershell

@@ -3001,3 +3001,51 @@ COMMIT 场景是实际提交成功后的 driver 返回注入，非 SQL TCP 丢�
 **P4.2.4：隔离记录 worker**。先拆分主动 wrapper/自动 DLX 原文解析与身份校验，再实现完整 body/带类型 headers 的幂等审计事务、提交后 ACK、生命周期与故障验收；后续 P4.2.5 受控重放 CLI 不因“已经重发”就标记 resolved。P4 总项继续保持未完成。
 
 建议 commit message：`test(worker): verify quarantine transfer runtime ownership`
+
+## 2026-10-21：P4.2.4.1 隔离审计输入解析与身份契约
+
+状态：本小点完成。P4.2.4 已拆分为输入契约、幂等审计事务、worker 生命周期/工厂和故障验收；父项及 P4 总项仍未完成。本次没有 SQL 写入、ACK 接线或默认后台角色变更。
+
+### 实现
+
+- 新增 `rabbitmq.ParseQuarantineInput`，严格区分主动 wrapper 与自动 DLX 原文；任一 wrapper 标记命中后不允许失败回退。核对规范 v1、外层 transport ID、发布 attempt/属性及当前两个受控错误码。
+- 自动 DLX 校验最新 `x-death` 的固定主队列/命令 exchange/submit 路由、正 int64 count、时间、四种原因及 last-death 一致性；历史项校验结构。四种原因转为固定 BROKER 错误码，不根据正文猜测来源。
+- 不可变结果保留完整源 body、带类型 headers/属性及当前隔离投递副本；分别记录源观察与当前接收时间。坏业务正文仍可审计，只有严格 wire/摘要/AMQP 身份完整通过时才提供全部业务关联字段，不从坏 JSON 提取部分身份。
+- 共用原 v1 快照和稳定内容编码，新增 `StableContent()` 为后续 SQL 比较提供精确材料；原信封编码和固定哈希保持。wrapper body 与外层元数据分别有界，避免再次 base64 包装导致大合法输入被误拒绝；未知类型/循环/超限失败且无截断。
+- 同步[输入契约](mq-quarantine-input.md)、总清单、README、测试入口和隔离协议/处置边界。来源头不是认证，未来 worker 仍须从经过拓扑校验的真实隔离消费者获取输入。
+
+### 真实 broker 验收与夹具修正
+
+`TestQuarantineInputIntegration` 使用独立随机项目、RabbitMQ 4.3.6 / amqp091-go v1.15.0，没有运行审计 SQL 或应用 worker：
+
+1. 主动 wrapper 包含坏字节，解析保留所有材料；未 ACK 关闭消费者后原文重投，稳定内容/身份一致。
+2. 完整有效源 wire 的 wrapper 提供全部经过校验的业务身份；重投仍一致。
+3. fixture 对主队列 Reject(false) 触发实际 rejected DLX，保留原始坏字节、带类型 headers 和真实死信元数据，身份与初始源一致。
+4. 主队列原始 TTL 到期触发实际 expired DLX，观察 TTL 移除且稳定身份不变。
+5. 完整有效命令通过真实 rejected DLX 后补充业务身份，保存的路由仍为实际 DLX 路由。
+6. 外层 MessageID 篡改的 wrapper 失败，不回退；解析失败没有结算投递，关闭后原文重投仍失败，再由 fixture 显式 ACK 清理。
+
+第一次 run `b75cbb041553e47b5a711ffc0da21d2f`：两项 wrapper 通过，首个 DLX 的结构体深比较把 broker 解码时间的 Location 与快照 UTC 规范化误判为内容变化；该项未 ACK 导致之后读到前项重投，suite 失败，不计通过。改为比较两侧完整带类型协议快照，仍覆盖全部 body/headers/属性，不放宽生产解析校验。
+
+最终完整 run `47262a34e206125cf3d21ece839b0db8` 六项无 fail/skip，suite 23.45s、包 26.279s，无 race。末尾直接检查主/隔离队列为空，并复核正式拓扑。ACK 和 Reject 仅是 fixture 检查/清理及触发 broker DLX，不代表审计已提交。
+
+### 命令与结果
+
+固定 Go 1.27.1、空 GOROOT、仓库 `.gocache` 和不存在的 ICHAT_CONFIG_FILE，不读取开发 .env/config。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./messaging/rabbitmq -run '^TestQuarantine' -count=30 -timeout=120s` | 30 轮通过，41.040s，无 race，含原 v1 哈希/协议回归 |
+| `go test -mod=readonly ./messaging/rabbitmq -run '^$' -fuzz '^FuzzParseQuarantineInput$' -fuzztime=15s -parallel=2` | 通过，736 次执行、2 个新覆盖输入，包 18.039s |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 15.853s、rabbitmq 12.116s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终夹具修改后通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不代表运行了全部集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineInputIntegration$' -count=1 -v -timeout=8m` | 最终完整六项通过，包 26.279s |
+
+两轮 fixture Close 成功；分别按本轮 Compose 项目标签只读核对，容器/卷/网络均为 0。Docker 操作自动审批通过，无审批拒绝。`gofmt -l` 无输出，`git diff --check` 通过；未新增依赖、修改开发配置、执行 migration 或自动提交。
+
+### 下一项
+
+**P4.2.4.2：幂等隔离审计事务**。明确完整源快照/投递观察/稳定内容的 SQL 保存契约，同 transport ID 比较稳定内容而不覆盖原文，验证重复/并发/冲突、取消和 COMMIT 未知。SQL 提交后 ACK、数据库暂停恢复、角色工厂/资源 join 和故障交叉验收仍归 P4.2.4.3/.4；重放 CLI 归 P4.2.5。
+
+建议 commit message：`feat(mq): parse quarantine audit inputs and verify source identity`

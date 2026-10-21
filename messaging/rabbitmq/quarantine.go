@@ -52,28 +52,9 @@ func NewQuarantineEnvelope(source ConsumerMessage, errorCode string, observedAt 
 	if !quarantineCode(errorCode) || observedAt.IsZero() {
 		return QuarantineEnvelope{}, ErrQuarantineEnvelope
 	}
-	texts := [12]string{source.ContentType, source.ContentEncoding, source.CorrelationID, source.ReplyTo,
-		source.Expiration, source.MessageID, source.Type, source.UserID, source.AppID,
-		source.ConsumerTag, source.Exchange, source.RoutingKey}
-	size := len(source.Body)
-	for _, value := range texts {
-		size += len(value)
-	}
-	if size > MaxQuarantineBytes {
-		return QuarantineEnvelope{}, ErrQuarantineEnvelope
-	}
-	headers, err := encodeQuarantineHeader(source.Headers, 0, &quarantineBudget{bytes: size})
+	snapshot, err := snapshotQuarantineMessage(source)
 	if err != nil {
 		return QuarantineEnvelope{}, err
-	}
-	stamp, err := source.Timestamp.UTC().MarshalBinary()
-	if err != nil {
-		return QuarantineEnvelope{}, ErrQuarantineEnvelope
-	}
-	snapshot := quarantineSnapshot{Body: append([]byte{}, source.Body...), Headers: headers, Timestamp: stamp,
-		DeliveryMode: source.DeliveryMode, Priority: source.Priority, DeliveryTag: source.DeliveryTag, Redelivered: source.Redelivered}
-	for i, value := range texts {
-		snapshot.Text[i] = []byte(value)
 	}
 	wire := quarantineWire{Version: 1, ErrorCode: errorCode, ObservedAt: observedAt.UTC(), Source: snapshot}
 	wire.TransportID = quarantineIdentity(snapshot)
@@ -167,21 +148,7 @@ func quarantineCode(code string) bool {
 }
 
 func quarantineIdentity(source quarantineSnapshot) string {
-	// Routing, TTL and delivery metadata can change during broker dead-lettering.
-	// They remain in the audit snapshot but cannot identify an original attempt.
-	source.Text[4], source.Text[9], source.Text[10], source.Text[11] = nil, nil, nil, nil
-	source.DeliveryTag, source.Redelivered = 0, false
-	filtered := make([]quarantineHeaderField, 0, len(source.Headers.Fields))
-	for _, field := range source.Headers.Fields {
-		switch string(field.Key) {
-		case "x-death", "x-delivery-count", "x-acquired-count", "x-first-death-exchange", "x-first-death-queue", "x-first-death-reason",
-			"x-last-death-exchange", "x-last-death-queue", "x-last-death-reason", "CC", "BCC":
-			continue
-		}
-		filtered = append(filtered, field)
-	}
-	source.Headers = quarantineHeader{Type: "table", Fields: filtered}
-	encoded, _ := json.Marshal(source) // Only byte slices, scalar values and bounded typed nodes.
+	encoded, _ := quarantineStableContent(source)
 	hash := sha256.Sum256(append([]byte("ichat:command-transport:v1\x00"), encoded...))
 	return "mq:v1:" + hex.EncodeToString(hash[:])
 }
