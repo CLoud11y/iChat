@@ -54,7 +54,7 @@ SQL 尝试、退避、目标发布、回执复核和原 ACK 共用原 processing
 
 目标 confirm 丢失后，原消息不会 ACK；源 channel 受控关闭后原 attempt 重投，可能再次转移。目标确认后源 ACK 丢失也会导致重复。跨重投的 transport ID 稳定，目标物理 attempt 独立生成；重新创建的快照允许观察时间及 broker 审计头变化，不能要求这些快照逐字节相同。
 
-本项只完成从主队列到隔离 MQ 的安全交接，没有把隔离表或重放 CLI 实现为占位成功。后续 [P4.2.3.4 运行时故障验收](mq-quarantine-acceptance.md)已完成并收口 P4.2.3。[输入解析](mq-quarantine-input.md)、[审计事务](mq-quarantine-audit.md)及[P4.2.4.3 隔离生命周期](mq-quarantine-lifecycle.md)已完成完整审计、提交后 ACK 和独立角色恢复，下一项 **P4.2.4.4 审计故障验收**；重放仍保持原业务身份。
+本项只完成从主队列到隔离 MQ 的安全交接，没有把隔离表或重放 CLI 实现为占位成功。后续 [P4.2.3.4 运行时故障验收](mq-quarantine-acceptance.md)已完成并收口 P4.2.3。[输入解析](mq-quarantine-input.md)、[审计事务](mq-quarantine-audit.md)、[隔离生命周期](mq-quarantine-lifecycle.md)及[P4.2.4.4 审计故障验收](mq-quarantine-audit-acceptance.md)均已完成，P4.2.4 范围收口；下一项 **P4.2.5 受控重放 CLI**，实施前继续拆分，重放仍保持原业务身份。
 
 ## 验证
 

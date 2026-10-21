@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P4.2.4.4 隔离审计故障验收及 P4.2.4 收口：
+
+```powershell
+go test -mod=readonly -race ./application ./workers -run '^Test(Quarantine|Persistence)' -count=30 -timeout=120s
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineAuditAcceptanceIntegration$' -count=1 -v -timeout=15m
+```
+
+九项区分 driver 提交后错误、真实 SQL COMMIT OK 丢响应、第二轮实际 consumer ACK 丢帧、审计提交前/后强杀子进程、DLX 首份观察、内容冲突，以及两个生产消费者角色同时停库恢复和 pending SQL owner。逐项核对完整审计/业务集合及实际 broker ACK，最后 11 条审计、4 条业务和 8 条业务 Outbox。CLI/Outbox 运行时仍未收口，详细注入边界见[审计故障验收](../docs/mq-quarantine-audit-acceptance.md)。
+
 P4.2.4.3 隔离 worker 生命周期、角色工厂与恢复：
 
 ```powershell

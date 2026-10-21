@@ -3166,3 +3166,59 @@ COMMIT 场景是实际提交成功后的 driver 返回注入，非 SQL TCP 丢�
 **P4.2.4.4：审计故障验收**。在现有解析/事务/生命周期基础上继续构造实际提交不确定、ACK 丢失、进程故障和持久化/隔离角色同时运行的恢复/退出交叉场景，核对完整审计集合与未确认责任；该验收完成后才能收口 P4.2.4。P4.2.5 受控重放仍须保持业务身份并确认业务终态后才 resolved。
 
 建议 commit message：`feat(worker): add quarantine audit lifecycle and recovery`
+
+## 2026-10-22：P4.2.4.4 审计故障验收与 P4.2.4 收口
+
+状态：本小点完成，P4.2.4.1—.4 范围收口。本次新增验收和夹具，没有修改生产 handler、仓储、生命周期、配置或 schema。P4 总项、受控 CLI、Outbox、默认完整后台角色和客户端恢复仍未完成。
+
+### 验收实现
+
+- 新增 `TestQuarantineAuditAcceptanceIntegration`，生产隔离工厂 → RunRuntime，双角色场景同时装配生产持久化/隔离工厂并借入真实隔离 publisher；只有 Outbox 仍为明确 fixture companion。独立隔离场景的持久化角色也是 companion，按各场景实际范围报告。
+- 新增 fixture SQL adapter，只拦截真正执行了 message_quarantine INSERT 的事务，区分真实 COMMIT 后的 driver EOF 与提交前/后的返回屏障，不影响同 pool 的正常业务事务。
+- 新增专属 SQL TCP 代理：按 classic protocol packet framing 转发，识别 COM_QUERY COMMIT，读取完整真实服务器成功 OK 后丢弃并断开。无 payload 日志，不作为生产代理；测试固定为不启用 TLS/压缩/query attributes 的驱动通路。
+- 新增私有子进程 helper，通过私有环境传入本轮 fixture 参数，使用真实 QuarantineService 和 SQL 事务。父进程观察确定屏障后，只强杀自己启动的该 PID，并等待真实退出；不依赖日志猜测 COMMIT 时序。
+- 默认新增主/隔离来源同时 claim、分别退役和替换时的聚合快照/就绪独立性验证。
+
+### 九项真实故障矩阵
+
+1. 实际审计 COMMIT 成功后 driver 返回 EOF：回调证明已触发；监督器保留 commit unknown、进入新连接代次，原身份恢复并 ACK，仅一行。
+2. 真正的 SQL COMMIT OK 响应丢失：TCP 代理确认丢弃一个真实成功响应，客户端看到网络未知结果；DB 审计已存在，监督器按原身份恢复核验，LastFailure 为 commit unknown。
+3. 隔离消费者先替换到第二轮，再由专属 AMQP 代理丢弃真实 consumer ACK；本地 ACK 成功后正常退出，原 wrapper 实际 redelivered，显式恢复且首份完整审计不变，没有自动 replay。
+4. 实际审计 INSERT/核验完成、COMMIT 前强杀子进程：外部观察无已提交行，强杀后事务回滚，原文重投，新 worker 保存后 ACK。
+5. 实际 COMMIT 成功、ACK 前强杀子进程：外部已看到审计；进程退出后审计和原文均保留，恢复 existing，不覆盖首次观察。
+6. 先由主队列 Reject 触发真实 broker 自动 DLX，审计为 broker_dlx；后续两个主动 wrapper 共用相同 transport ID，首份完整 x-death/实际路由/观察不变。
+7. 将另一合法源文档置于原 key 下，模拟主键/内容不一致：真实 worker 返回内容冲突并停止，无 ACK、无覆盖、无自动恢复。只恢复夹具故意损坏前保存的文档后，真实 worker 核验已有审计并 ACK；没有制造哈希碰撞或删除审计强迫重做。
+8. 生产持久化与隔离两个监督角色共用 SQL pool 停库：进入稳定 backoff 后积压三条有效命令各两次、三种坏源各两次，离线阶段代次不增加。存储恢复后两角色均换代并恢复聚合就绪，核对三个唯一业务结果、六个 Outbox 和三份坏源审计，正常 drain。
+9. 两生产角色共用 pool，在审计真实 COMMIT 后阻塞返回；正常业务仍能完成。drain/close 各 100ms，RunRuntime 返回 pending 时隔离 Done 未关、SQL pool 仍可 Ping、外部 publisher owner 仍存在。迟到审计不 ACK，两个角色实际 join 后恢复原 wrapper；业务和审计均不重复，最后才允许外部关闭 pool。
+
+每项检查全部审计 ID 集合、原始坏字节、精确稳定内容及类型、完整文档可恢复性、身份全 NULL、state=open 和无 replay/resolved。成功结束要求两队列无 ready/unacked，broker ACK 覆盖实际确认发布的物理副本；发布计数来自真实 publisher，允许恢复中的合法重复副本。之后直接 Get 两队列为空，等待连接回到三个 fixture owner，再核对规范业务集合和全表总量。最后确认 schema 指纹与正式拓扑不变。
+
+最终集合为 **11 条唯一隔离审计、4 条规范 command/message、8 条业务 Outbox**。源数据含 NUL/无效 UTF-8、binary、超过 JSON 精度范围的 int64 和 decimal；没有用 JSON 普通浮点数替代 AMQP 类型。
+
+### 运行结果与注入边界
+
+先运行八项矩阵（未加入 SQL TCP 代理），run `ed9dae8368f6d380a4b23c290f63b4d6` 全部通过，suite 94.47s、包 97.232s。随后增加独立的真实 COMMIT OK 网络丢失场景，完整重跑九项。
+
+最终 run `7b8a1f580efbcb8c41230942f711d2a5` 九项无 fail/skip，suite 79.10s、包 81.915s，无 race。两个 run 的子进程在前/后提交窗口均由父进程强杀并 Wait 完成，所有专属代理在清理中加入。MySQL EOF 日志分别来自明确的 SQL 响应丢失和本轮数据库停机。
+
+driver EOF、实际 SQL TCP 丢响应、实际 AMQP ACK 丢帧和进程强杀分别报告，互不替代。pending 场景中的返回屏障只确定晚回调/存储所有权，不冒充网络丢失。fixture 的原始主队列 Reject 用于触发 DLX；检查隔离 redelivery 后的 Nack 仅将原消息交回真实恢复 worker，不是生产隔离或重放策略。
+
+### 命令与结果
+
+固定 Go 1.27.1、空 GOROOT、仓库 `.gocache`、不存在的 ICHAT_CONFIG_FILE；RabbitMQ 4.3.6 / amqp091-go v1.15.0。不读取开发 .env/config。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./application ./workers -run '^Test(Quarantine\|Persistence)' -count=30 -timeout=120s` | 新旧相关测试 30 轮通过，application 13.698s、workers 12.043s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 11.640s、rabbitmq 8.601s、application 3.455s、workers 2.519s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终 SQL 代理与九项矩阵修改后通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不代表执行所有集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineAuditAcceptanceIntegration$' -count=1 -v -timeout=15m` | 最终九项通过，包 81.915s |
+
+两轮 fixture Close 成功；分别按项目标签只读核对容器/卷/网络均为 0。Docker 操作通过自动审批，无审批拒绝；没有修改生产逻辑、依赖、migration、开发配置或自动提交。
+
+### 下一项与范围
+
+**P4.2.5：受控重放 CLI**，实施前拆分只读查询/选择、确认式重发/独立 replay attempt、终态核验/resolved 和故障验收。保持业务身份与 payload hash，未知结果继续保留责任；“已重发”不能当成“已修复”。本次不验收 CLI、Outbox 发布/lease、默认完整 worker/all、实际客户端、宿主信号编排、三节点多数故障、磁盘损坏或管理员删除数据，P4 总项继续保持未完成。
+
+建议 commit message：`test(worker): verify quarantine audit failure recovery`
