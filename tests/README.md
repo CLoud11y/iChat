@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P5.1.1 Outbox 有界原子领取：
+
+```powershell
+go test -mod=readonly -race ./database -run '^TestOutboxClaim' -count=30 -timeout=120s
+go test -mod=readonly -race -tags=integration ./database -run '^TestOutboxClaimIntegration$' -count=1 -v -timeout=7m
+```
+
+MySQL fixture 用 17 条直接 Outbox 结构夹具验证到期/未来/过期/完成筛选、独立 token/attempt、原 JSON 保留、实际行锁和未提交状态跳过、10 路并发无重复 owner 及剩余集合恢复。数据库时钟独立于 session/driver 时区，其他五表为空，schema 不变；尚无通知或结算，见[领取契约](../docs/outbox-claim.md)。
+
 P4.2.5.4 重放故障验收与 P4.2.5 收口：
 
 ```powershell
@@ -8,7 +17,7 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarant
 go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQSessionIntegration$' -count=1 -v -timeout=8m
 ```
 
-十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。下一项 P5.1 Outbox worker，实施前拆分；P4 整体交叉仍待 Outbox 接入。
+十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。P5.1.1 领取仓储已完成，下一项 P5.1.2 token 条件结算与失败回退；P4 整体交叉仍待 Outbox 接入。
 
 P4.2.5.3 终态核验与 resolved：
 

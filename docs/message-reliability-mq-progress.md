@@ -3426,3 +3426,41 @@ driver EOF、实际 SQL TCP 丢响应、实际 AMQP ACK 丢帧和进程强杀分
 **P5.1：Outbox lease + token + SKIP LOCKED worker**，实施前拆分仓储、执行循环/角色接线与故障验收。P4 整体退出/提交未知交叉验收在完整 Outbox 接入后继续，当前不放开默认 worker/all 门禁。通知/客户端交付、三节点多数故障及磁盘损坏均未在本次验收。
 
 建议 commit message：`test(mqadmin): verify quarantine replay fault recovery`
+
+## 2026-10-23：P5.1 拆分与 P5.1.1 Outbox 有界原子领取
+
+状态：P5.1 拆为领取仓储、token 条件结算/失败回退、通知执行循环、生产角色接线、故障验收五项。本次只完成 P5.1.1；P5.1/P5 和默认完整后台角色未完成，P4 整体交叉仍待 Outbox 接入。
+
+新增 `database.NewOutboxRepository(pool)` / `Claim(ctx, options)`，借入 pool，不发送通知、不结算 lease、不修改业务消息/游标、不自动重试或关闭资源。复用现有 schema、索引、CHECK 与 payload，没有依赖/migration/model/配置模板或默认装配变更，没有自动提交。
+
+领取在 READ COMMITTED 短事务内使用一次数据库 UTC 时钟，筛选到期 pending/过期 leased，按 available_at/created_at/event_id 排序并有界 SKIP LOCKED。每行 crypto/rand UUID v4 token，lease_until 为时钟样本加期限，attempts 加一；条件更新核对旧 state/token，必须影响一行。返回完整原存储 JSON、路由、token、UTC 截止及新 attempts；全部 COMMIT 成功才返回。空批次回滚释放读事务；任意损坏行、取消、写失败、COMMIT/ROLLBACK 未知都不返回部分 lease。
+
+limit 1—100，lease 1 秒—5 分钟、整数微秒。核验事件派生身份、日期/状态/到期组合、attempt 不溢出和 JSON 结构（最大 1 MiB）。错误使用固定阶段文字，默认 lease 格式化隐藏正文。完整 payload 业务语义/接收权限、通知发送、续约及完成/失败 token fencing 尚未实现。慢事务/提交延迟会消耗 lease，后续执行循环必须检查剩余时间。
+
+### 验证与夹具修正
+
+默认测试覆盖成功提交顺序、空批次、批次后续坏行引发整批回滚、非法选项/状态/attempt 上限、未来 lease、取消、SQL 失败及提交/回滚未知不返回结果。
+
+真实 MySQL/Redis fixture 直接插入 17 条 Outbox 结构夹具，未启动 MQ，也不冒充生产业务生成/通知验收。三组验证：
+
+1. pending 到期、leased 过期可领取，新 token/attempt 正确且原 JSON 不重新编码；未来 pending、未过期 leased、completed 不变，活动 lease 不被再次领取。
+2. 实际 FOR UPDATE 锁住一条候选，其他行仍可领取；解锁后原行可恢复。仅在另一未提交事务中改为 pending 的记录不泄漏给新 owner。
+3. 十路并发有限领取，无重复 event owner/token；每份返回 token 经独立查询确认已提交；并发结束后剩余 due 集合可继续领取。
+
+首次 run `db104d8ff52ff8b6172aea684a209ace` 前两组通过，第三组错误要求每个并发调用都恰好领取一条，suite 20.28s、包 22.334s 失败。SKIP LOCKED 遇其他事务扫描/锁定候选时可暂时空批次，不能据此断言队列永久为空；修正为检查所有已领取 owner 唯一，再在并发事务 join 后领取剩余集合，未改生产领取逻辑。
+
+最终 run `0e64ab39077edf57631e1bf570a86ea3` 三组全部通过，suite 20.53s、包 23.347s，无 fail/skip/race。SQL session +05:30、driver loc +13，lease 仍为 UTC；其他五张可靠性表为空，Outbox 集合仍为 17 条，schema 指纹不变。两套 fixture Close 成功，按项目标签只读确认容器/卷/网络均为 0。Docker 自动审批通过，无拒绝，未访问开发配置/数据。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./database -run '^TestOutboxClaim' -count=30 -timeout=120s` | 最终 30 轮通过，包 2.487s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 11.349s、rabbitmq 8.275s、database 2.886s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不等于执行全部集成 suite |
+| `go test -mod=readonly -race -tags=integration ./database -run '^TestOutboxClaimIntegration$' -count=1 -v -timeout=7m` | 最终三组通过，包 23.347s |
+
+固定 Go 1.27.1、空 GOROOT、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE。领取/租约错误 driver 是默认测试注入，未将其报告为真实提交丢响应；实际网络/进程故障留给 P5.1.5。
+
+下一项 **P5.1.2：token 条件结算与失败回退**。完整契约与边界见[Outbox 领取](outbox-claim.md)。
+
+建议 commit message：`feat(outbox): add atomic bounded lease claims`
