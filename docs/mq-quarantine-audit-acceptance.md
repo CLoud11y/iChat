@@ -48,4 +48,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarant
 
 默认增加两个来源同时 claim/分别退役、替换时聚合就绪与快照隔离的验证。真实 suite 的最后审计集合为 11 个 transport ID，业务集合为 4 个规范 command/message 和 8 个业务 Outbox。实际 runId、耗时、旧八项预运行和清理记录见[实施进度](message-reliability-mq-progress.md)；标签编译不等于执行所有集成 suite。
 
-P4.2.4.1—.4 范围完成。尚未验收默认完整 worker/all、Outbox 发布/lease、受控 CLI、实际客户端、宿主信号编排、三节点多数故障、磁盘损坏或管理员删除数据。[P4.2.5.1 只读查询与选择](mq-quarantine-query.md)及[P4.2.5.2 确认式重发](mq-quarantine-replay.md)已完成；下一项 **P4.2.5.3：终态核验与 resolved**；重发确认不是业务已修复，只有确认业务终态后才能 resolved。
+P4.2.4.1—.4 范围完成。尚未验收默认完整 worker/all、Outbox 发布/lease、受控 CLI、实际客户端、宿主信号编排、三节点多数故障、磁盘损坏或管理员删除数据。[P4.2.5.1 只读查询与选择](mq-quarantine-query.md)、[P4.2.5.2 确认式重发](mq-quarantine-replay.md)及[P4.2.5.3 终态核验](mq-quarantine-resolve.md)已完成；下一项 **P4.2.5.4：重放故障验收**；重发确认不是业务已修复，只有确认业务终态后才能 resolved。

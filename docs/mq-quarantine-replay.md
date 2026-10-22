@@ -70,4 +70,4 @@ go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantin
 
 最终五条审计：两条 replay_pending、一条无业务身份 open、一条 fixture resolved、一条 Return 后 open；业务五表为空，schema 指纹及正式拓扑不变。只读 CLI 原三场景同时回归。DLX 是既有协议输入夹具；fixture 对入队消息的 ACK 仅用于检查/清理，没有代替生产消费事务或终态证明。真实网络确认丢失、提交未知、进程故障及并发发布交叉验收留给 P4.2.5.4。实际 runId、结果与清理见[实施进度](message-reliability-mq-progress.md)。
 
-下一项 **P4.2.5.3：终态核验与 resolved**。须确认匹配原身份/hash 的规范 persisted/rejected，再事务收口审计；已 rejected 不会被管理员重放改成 persisted。P4.2.5 总项、P4 和默认完整后台角色仍未完成。
+后续[P4.2.5.3：终态核验与 resolved](mq-quarantine-resolve.md)已完成，确认匹配原身份/hash 的规范 persisted/rejected 后才收口审计；已 rejected 不会被管理员重放改成 persisted。下一项 **P4.2.5.4：重放故障验收**。P4.2.5 总项、P4 和默认完整后台角色仍未完成。

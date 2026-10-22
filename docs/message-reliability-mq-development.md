@@ -794,7 +794,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
   - [ ] P4.2.5 受控重放 CLI：列举/查看/选择审计记录，保持业务身份，确认式重发并记录独立 replay attempt；确认业务终态后才 resolved，未知结果保留责任。
     - [x] P4.2.5.1 只读查询与选择：SQL 元数据状态筛选/有界游标分页、精确 transport ID 详情、完整审计/冗余字段核验及显式原文展示；命令只连接 MySQL，不修改状态，见[隔离审计查询](mq-quarantine-query.md)。
     - [x] P4.2.5.2 确认式重发与独立 replay attempt：重新核验精确选择与期望旧 attempt，保持业务身份/hash，独立生成物理尝试，confirm 且无 return 后事务核验旧快照并记录 replay_pending；原文/状态冲突和未知结果保留责任。CLI、真实重发/Return 与边界见[受控重发](mq-quarantine-replay.md)。
-    - [ ] P4.2.5.3 终态核验与 resolved：确认匹配身份/hash 的规范业务终态，事务更新审计解决状态；不得修改原 persisted/rejected 或删除幂等记录。
+    - [x] P4.2.5.3 终态核验与 resolved：同一事务锁定核验完整审计与匹配身份/hash 的规范 persisted/rejected，persisted 还校验实际消息；仅更新解决状态/时间，保留原文/attempt/业务终态，并发解决和重复核验不改首次时间，见[终态核验](mq-quarantine-resolve.md)。
     - [ ] P4.2.5.4 重放故障验收：实际确认失败/未知、发布后状态更新前退出、并发尝试及终态核验失败，核对原文、唯一业务结果和未解决责任。
 - [ ] P4 整体优雅退出和 DB 提交不确定恢复；持久化/隔离监督恢复及退出已覆盖，受控重放、Outbox 和整体角色交叉仍待后续验证。
 

@@ -19,14 +19,18 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func adminQuarantineInput(t *testing.T, label string, valid, dlx bool) rabbitmq.QuarantineInput {
+func adminQuarantineInput(t *testing.T, label string, valid, dlx bool, clientIDs ...string) rabbitmq.QuarantineInput {
 	t.Helper()
 	stamp := time.Date(2026, 10, 22, 1, 2, 3, 123456000, time.UTC)
 	source := rabbitmq.ConsumerMessage{Body: []byte{0xff, 0, '{'}, ContentType: "application/json", DeliveryMode: 2,
 		Exchange: rabbitmq.CommandsExchange, RoutingKey: rabbitmq.SubmitRoutingKey, MessageID: label, CorrelationID: "original-" + label,
 		Headers: amqp.Table{"binary": []byte{0, 255}, "large": int64(9007199254740993), "decimal": amqp.Decimal{Scale: 2, Value: -12}}}
 	if valid {
-		command, err := messaging.Normalize(12, messaging.SendRequest{ClientMessageID: "8fd7c2ef-ae26-4bb5-91a5-32a302bb05f1", TargetType: messaging.Private, TargetID: "34", Media: messaging.Text, Content: label + "中🙂\x00"})
+		clientID := "8fd7c2ef-ae26-4bb5-91a5-32a302bb05f1"
+		if len(clientIDs) != 0 {
+			clientID = clientIDs[0]
+		}
+		command, err := messaging.Normalize(12, messaging.SendRequest{ClientMessageID: clientID, TargetType: messaging.Private, TargetID: "34", Media: messaging.Text, Content: label + "中🙂\x00"})
 		if err != nil {
 			t.Fatal(err)
 		}

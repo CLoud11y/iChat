@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P4.2.5.3 终态核验与 resolved：
+
+```powershell
+go test -mod=readonly -race ./database ./cmd/mqadmin -run '^TestQuarantine(Resolve|Replay)' -count=30 -timeout=120s
+go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantine(ResolveCLI|CLI)Integration$' -count=1 -v -timeout=10m
+```
+
+MySQL fixture 用生产 PersistCommand 生成 persisted/rejected；CLI 实际核验终态/消息、旧 attempt、pending/空身份/hash 冲突、消息损坏保留、幂等解决时间，八路仓储 resolver 收敛且迟到 replay 不能重开。逐列比较业务五表，最终七条审计、四条 command、三条 message、七条 Outbox，schema 不变。原只读 CLI 三组同时回归；未启动 MQ，重放/解决交叉故障留给后续验收，见[解决契约](../docs/mq-quarantine-resolve.md)。
+
 P4.2.5.2 确认式重发与独立 replay attempt：
 
 ```powershell

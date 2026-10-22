@@ -3315,3 +3315,59 @@ driver EOF、实际 SQL TCP 丢响应、实际 AMQP ACK 丢帧和进程强杀分
 **P4.2.5.3：终态核验与 resolved**。按原业务身份/hash 确认规范 persisted/rejected 终态，再事务更新隔离解决状态；“已重发”不代表“已修复”，业务 rejected 不会因管理员重放而改变。
 
 建议 commit message：`feat(mqadmin): add confirmed quarantine replay attempts`
+
+## 2026-10-23：P4.2.5.3 终态核验与 resolved
+
+状态：本小点完成，P4.2.5.4 重放故障验收仍待实施。P4.2.5、P4、Outbox、默认完整后台角色和客户端恢复仍未收口。
+
+### 实现与责任
+
+- 新增 `mqadmin quarantine resolve --transport-id id --confirm`，有已记录 replay_attempt_id 时必须提供匹配的 `--expect-replay-attempt`。参数/显式确认先于配置读取和连接；每次精确操作一条审计。
+- `QuarantineRepository.Resolve` 在同一事务内锁定完整审计，复用文档/原文/身份/冗余字段/时间/状态校验，检查请求/主键/文档 transport ID 和期望旧 attempt。无有效业务身份的坏 wire 不能解决。
+- 按原 sender/clientMessageId `FOR SHARE` 当前读取已提交的规范 command，核对 commandId/hash 与审计一致，复用规范终态结构校验；无记录为 pending，异 hash/身份为冲突，内部占位/非法 state 或字段组合均拒绝。
+- persisted 还复用实际消息核验，确认消息存在、规范内容/hash、身份/会话、seq/已提交水位和时间有效。rejected 保留原业务拒绝原因；不改命令、不修改消息/Outbox、不重做业务，也不删除幂等记录。
+- 仅将未解决审计 state 更新为 resolved 并写 UTC 微秒时间，带旧 state/attempt 和 resolved_at IS NULL 条件，必须影响一行。保留首份 body/typed headers/观察、业务身份/hash、原错误字段、created_at 和 replay_attempt_id。
+- 已 resolved 时重新核验审计和业务终态，只回滚释放核验事务，返回 already_resolved 和原时间。并发 resolver 串行核验；旧快照 RecordReplay 不能重新打开解决后的行。
+- COMMIT 成功才返回 resolved。终态已核验但 SQL 更新/提交/释放失败时，JSON 返回 unconfirmed，不附解决时间，保留 commit/rollback unknown 类型供 errors.Is 核对。输出/关闭错误非零退出不代表数据库没有提交；应先 show 再按原选择重新核验。
+- SQL-only 命令，沿用 MYSQL 专属配置、15 秒总 context、3/5 秒拨号/单次 I/O，最终关闭 CLI 自有 pool；不读取 Compose .env，不要求有效 MQ/Redis/RuntimePlan，不执行迁移。没有依赖/migration/model/默认角色装配调整，没有自动提交。
+
+使用、错误责任与范围见[终态核验](mq-quarantine-resolve.md)。README、查询/重发文档和相关协议当前下一项均指向 P4.2.5.4。
+
+### 真实 MySQL 验收
+
+`TestQuarantineResolveCLIIntegration` 使用独立 MySQL/Redis fixture，不启动 RabbitMQ。账号/好友由夹具建立，业务结果通过生产 PersistCommand 生成，包含真实权限/消息/seq/Outbox 事务。SQL session 为 READ-COMMITTED、+05:30，driver loc +13；CLI 结果与审计解决时间仍为 UTC。
+
+六组验证：
+
+1. 非好友 command 由生产事务 rejected，解决保留 NOT_FRIENDS 和所有业务列。
+2. 建立好友后的 persisted 必须有真实完整消息；重复解决返回 already_resolved，UTC 微秒时间不变。
+3. fixture 直接设置 replay_pending/attempt，仅用于证明重发状态不等于终态。缺少正确旧 attempt 拒绝，正确 attempt 但无 command 仍 pending；生产业务事务提交后才解决，并保留原 attempt。
+4. 与规范 command 同键不同 hash 的审计及无有效身份的坏 wire 均保持 open，不覆盖业务结果。
+5. 为已 persisted 命令建立另一物理来源审计，fixture 暂时修改实际消息正文；核验拒绝、不修复消息、审计保持 open。只恢复夹具原正文后才允许解决。
+6. 八个仓储 resolver 并发解决同一审计，得到一次 resolved、七次 already_resolved，时间一致。随后尝试使用解决前快照记录 replay，拒绝且不重开审计。
+
+逐列比较解决前后的业务五表、完整审计和全部非解决元数据。最后七条审计、四条规范 command、三条业务 message、七条 Outbox、一个会话、无 delivery cursor，schema 指纹复核通过。
+
+首次合并执行原只读 suite 与解决 suite：只读 run `55868be78f3f14143b3d7133d8c69585` 三项通过，suite 20.75s；解决 run `2336043e7a75450ac034844b6799732f` 在 fixture SQL 构造阶段失败，suite 19.42s，合并包 42.180s。原因是自定义 fixed-zone 名称不能通过 FormatDSN 后再由驱动重新载入；改用 mysql.NewConnector 保留原 options.Loc，没有改动生产解决逻辑。
+
+最终单独重跑解决 run `9225b025d268e72a05a40375ac11e294`，六组全部通过，suite 20.72s、包 23.661s，无 fail/skip/race。三套 fixture Close 均成功；按各 Compose 项目标签只读核对容器/卷/网络均为 0。Docker 自动审批通过，无拒绝；未访问开发配置/数据。
+
+### 命令与结果
+
+固定 Go 1.27.1、空 GOROOT、仓库 .gocache 和不存在的单元测试 ICHAT_CONFIG_FILE；集成 suite 显式使用本轮临时 SQL 配置，并给 MQ/Redis/角色配置无效值以验证隔离。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./database ./cmd/mqadmin -run '^TestQuarantine(Resolve\|Replay)' -count=30 -timeout=120s` | 解决/重放相关测试 30 轮通过，database 10.202s、mqadmin 3.910s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 11.296s、rabbitmq 8.435s、database 3.132s、mqadmin 2.635s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 夹具连接修正后最终代码通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 修正后最终全仓库标签编译通过，不等于执行全部集成 suite |
+| `go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantineResolveCLIIntegration$' -count=1 -v -timeout=8m` | 最终六组通过，包 23.661s；原只读三组已在首次合并命令中通过 |
+
+默认测试另覆盖 SQL 事务边界、缺失/损坏审计、空身份、claim、缺失/损坏消息、零更新行、取消、COMMIT/ROLLBACK 错误、无误报 resolved_at、输出错误、精确确认和资源释放。故障 driver 只证明返回错误语义，不冒充真实网络丢响应或进程故障。
+
+### 下一项
+
+**P4.2.5.4：重放故障验收**。实际发布确认/SQL 提交未知、发布后状态更新前退出、并发发布与终态解决交叉故障，继续核对原文、唯一业务集合和未解决责任；该验收完成后才能收口 P4.2.5。
+
+建议 commit message：`feat(mqadmin): resolve quarantine audits after terminal verification`
