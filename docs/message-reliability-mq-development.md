@@ -776,7 +776,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
     - [x] P4.1.2 顺序 worker 的受控准入、停止/drain/取消/join、角色工厂和有新鲜度的本地就绪；多 worker 组遇错停止领取，真实提交屏障、ACK 丢帧重投和 RunRuntime drain 见 [生命周期适配](mq-persistence-lifecycle.md)。
 - [x] 区分权限拒绝、内容冲突、数据库暂时故障和技术坏消息；分类本身不授权隔离/ACK。
   - [x] P4.2.1 类型化失败分类、回滚未知标记、同 delivery/context 的有界事务冲突重试；实际死锁/锁超时、耗尽、约束失败、提交/回滚响应错误及退避中退出见 [分类与本地重试](mq-persistence-retry.md)。
-- [ ] 实现暂停/退避/恢复、可靠隔离转移、隔离记录 worker 和受控重放 CLI。
+- [x] 实现暂停/退避/恢复、可靠隔离转移、隔离记录 worker 和受控重放 CLI；完整默认角色装配与整体退出验收仍依赖 Outbox。
   - [x] P4.2.2 数据库故障暂停、退避、恢复及消费者监督；避免重投风暴，不能用测试占位角色放开生产门禁。
     - [x] P4.2.2.1 独立持久化监督器：数据库故障撤销就绪、串行退役与有界抖动探测；显式注入每轮消费者资源来源，旧任务/资源释放调用真实返回后才允许新一轮，停止/超时期间不得复活。实际数据库停机/恢复、提交未知重投及退出见 [持久化监督器](mq-persistence-supervisor.md)。
     - [x] P4.2.2.2 生产消费者连接替换与运行时接线：拓扑复核、部分连接回滚、可替换资源所有权与聚合就绪，避免引用初始 session；保留缺失角色门禁。显式监督工厂、真实 MySQL/MQ 连接替换及握手黑洞清理见 [运行时连接来源](mq-persistence-connections.md)。
@@ -791,18 +791,18 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
     - [x] P4.2.4.2 幂等隔离审计事务：保存完整源快照、当前投递观察及精确稳定内容，同 transport ID 核对内容而不覆盖原文；重复提交、并发、内容冲突、取消和 COMMIT 未知均保留责任。现有 schema 的版本化审计 JSON、事务及真实 MySQL 验收见[隔离审计事务](mq-quarantine-audit.md)。
     - [x] P4.2.4.3 隔离 worker 生命周期与角色工厂：实际审计提交后才 ACK 原隔离投递，数据库失败暂停/恢复、独立消费连接、多 worker、就绪及 drain/pending 的资源所有权；显式生产工厂、双角色独立来源及真实验收见[隔离生命周期](mq-quarantine-lifecycle.md)。默认装配门禁按完整角色实现情况保持。
     - [x] P4.2.4.4 审计故障验收：真实提交前/后与 ACK 前故障、COMMIT 未知、重复 wrapper/自动 DLX、内容冲突和数据库停机恢复；实际 SQL OK 丢响应、第二轮真实 ACK 丢帧、子进程强杀及双生产角色恢复/退出九项核对唯一审计和完整原文，不以 fixture ACK 代替事务证明，详见[审计故障验收](mq-quarantine-audit-acceptance.md)。
-  - [ ] P4.2.5 受控重放 CLI：列举/查看/选择审计记录，保持业务身份，确认式重发并记录独立 replay attempt；确认业务终态后才 resolved，未知结果保留责任。
+  - [x] P4.2.5 受控重放 CLI：列举/查看/选择审计记录，保持业务身份，确认式重发并记录独立 replay attempt；确认业务终态后才 resolved，未知结果保留责任。实现及真实故障收口见[重放验收](mq-quarantine-replay-acceptance.md)。
     - [x] P4.2.5.1 只读查询与选择：SQL 元数据状态筛选/有界游标分页、精确 transport ID 详情、完整审计/冗余字段核验及显式原文展示；命令只连接 MySQL，不修改状态，见[隔离审计查询](mq-quarantine-query.md)。
     - [x] P4.2.5.2 确认式重发与独立 replay attempt：重新核验精确选择与期望旧 attempt，保持业务身份/hash，独立生成物理尝试，confirm 且无 return 后事务核验旧快照并记录 replay_pending；原文/状态冲突和未知结果保留责任。CLI、真实重发/Return 与边界见[受控重发](mq-quarantine-replay.md)。
     - [x] P4.2.5.3 终态核验与 resolved：同一事务锁定核验完整审计与匹配身份/hash 的规范 persisted/rejected，persisted 还校验实际消息；仅更新解决状态/时间，保留原文/attempt/业务终态，并发解决和重复核验不改首次时间，见[终态核验](mq-quarantine-resolve.md)。
-    - [ ] P4.2.5.4 重放故障验收：实际确认失败/未知、发布后状态更新前退出、并发尝试及终态核验失败，核对原文、唯一业务结果和未解决责任。
-- [ ] P4 整体优雅退出和 DB 提交不确定恢复；持久化/隔离监督恢复及退出已覆盖，受控重放、Outbox 和整体角色交叉仍待后续验证。
+    - [x] P4.2.5.4 重放故障验收：实际 CLI confirm/Return/NACK、COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放、迟到回调与解决交叉；十二项核对 12 条审计、16 条实际主队列物理投递和唯一业务集合，见[重放验收](mq-quarantine-replay-acceptance.md)。
+- [ ] P4 整体优雅退出和 DB 提交不确定恢复；持久化/隔离监督恢复、退出及受控重放已覆盖，Outbox 和整体角色交叉仍待 P5 接入后验证。
 
 验收：杀死提交后 ACK 前的 worker，重投只形成一条业务消息；DB 故障期间可缓冲已登录用户发送，恢复后完成业务处理；隔离转移目标故障不丢原消息。
 
 ### P5：Outbox、通知与服务端 ACK
 
-- [ ] lease + token + SKIP LOCKED 的 Outbox worker。
+- [ ] P5.1 lease + token + SKIP LOCKED 的 Outbox worker；实施前拆分仓储、执行循环/角色接线与故障验收。
 - [ ] 统一 message/command.result WebSocket 帧，通知前验证权限。
 - [ ] 订阅就绪、群列表刷新、单 writer、关闭清理和慢客户端策略。
 - [ ] ACK 绑定当前会话和用户，数据库单调更新，提交后 ack.confirmed。

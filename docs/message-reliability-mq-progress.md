@@ -3371,3 +3371,58 @@ driver EOF、实际 SQL TCP 丢响应、实际 AMQP ACK 丢帧和进程强杀分
 **P4.2.5.4：重放故障验收**。实际发布确认/SQL 提交未知、发布后状态更新前退出、并发发布与终态解决交叉故障，继续核对原文、唯一业务集合和未解决责任；该验收完成后才能收口 P4.2.5。
 
 建议 commit message：`feat(mqadmin): resolve quarantine audits after terminal verification`
+
+## 2026-10-23：P4.2.5.4 重放故障验收与 P4.2.5 收口
+
+状态：P4.2.5.1—.4 完成，暂停/退避/恢复、可靠隔离、审计与受控重放这一 P4 实现范围收口。P4 整体角色退出/提交未知交叉仍依赖 Outbox，保持未完成；默认 worker/all 门禁不变。下一项进入 P5.1 Outbox worker，实施前拆分。
+
+### 验收与夹具
+
+- 新增 `TestQuarantineReplayAcceptanceIntegration`，随机 MySQL/Redis/RabbitMQ fixture 中构建实际 mqadmin race 二进制，用子进程默认入口执行 replay/resolve。私有配置文件及进程环境仅含本轮连接参数，不输出凭证/协议负载；进程只杀测试自身启动的 PID，并 Wait 真正退出。
+- 十二项真实窗口见[重放验收](mq-quarantine-replay-acceptance.md)：confirm 丢帧；Return；满队列 NACK；重发 COMMIT OK 丢失；解决 COMMIT OK 丢失；已解决核验 ROLLBACK OK 丢失；确认后更新前强杀实际 CLI；两个 CLI 同时确认重发；解决先于迟到回调；确认后尚无业务终态；rejected 再次重放不改变终态；SQL 端点不可达时不发布。
+- 复用 SQL packet 代理，增加独立的一次性 ROLLBACK 响应丢失开关。真实服务器 OK 已完整读取后丢弃并断连，不用 driver 人造错误代替网络未知。
+- AMQP 代理增加 mutex 保护的一次性 Confirm.SelectOk hook，在生产 CLI 完成拓扑核验之后才进行漂移或启用黑洞。hook 的协议 class/method 85/11 由当前 amqp091-go 源码确认。Return/NACK 仍由既有生产确认内核判定。
+- NACK 使用本轮私有容量队列与填充 exchange，预填充直到真正收到 NACK；只删除这两个本轮 fixture 对象，不删除/清空主队列。所有正式绑定恢复，最终 VerifyLocal 通过。
+- 强杀与双进程并发均用审计行锁和 MySQL processlist 建立确定屏障：初次 Get 不被锁阻塞，实际 CLI 在真实确认之后进入 RecordReplay 的 FOR UPDATE 等待。没有从日志或单纯“队列已有消息”猜测确认时序。
+- 解决先于迟到回调场景调用生产 ReplayQuarantine 并暂缓真实 publish 的返回，实际 CLI 完成终态核验/解决后才释放；明确这是应用回调屏障，不冒充进程/网络故障。
+
+每项将实际主队列投递交给生产 PersistenceHandler/PersistCommand，核对 wire、规范内容/hash、MessageId/CorrelationId、独立 attempt 后，由原 delivery 完成事务后 ACK。等待 broker ready/unacked 清零、ACK 覆盖处理数和连接回到两个 fixture owner，再检查队列与全部已有审计。重发失败/未知没有被当成成功解决；显式重放和后续终态核验收口责任。
+
+最终 **16 条实际主队列物理投递**、**12 条唯一审计**、**12 条规范 command（11 persisted / 1 rejected）**、**11 条业务消息**、**23 条 Outbox**、1 个会话、0 条 cursor。审计最终均 resolved，首份完整带类型文档不变。16 条不包括 Return/NACK 的未入主队列尝试或私有容量哨兵。wrapper/DLX 输入交替，DLX 是已验收协议夹具；本项没有重新运行自动死信或使用 fixture ACK 代替业务消费。
+
+没有修改生产 CLI、发布器、业务/隔离仓储、默认角色、依赖、migration 或配置模板，也没有自动提交。
+
+### 夹具修正与运行记录
+
+| runId | 结果 |
+| --- | --- |
+| `a3ae2ae848d780dc2c476d4ca633ed49` | 初轮包 62.224s 失败：私有 JSON 中数字 publisherSlots 被现有严格解析器拒绝，后续共享夹具出现级联失败；改为支持的字符串值，并在首个子场景失败后立即停止/清理 |
+| `58bd430251a6ea4ce9954fd2521f1b82` | confirm/Return 已通过，NACK 预填充未获确认，包 40.603s；fixture 应用账号不能向默认 exchange 写入，改用本轮独立填充 exchange |
+| `f86e7054729e5f4ce978627af171b841` | confirm/Return 通过，NACK 用例发现首条填充后目标仍接受下一条，包 42.147s；改为预填充直到实际收到 NACK，建立明确拒绝屏障 |
+| `4488b0ab36bb417a835b569f34d8cf52` | 最终十二项全通过，无 fail/skip/race，suite 86.11s、包 89.225s |
+| `77e2c882659913f810bcdd800ae7b74d` | 原审计九项前八项通过，最后 pending 场景单次 Ping 返回 driver bad connection；旧断言将物理连接错误直接解释为 pool 已关闭，suite 75.41s |
+| `bac7fa41f16a5df1b14bf8f51f905b06` | 同次合并回归中的原 RabbitMQSession 五项全部通过，suite 22.59s；合并包因上一行审计断言失败而整体失败，包 99.989s |
+| `0fe9c285c8a3a2b8151f7160bc674e74` | 修正审计夹具断言后单独重跑九项全部通过，suite 79.49s、包 82.402s，无 race |
+
+原审计夹具保留提交屏障，只将单次 Ping 改为有界等待真实连接可用，并补查 audit Done 仍未关闭。取消后的过期物理连接不能证明借入 pool 被释放；真正关闭的 pool 不可能通过该检查。该修正没有放开资源所有权要求或改变生产生命周期。
+
+七套 fixture Close 均成功；按各 Compose 项目标签只读核对 containers/volumes/networks 均为 0。所有 CLI 子进程加入完成，代理 Close 等待 I/O 退出。Docker 操作自动审批通过，无审批拒绝，没有访问开发 .env/config 或共享业务数据。
+
+### 命令与最终检查
+
+固定 Go 1.27.1、空 GOROOT、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE；子进程显式替换 MYSQL/MQ 环境覆盖，使用本轮临时 JSON。RabbitMQ 4.3.6 / amqp091-go v1.15.0。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 10.660s、rabbitmq 8.256s、database 2.912s、mqadmin 2.660s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终标签编译通过，不等于执行全部集成 suite |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineReplayAcceptanceIntegration$' -count=1 -v -timeout=15m` | 最终十二项通过，包 89.225s |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^Test(QuarantineAuditAcceptanceIntegration\|RabbitMQSessionIntegration)$' -count=1 -v -timeout=15m` | 原 session 五项通过，审计八过一失败；原因及修正在上表记录 |
+| `go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineAuditAcceptanceIntegration$' -count=1 -v -timeout=12m` | 最终审计九项通过，包 82.402s |
+
+### 下一项与范围
+
+**P5.1：Outbox lease + token + SKIP LOCKED worker**，实施前拆分仓储、执行循环/角色接线与故障验收。P4 整体退出/提交未知交叉验收在完整 Outbox 接入后继续，当前不放开默认 worker/all 门禁。通知/客户端交付、三节点多数故障及磁盘损坏均未在本次验收。
+
+建议 commit message：`test(mqadmin): verify quarantine replay fault recovery`

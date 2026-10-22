@@ -24,6 +24,7 @@ type quarantineSQLProxy struct {
 	wg               sync.WaitGroup
 	once             sync.Once
 	armed            atomic.Bool
+	rollbackArmed    atomic.Bool
 	dropped          atomic.Int64
 }
 
@@ -84,8 +85,13 @@ func (p *quarantineSQLProxy) serve() {
 					}
 					// COM_QUERY=0x03, sequence=0; the fixed driver sends COMMIT
 					// with no query attributes. Only one armed response is lost.
-					if packet[3] == 0 && len(packet) == 11 && packet[4] == 0x03 && bytes.Equal(packet[5:], []byte("COMMIT")) && p.armed.CompareAndSwap(true, false) {
-						waiting.Store(true)
+					if packet[3] == 0 && len(packet) >= 5 && packet[4] == 0x03 {
+						if bytes.Equal(packet[5:], []byte("COMMIT")) && p.armed.CompareAndSwap(true, false) {
+							waiting.Store(true)
+						}
+						if bytes.Equal(packet[5:], []byte("ROLLBACK")) && p.rollbackArmed.CompareAndSwap(true, false) {
+							waiting.Store(true)
+						}
 					}
 					if _, err := io.Copy(backend, bytes.NewReader(packet)); err != nil {
 						return

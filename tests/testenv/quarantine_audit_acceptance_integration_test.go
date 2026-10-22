@@ -663,8 +663,16 @@ func TestQuarantineAuditAcceptanceIntegration(t *testing.T) {
 		if r.err == nil || persistenceSupervisorDone(r.audit.Done()) || operation.Err() == nil {
 			t.Fatal("pending audit lost owner", r.err)
 		}
-		if err := pool.PingContext(ctx); err != nil {
-			t.Fatal("shared pool closed before audit join", err)
+		// Cancellation can leave a retired physical connection in this driver
+		// adapter's pool. Require a usable borrowed pool while the audit barrier
+		// is still held; one stale-connection error does not prove pool closure.
+		lifecycleEventually(t, func() bool {
+			probe, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+			defer cancel()
+			return pool.PingContext(probe) == nil
+		})
+		if persistenceSupervisorDone(r.audit.Done()) {
+			t.Fatal("audit unexpectedly joined before barrier release")
 		}
 		if target.active.Load() != 0 || persistenceSupervisorDone(target.base.Done()) {
 			t.Fatal("borrowed target owner released prematurely")

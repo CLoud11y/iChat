@@ -7,7 +7,7 @@ P4.2.5 拆为四个小点，每次单独实现和验收：
 | P4.2.5.1 | 列表、详情、精确选择与完整审计校验 | 完成，本文 |
 | P4.2.5.2 | 保持业务身份和 hash，确认式重发原命令并记录独立 replay attempt | 完成，见[受控重发](mq-quarantine-replay.md) |
 | P4.2.5.3 | 核验匹配身份/hash 的规范业务终态，再事务更新 resolved | 完成，见[终态核验](mq-quarantine-resolve.md) |
-| P4.2.5.4 | confirm/return/未知结果、发布后写状态前退出、并发操作及终态核验故障验收 | 待实现 |
+| P4.2.5.4 | confirm/return/未知结果、发布后写状态前退出、并发操作及终态核验故障验收 | 完成，见[重放验收](mq-quarantine-replay-acceptance.md) |
 
 本次完成 `cmd/mqadmin quarantine list|show` 和借入 SQL pool 的 `QuarantineRepository.List/Get`。操作仅执行无锁 SELECT；不领取 MQ 消息、修改审计状态、迁移 schema 或启动后台服务。现有 `mqadmin init/check` 保持原入口。
 
@@ -73,4 +73,4 @@ go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantin
 
 真实 suite 使用独立 MySQL/Redis fixture，不启动 RabbitMQ。保存六条 wrapper/DLX 协议输入（有/无有效业务身份），设置 fixture 的 open/replay_pending/resolved 三种状态；经实际命令入口查询全部状态和逐条游标、校验完整原文与带类型文档，逐字段比较前后所有审计列，业务五表保持空。故意破坏一个 fixture 文档后仍能列表发现，详情拒绝且不覆盖；最后复核 schema 指纹及清理。DLX 文档为已验证协议夹具，本项不冒充真实 broker DLX 或重发验收。实际运行记录见[实施进度](message-reliability-mq-progress.md)。
 
-后续 [P4.2.5.2：确认式重发与独立 replay attempt](mq-quarantine-replay.md)及[P4.2.5.3：终态核验与 resolved](mq-quarantine-resolve.md)已完成。下一项 **P4.2.5.4：重放故障验收**；确认重发不能直接标记 resolved，提交或发布未知继续保留责任。P4.2.5、P4 总项和默认完整后台角色仍未收口。
+后续 [P4.2.5.2：确认式重发与独立 replay attempt](mq-quarantine-replay.md)、[P4.2.5.3：终态核验与 resolved](mq-quarantine-resolve.md)及[重放故障验收](mq-quarantine-replay-acceptance.md)已完成，P4.2.5 范围收口。确认重发不能直接标记 resolved，提交或发布未知继续保留责任。下一项 **P5.1：Outbox worker**，实施前拆分；P4 整体及完整默认后台角色仍依赖 Outbox。

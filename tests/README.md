@@ -1,5 +1,15 @@
 # 独立测试环境
 
+P4.2.5.4 重放故障验收与 P4.2.5 收口：
+
+```powershell
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineReplayAcceptanceIntegration$' -count=1 -v -timeout=15m
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarantineAuditAcceptanceIntegration$' -count=1 -v -timeout=12m
+go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQSessionIntegration$' -count=1 -v -timeout=8m
+```
+
+十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。下一项 P5.1 Outbox worker，实施前拆分；P4 整体交叉仍待 Outbox 接入。
+
 P4.2.5.3 终态核验与 resolved：
 
 ```powershell

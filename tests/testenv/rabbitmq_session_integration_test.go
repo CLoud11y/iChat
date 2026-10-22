@@ -249,6 +249,7 @@ type sessionProxy struct {
 	consumerAcksDropped atomic.Uint64
 	dropped             chan struct{}
 	closeOnce           sync.Once
+	confirmSelected     func() // Fixture hook, protected by mu, consumed once.
 }
 
 func startSessionProxy(t *testing.T, upstream string) *sessionProxy {
@@ -330,6 +331,15 @@ func (p *sessionProxy) downstream(client, broker net.Conn, index uint64) {
 		signal := false
 		if header[0] == 1 && size >= 4 {
 			class, method := binary.BigEndian.Uint16(payload), binary.BigEndian.Uint16(payload[2:])
+			if class == 85 && method == 11 { // Confirm.SelectOk, before first publish.
+				p.mu.Lock()
+				hook := p.confirmSelected
+				p.confirmSelected = nil
+				p.mu.Unlock()
+				if hook != nil {
+					hook()
+				}
+			}
 			if mode == 1 && class == 60 && method == 80 {
 				signal = true
 			}
