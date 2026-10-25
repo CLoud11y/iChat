@@ -75,6 +75,6 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestPersist
 
 ## 后续边界
 
-P4.2.3 的范围是保守白名单下从主 MQ 到隔离 MQ 的可靠责任交接，不等于完整 P4 或端到端完成。[输入契约](mq-quarantine-input.md)、[审计事务](mq-quarantine-audit.md)、[隔离生命周期](mq-quarantine-lifecycle.md)及[P4.2.4.4 审计故障验收](mq-quarantine-audit-acceptance.md)已完成，P4.2.4 范围收口；[P4.2.5.1 只读查询与选择](mq-quarantine-query.md)、[P4.2.5.2 确认式重发](mq-quarantine-replay.md)及[P4.2.5.3 终态核验](mq-quarantine-resolve.md)已完成；[P4.2.5.4 重放故障验收](mq-quarantine-replay-acceptance.md)已完成，P4.2.5 范围收口；[P5.1.1 Outbox 领取仓储](outbox-claim.md)已完成；下一项 **P5.1.2：token 条件结算与失败回退**。
+P4.2.3 的范围是保守白名单下从主 MQ 到隔离 MQ 的可靠责任交接，不等于完整 P4 或端到端完成。[输入契约](mq-quarantine-input.md)、[审计事务](mq-quarantine-audit.md)、[隔离生命周期](mq-quarantine-lifecycle.md)及[P4.2.4.4 审计故障验收](mq-quarantine-audit-acceptance.md)已完成，P4.2.4 范围收口；[P4.2.5.1 只读查询与选择](mq-quarantine-query.md)、[P4.2.5.2 确认式重发](mq-quarantine-replay.md)及[P4.2.5.3 终态核验](mq-quarantine-resolve.md)已完成；[P4.2.5.4 重放故障验收](mq-quarantine-replay-acceptance.md)已完成，P4.2.5 范围收口；[P5.1.1 Outbox 领取仓储](outbox-claim.md)已完成；[P5.1.2 token 条件结算](outbox-settlement.md)已完成；下一项 **P5.1.3：通知执行循环**。
 
 本项未运行生产默认 worker/all、独立隔离进程强杀、宿主 OS 信号、三节点 quorum 故障、磁盘损坏、目标数据被管理员删除或完整实际客户端。明确数据约束以外的 schema/未知技术失败仍按 P4.2.3.3 保守停止；未扩大自动隔离范围。审计、重放、Outbox 和完整运行时角色的交叉验收继续属于后续阶段。

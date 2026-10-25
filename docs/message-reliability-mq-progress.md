@@ -3464,3 +3464,48 @@ limit 1—100，lease 1 秒—5 分钟、整数微秒。核验事件派生身份
 下一项 **P5.1.2：token 条件结算与失败回退**。完整契约与边界见[Outbox 领取](outbox-claim.md)。
 
 建议 commit message：`feat(outbox): add atomic bounded lease claims`
+
+## 2026-10-25：P5.1.2 token 条件结算与失败回退
+
+状态：本小点完成。新增 Complete/Retry 仓储接口和退避策略，P5.1.3 通知执行循环、角色工厂及故障验收仍待实施。P5.1/P5、默认完整后台角色与 P4 整体交叉保持未完成。
+
+### 实现
+
+- `Complete(ctx, lease)` 和 `Retry(ctx, lease, options, reason)` 在 READ COMMITTED 短事务内按 event_id 锁定当前记录，严格核对 leased 状态、token、attempts、精确 lease_until 和未完成状态。
+- 取得行锁后才读取数据库 UTC 时钟，lease_until ≤ now 拒绝；UPDATE 再加当前 token/attempt/deadline 与 lease_until > UTC_TIMESTAMP(6) 条件，零影响行为 ErrOutboxLeaseLost。旧 token、过期但未重领、已回退/完成及迟到回调均不能覆盖当前状态。
+- Complete 只改 completed 状态/时间并清空 lease/last_error；Retry 只改 pending、available_at 和受控 last_error 并释放 lease。保留 payload、身份/路由、创建时间、attempts；attempts 仍只由 Claim 递增。不发布通知、不写 delivered cursor 或其他业务表，不关闭借入 pool，不自动重试。
+- 退避策略显式 Base/Max，1ms ≤ Base ≤ Max ≤ 1h、整数微秒。按 attempts 指数增长并饱和，crypto/rand 等概率抖动落在上界的一半至上界；最大 uint32 attempts 不溢出或无界循环。允许单独 Delay 验证策略。
+- last_error 只接受 NOTIFICATION_FAILED、NOTIFICATION_UNKNOWN、DEPENDENCY_UNAVAILABLE，不接受原始 error、正文或凭证。所有成功回执仅在 COMMIT 成功后返回，任意错误（包括回滚失败）结果清零。
+- ErrOutboxCommitUnknown/ErrOutboxRollbackUnknown 复用既有变量身份，文字泛化为 Outbox transaction，供领取/结算共同使用；errors.Is 不变。结算不证明真实通知发送或客户端交付；通知 unknown 后可能重复，不能补偿删除其他 owner 的状态。
+
+使用、时钟/重试边界和错误责任见[Outbox 结算](outbox-settlement.md)。没有新增依赖、schema/model/migration、默认配置或角色装配，也没有自动提交。
+
+### 真实验收与回归
+
+先回归原领取三组，run `4307ca9c7042333d713dfedd74977b3d`，suite 21.27s 全通过。随后结算 run `bf419601b5105536da0fdba337de460e` 五组全部通过，suite 21.65s；合并包 46.144s，无 fail/skip/race。
+
+五组实际 MySQL 验证：
+
+1. 正常完成清空 lease/last_error，数据库完成时间和回执一致；重复成功/失败回调均 LeaseLost，原时间与事件列不变。
+2. 失败回退以数据库样本生成实际抖动可用时间，回执与 SQL 一致；未来可用事件不被领取，旧 token 不能再次完成。
+3. 另一事务持有行锁，processlist 确认 Complete 正在等待，再等待数据库 UTC 时钟跨过真实 1 秒 lease 截止，释放锁后旧完成必须失败。实际过期回收换 token/attempt 后，旧成功与失败都被拒绝，新 owner 可完成。
+4. 同 lease 的 Complete/Retry 并发，只有一个成功和一个 LeaseLost，无事件/attempt 重写。
+5. 实际锁等待期间取消调用，无成功回执，事件保留；释放锁后 pool 与原 lease 仍可完成。
+
+结算 suite 五条直接 Outbox 结构夹具，不作为生产业务终态或通知证明。核对身份/payload/路由/创建时间/attempt 保留（回收一条的 attempts 正常增加），其他五张可靠性表为空，schema 指纹不变。SQL session +05:30、driver loc +13，完成与退避时间仍为 UTC。没有手工篡改 lease 截止来替代真实过期，也没有把 driver 注入当成网络丢响应。
+
+两套 fixture Close 均成功，按项目标签只读核对容器/卷/网络均为 0。Docker 自动审批通过，无拒绝；不访问开发 .env/config 或共享数据。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./database -run '^TestOutbox' -count=30 -timeout=120s` | 领取/结算/退避测试 30 轮通过，包 2.780s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过，主包 11.102s、rabbitmq 8.392s、database 3.083s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不等于执行全部集成 suite |
+| `go test -mod=readonly -race -tags=integration ./database -run '^TestOutbox(Claim\|Settlement)Integration$' -count=1 -v -timeout=10m` | 原领取三组和新增结算五组通过，包 46.144s |
+
+固定 Go 1.27.1、空 GOROOT、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE。默认测试另覆盖事务顺序、非法凭据/原因/策略、过期边界、零更新行、SQL 更新/提交/回滚错误和不确定结果清零。真实 COMMIT OK 丢失、通知发送/授权和完整 worker 生命周期留待后续小点。
+
+下一项 **P5.1.3：通知执行循环**，包括 payload 语义核验、事务外发送和有界处理/取消。
+
+建议 commit message：`feat(outbox): add fenced completion and retry settlement`

@@ -16,8 +16,8 @@ var (
 	ErrOutboxUnavailable     = errors.New("outbox repository unavailable")
 	ErrOutboxClaimInput      = errors.New("invalid outbox claim options")
 	ErrOutboxInvariant       = errors.New("outbox record invariant failed")
-	ErrOutboxCommitUnknown   = errors.New("outbox claim commit outcome unknown")
-	ErrOutboxRollbackUnknown = errors.New("outbox claim rollback outcome unknown")
+	ErrOutboxCommitUnknown   = errors.New("outbox transaction commit outcome unknown")
+	ErrOutboxRollbackUnknown = errors.New("outbox transaction rollback outcome unknown")
 )
 
 // OutboxRepository borrows the pool. Claim does not publish, settle leases,

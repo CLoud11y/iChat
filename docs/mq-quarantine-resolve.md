@@ -68,4 +68,4 @@ go test -mod=readonly -race -tags=integration ./cmd/mqadmin -run '^TestQuarantin
 
 逐列比较每次解决前后的业务五表，核对完整审计和全部非解决元数据；最终七条审计、四条规范 command、三条业务 message、七条 Outbox、一个会话、无 delivery cursor，复核 schema 指纹及清理。fixture SQL session 为 READ-COMMITTED/+05:30、driver loc +13，解决输出仍为 UTC。原只读 CLI 三组同时回归。实际 runId 和结果见[实施进度](message-reliability-mq-progress.md)。
 
-后续[重放故障验收](mq-quarantine-replay-acceptance.md)已覆盖真实发布确认/提交未知、发布后状态更新前退出及并发发布/解决交叉故障，P4.2.5 范围收口。[P5.1.1 Outbox 领取仓储](outbox-claim.md)已完成；下一项 **P5.1.2：token 条件结算与失败回退**。P4 整体和默认完整后台角色仍依赖 Outbox。
+后续[重放故障验收](mq-quarantine-replay-acceptance.md)已覆盖真实发布确认/提交未知、发布后状态更新前退出及并发发布/解决交叉故障，P4.2.5 范围收口。[P5.1.1 Outbox 领取仓储](outbox-claim.md)已完成；[P5.1.2 token 条件结算](outbox-settlement.md)已完成；下一项 **P5.1.3：通知执行循环**。P4 整体和默认完整后台角色仍依赖 Outbox。

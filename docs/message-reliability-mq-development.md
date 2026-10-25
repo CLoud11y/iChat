@@ -804,7 +804,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
 
 - [ ] P5.1 lease + token + SKIP LOCKED 的 Outbox worker。
   - [x] P5.1.1 有界原子领取仓储：数据库 UTC 时钟、READ COMMITTED/SKIP LOCKED、每行独立 token、过期回收和整批提交门禁；真实锁定/并发及边界见[Outbox 领取](outbox-claim.md)。
-  - [ ] P5.1.2 token 条件结算与失败回退：完成/重试更新、退避参数及迟到/过期 owner 保护。
+  - [x] P5.1.2 token 条件结算与失败回退：完成/重试更新、数据库时钟指数抖动、token/attempt/deadline fencing 与迟到/过期 owner 保护，见[Outbox 结算](outbox-settlement.md)。
   - [ ] P5.1.3 通知执行循环：payload 语义核验、事务外发送、有界处理和取消。
   - [ ] P5.1.4 生产角色工厂与接线：独立就绪/资源来源、drain/pending 和存储最终释放责任。
   - [ ] P5.1.5 故障验收：真实提交/发布未知、lease 过期与迟到结果、进程/角色交叉恢复及唯一集合。
