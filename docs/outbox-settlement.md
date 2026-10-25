@@ -18,13 +18,14 @@ eventId/token/attempts/deadline 构成结算凭据；payload 和路由不参与�
 
 `Complete` 将状态改为 completed，写入数据库 UTC 时钟样本的 completed_at，清空 lease_token、lease_until 和 last_error。保留原 payload、event/command/type、路由、attempts、available_at 和 created_at。仅表示通知处理完成，绝不写 delivery cursor。
 
-`Retry` 将状态改回 pending，清空 lease_token/lease_until，保留 attempts 不变（仅 Claim 递增），以数据库 UTC 样本加随机延迟设置 available_at。last_error 只允许三个原因码：
+`Retry` 将状态改回 pending，清空 lease_token/lease_until，保留 attempts 不变（仅 Claim 递增），以数据库 UTC 样本加随机延迟设置 available_at。last_error 允许以下受控原因码（P5.1.3 增加 INVALID_NOTIFICATION）：
 
 | 原因 | 值 |
 | --- | --- |
 | 明确通知失败 | NOTIFICATION_FAILED |
 | 通知结果未知 | NOTIFICATION_UNKNOWN |
 | 依赖暂不可用 | DEPENDENCY_UNAVAILABLE |
+| payload 语义无效 | INVALID_NOTIFICATION |
 
 不接受任意 error/正文/连接信息作为持久诊断，未知原因码在 SQL 前拒绝。使用通知 unknown 原因并不证明原通知没发送，下一次执行必须容忍重复。
 
@@ -50,4 +51,4 @@ go test -mod=readonly -race -tags=integration ./database -run '^TestOutbox(Claim
 
 五条直接 Outbox 结构夹具的身份、payload、路由、创建时间和 attempts 保持（重领一条的 attempts 除外），其他五张可靠性表为空，schema 指纹不变。session +05:30、driver loc +13，写入及回执仍使用 UTC。原领取三组同时回归。没有运行通知发送、业务权限核验、真实提交 OK 丢失或完整 worker 生命周期；这些属于后续小点。实际结果见[实施进度](message-reliability-mq-progress.md)。
 
-下一项 **P5.1.3：通知执行循环**，包含 payload 语义核验、事务外发送和有界处理/取消。P5.1/P5、完整默认角色及 P4 整体交叉尚未收口。
+[P5.1.3 通知执行循环](outbox-execution.md)已完成；下一项 **P5.1.4：生产角色工厂与接线**，负责独立就绪、资源来源、drain/pending 和最终释放。P5.1/P5、完整默认角色及 P4 整体交叉尚未收口。

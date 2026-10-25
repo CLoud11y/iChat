@@ -23,6 +23,7 @@ const (
 	OutboxRetryPublishFailed  OutboxRetryReason = "NOTIFICATION_FAILED"
 	OutboxRetryPublishUnknown OutboxRetryReason = "NOTIFICATION_UNKNOWN"
 	OutboxRetryUnavailable    OutboxRetryReason = "DEPENDENCY_UNAVAILABLE"
+	OutboxRetryInvalidPayload OutboxRetryReason = "INVALID_NOTIFICATION"
 )
 
 type OutboxRetryOptions struct{ Base, Max time.Duration }
@@ -86,7 +87,7 @@ func (r *OutboxRepository) Complete(ctx context.Context, lease OutboxLease) (Out
 // increments on Claim only. Unknown notification results may be duplicated.
 func (r *OutboxRepository) Retry(ctx context.Context, lease OutboxLease, options OutboxRetryOptions, reason OutboxRetryReason) (OutboxSettlement, error) {
 	switch reason {
-	case OutboxRetryPublishFailed, OutboxRetryPublishUnknown, OutboxRetryUnavailable:
+	case OutboxRetryPublishFailed, OutboxRetryPublishUnknown, OutboxRetryUnavailable, OutboxRetryInvalidPayload:
 	default:
 		return OutboxSettlement{}, ErrOutboxSettlementInput
 	}

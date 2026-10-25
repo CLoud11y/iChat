@@ -3509,3 +3509,44 @@ limit 1—100，lease 1 秒—5 分钟、整数微秒。核验事件派生身份
 下一项 **P5.1.3：通知执行循环**，包括 payload 语义核验、事务外发送和有界处理/取消。
 
 建议 commit message：`feat(outbox): add fenced completion and retry settlement`
+
+
+## 2026-10-25：P5.1.3 通知执行循环
+
+状态：本小点完成。加入独立通知执行循环、严格 payload 语义核验和事务外 Redis 适配；下一项 P5.1.4 生产角色工厂与接线。P5.1/P5、默认完整 worker/all 和 P4 整体交叉保持未完成。
+
+### 实现
+
+- `messaging.DecodeOutboxNotification` 核对 claim 事件身份、版本、路由列和业务 payload，严格限制 UTF-8/JSON/Unicode、大小、精确字段、重复/null/别名与嵌套 message。提示要求非零 seq 和规范路由；成功 command.result 重算 commandId/payloadHash、核对完整 MessageDTO；拒绝仅允许当前业务原因且不得携带 message/路由列。
+- 两类事件均投影为无 content/media 的 v1 提示，私聊收件人及 command.result 发送者使用 `ichat:notify:v1:user:<id>`，群使用 `ichat:notify:v1:group:<id>`。完整结果留在 SQL，后续网关读取终态/权限再发统一 WebSocket 帧；旧频道不消费新提示。
+- `OutboxLoop.RunBatch` 借入 store/publisher，领取提交返回后才顺序发布，及时成功才 Complete；失败/超时/迟到 nil 以 NOTIFICATION_UNKNOWN 回退，坏 payload 以新增受控 INVALID_NOTIFICATION 回退。结算错误/归属丢失/提交未知立即停止本批，不自动重发或补偿。计数保留此前确认进展，未结算租约到期恢复。
+- 显式批次/退避/操作超时/轮询边界；发布超时+结算预算严格小于 lease。Claim 前的单调起点建立保守批次截止，覆盖 SQL、COMMIT 与前面条目的耗时；不比较数据库/宿主 wall clock。父 context 与独立发布/结算 deadline 限制处理；预算不足不开始后续发布，空批继续可取消轮询。
+- `RedisNotificationPublisher` 只借入 client；有 deadline 且有效提示才调用 Redis，零订阅者成功。调用后错误保守 unknown，借入 client 可能有内部重试。中途取消最多等待当前 I/O deadline，资源 owner 仍须配置有界连接/池/I/O 超时。没有游标/消息修改、续约或生产角色接线。
+
+完整契约、错误责任、时钟前提与后续边界见[Outbox 执行](outbox-execution.md)。默认角色 readiness/drain/pending、共享 SQL/Redis 最终释放归 P5.1.4，真实网络/进程故障归 P5.1.5。
+
+### 验证与清理
+
+真实独立 MySQL/Redis run `3a1a077444c23fae0705b169b6aad083`，suite 20.50s、包 23.167s，三组全部通过，无 fail/skip/race：
+
+1. 经生产 PersistCommand 创建私聊、群聊成功与权限拒绝的五条 Outbox。订阅就绪后核对全部 eventId、私聊/群聊/发送者频道与无正文提示。SQL pool 限为一个连接，在发布回调查询到已提交 leased 行，同时确认 InUse=0，验证网络前已经退出 SQL 事务。
+2. 关闭订阅后实际 PUBLISH 成功，回调返回 unknown 注入；两条事件回退 pending/NOTIFICATION_UNKNOWN/attempts=1 并清空 token。自然等待 available_at 后重领原 eventId，零订阅者成功结算；每个 eventId 恰有两次调用，没有重写业务消息。
+3. 额外 SQL 结构夹具只有 `{}`，领取后不发 Redis，回退 INVALID_NOTIFICATION，不伪造完成。
+
+最终 4 command / 3 message / 2 conversation / 8 Outbox（7 completed、1 invalid pending）；delivery cursor/quarantine 均 0，迁移指纹不变。发布 unknown 是实际成功后的回调错误注入，不是 Redis TCP 丢响应。默认 RESP peer 另完整读取 PUBLISH 后不回响应，验证 Redis client 等待截止；不把该 peer 当作真实 Redis 已处理证据。真实 COMMIT OK 丢失、lease/迟到/进程交叉故障仍在 P5.1.5。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./messaging ./workers ./database -run '^TestOutbox' -count=30 -timeout=120s` | 30 轮通过；workers 43.261s、messaging 4.974s、database 2.794s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.988s、rabbitmq 8.461s、workers 3.695s、database 3.154s，无 race |
+| `go vet -mod=readonly -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表运行所有集成 suite |
+| `go test -mod=readonly -race -tags=integration ./workers -run '^TestOutboxLoopIntegration$' -count=1 -v -timeout=8m` | 三组通过，包 23.167s |
+
+默认测试覆盖 identity/hash/route 矛盾、嵌套重复/未知字段、seq uint64 上界、无正文/Body 副本、Claim 未知不发、顺序结算、发布未知/迟到、取消、结算超时后停止后续条目、保留批次计数、Claim 耗尽预算不发和空批继续轮询；同时回归领取/结算仓储。
+
+固定 Go 1.27.1、空 GOROOT、仓库 .gocache 和不存在的单元测试 ICHAT_CONFIG_FILE。fixture Close 成功，按项目标签只读确认本轮容器/卷/网络均为 0。Docker 自动审批通过，无拒绝，不访问开发配置/共享数据。未增加依赖、schema、默认配置或自动提交。
+
+下一项 **P5.1.4：生产角色工厂与接线**。
+
+建议 commit message：`feat(outbox): add bounded notification execution loop`
