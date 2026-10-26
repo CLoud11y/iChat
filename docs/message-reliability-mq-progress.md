@@ -3654,3 +3654,53 @@ limit 1—100，lease 1 秒—5 分钟、整数微秒。核验事件派生身份
 详细场景、原 MQ 投递与直接仓储夹具的区分、资源/协议限制见[Outbox 故障验收](outbox-acceptance.md)。下一项 **P5.2：统一 WebSocket 帧与通知权限核验**。
 
 建议 commit message：`test(outbox): verify crash recovery and cross-role faults`
+
+
+## 2026-10-26：P5.2 统一通知数据帧与当前权限核验
+
+状态：本项帧协议、规范数据读取和独立分发适配完成。下一项 P5.3 v1 API/WebSocket 会话接线、订阅与单 writer 生命周期；旧 Chat/旧频道保持原路径，现代 API 尚未注册 v1 聊天路由。本项真实传输测试使用明确的 WebSocket endpoint 夹具，不将其报告为生产 JWT 会话接线。
+
+### 实现
+
+- `messaging.DecodeNotificationHint` 严格解码 P5.1 生成的无正文投影，绑定实际 Redis 频道；核对 eventId/commandId、规范 UID/UUID/hash/字符串 seq、版本和精确字段集合，拒绝重复键、null、别名、多余字段及跨事件形状。command.result 必须对应个人频道发送者派生的逻辑命令；提示仅为路由/格式材料，不授予权限。
+- 新增不可伪造零值的 `ServerFrame` 与 NewMessageFrame/NewCommandResultFrame，统一 `{type,eventId,data}` 包络。message 的 data 为规范 MessageDTO；command.result persisted 始终含消息引用，有内容权限时附完整 message，rejected 只含终态/原因。构造时核验 DTO、身份/hash、时间、路由和 seq，保留固定 eventId 与 uint64 字符串；Bytes 副本和内部 seq 拷贝防止返回后被调用方指针修改，普通格式化隐藏正文。
+- `MessageRepository.ResolveNotification` 采用 READ COMMITTED 短事务，锁读当前用户、群与成员状态，按 SQL 规范命令/消息重新校验身份/hash/状态/已提交序号和实际私聊收件人。等待先行撤权提交后再判定，不用旧订阅或早期快照放行。读/取消/释放失败清空帧；missing/无权 message 抑制；自己的群终态在退群/删群后仍返回 persisted 引用，省略正文。
+- 私聊历史沿用 P2.7 的参与者权限，解除好友只阻止新发送，不撤销已提交历史；群内容依据当前成员及群有效状态。现有 GetCommandStatus 的发送者状态查询契约未改写。
+- `service.NotificationDispatcher` 要求鉴权 UID、有 deadline 的 context 和遵守取消的出站回调。严格解析、SQL 解析和帧/提示匹配后，在 SQL 连接/锁完全释放且 context 仍有效时调用 enqueue/write。错误隐藏阶段诊断，保留 Unwrap；成功只代表本地出站返回，不更新游标或声称终端已保存。
+
+SQL 权限锁保护材料化阶段，网络在释放后执行，撤权与字节写入并非原子事务。P5.3 应让单 writer 临近发送时处理提示，避免长期排队已授权正文；其 session fencing、订阅就绪/刷新、慢队列/写超时和真实路由不在本项冒充实现。没有修改 schema、依赖、默认启动角色或自动提交。完整契约见[通知帧与权限](notification-frames.md)，协议 v1 和阶段表已同步。
+
+### 真实 MySQL/Redis/WebSocket 验收
+
+初轮 run `baff3c8a121cb3128e648f09b965e58c` 七组通过，suite 20.60s、包 23.717s。最终 run `836eb739558191b4650476f851369bd9` 增加好友解除历史权限及授权群结果 DTO 后八组全部通过，suite 20.78s、包 24.001s，无 fail/skip/race：
+
+1. 生产 PersistCommand 创建私聊事件，真实 Redis 发布/订阅后，经分发器送入实际 WebSocket 连接；message 和发送者 command.result 的完整 DTO 与 SQL 状态查询完全一致。错误个人频道用户不收帧。
+2. 业务拒绝结果仅向发送者发送 rejected/NOT_FRIENDS，不含 message/引用，其他用户被抑制。
+3. 当前群成员收规范群 DTO，非成员没有帧；仍有权限的发送者 command.result 含规范群消息。
+4. 解除双向好友后，既有私聊参与者仍可读取该已提交通知，符合历史权限定义；恢复 fixture 关系。
+5. 保留原群订阅，接收者退群后相同旧提示不出帧；发送者退群后自己的群成功终态只含原引用，不含正文。
+6. 群软删除后旧群提示不发，自己的成功结果无正文；用户软删除后私聊提示抑制。恢复 fixture 的群/用户状态。
+7. 独立事务持有真实 relation 撤权更新锁，processlist 确认 FOR SHARE 正在等待且没有返回；撤权提交后旧提示被抑制，不依据进入等待前的成员状态授权。
+8. 实际成员锁等待中 context 过期，返回 DeadlineExceeded/零帧；回滚阻塞事务后 SQL pool 和后续通知恢复。
+
+传输 fixture 的 UID 来自测试注入，不信任请求参数。出站 callback 在 MaxOpenConns=1 下确认 InUse=0 并立即 SELECT 1，然后写 WebSocket TextMessage，验证网络不在 SQL 事务内。
+
+最终 3 command / 2 message / 2 conversation / 5 untouched pending Outbox（attempts=0、无 token）/ 0 cursor / 0 quarantine，迁移指纹不变。两套 fixture Close 成功；按项目标签只读确认容器/卷/网络均为 0。Docker 自动审批通过，无拒绝，不访问开发配置或共享数据。
+
+### 回归
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./messaging ./database ./service -run '^Test(Notification\|ServerFrame)' -count=30 -timeout=120s` | 最终 30 轮通过；messaging 2.069s、database 2.918s、service 2.818s，无 race |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.192s、application 2.986s、database 2.990s、rabbitmq 8.445s、service 2.983s、workers 4.370s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表运行全部集成 suite |
+| `go test -mod=readonly -p=2 -race -tags=integration ./service -run '^TestNotificationDeliveryIntegration$' -count=1 -v -timeout=7m` | 最终八组通过，包 24.001s |
+
+默认测试另覆盖提示形状/频道/别名/null、uint64 上界、帧身份/指针/字节副本、canonical DTO、跨用户 SQL 前抑制、伪造私聊参与者频道但非真实 receiver 的拒绝、群撤权、SQL 各阶段/释放失败零帧、终态形状矛盾、取消和 enqueue 失败。新增接收者伪装用例后又执行最终 30 轮；生产实现无进一步改动。
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache 和不存在的单元测试 ICHAT_CONFIG_FILE。P5/P5.3、业务 ACK 和真实客户端恢复继续待完成。
+
+下一项 **P5.3：v1 会话接线、订阅与单 writer 生命周期**。
+
+建议 commit message：`feat(notifications): authorize canonical websocket frames`

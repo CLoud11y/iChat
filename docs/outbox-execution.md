@@ -1,6 +1,6 @@
 # P5.1.3：通知执行循环
 
-在[领取](outbox-claim.md)和[结算](outbox-settlement.md)仓储上加入独立 `workers.OutboxLoop`、严格的 `messaging.DecodeOutboxNotification` 和借入 Redis client 的发布适配。`RunBatch` 执行一个有界批次，`Run` 持续轮询。后续 [P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)也已完成，P5.1 收口；下一项为 **P5.2：统一 WebSocket 帧与通知权限核验**。
+在[领取](outbox-claim.md)和[结算](outbox-settlement.md)仓储上加入独立 `workers.OutboxLoop`、严格的 `messaging.DecodeOutboxNotification` 和借入 Redis client 的发布适配。`RunBatch` 执行一个有界批次，`Run` 持续轮询。后续 [P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)也已完成，P5.1 收口；[P5.2 帧与权限核验](notification-frames.md)已完成；下一项为 **P5.3：v1 会话接线、订阅与单 writer 生命周期**。
 
 ## payload 与路由
 

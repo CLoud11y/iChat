@@ -51,4 +51,4 @@ go test -mod=readonly -p=2 -race -tags=integration ./tests/testenv -run '^TestOu
 
 P5.1.1—.5 的 Outbox worker 范围收口，并补齐 P4 显式 worker 三角色的优雅退出/提交未知交叉验收。默认 worker/all 仍缺 Persistence/Quarantine 工厂注册，保持 I/O 前门禁；没有验收默认完整进程、API+三个 worker 的 all 模式交叉、三节点多数故障、磁盘损坏、管理员删数据或实际客户端交付。
 
-下一项 **P5.2：统一 message/command.result WebSocket 帧与通知权限核验**。P5 整体保持未完成。
+后续 [P5.2 帧与权限核验](notification-frames.md)已完成；下一项 **P5.3：v1 会话接线、订阅与单 writer 生命周期**。P5 整体保持未完成。

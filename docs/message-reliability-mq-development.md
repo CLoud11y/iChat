@@ -572,7 +572,7 @@ P2.6 已实现 `MessageRepository.GetCommandStatus` 和共享 `CommandStatus` DT
 | --- | --- | --- |
 | `ready` | 服务端 → 客户端 | protocolVersion、sessionId、syncIntervalSeconds |
 | `message` | 服务端 → 客户端 | 与同步接口相同的 Message DTO |
-| `command.result` | 服务端 → 发送者 | clientMessageId、payloadHash、state、reasonCode；persisted 可含完整 message |
+| `command.result` | 服务端 → 发送者 | clientMessageId、payloadHash、state；rejected 含 reasonCode，persisted 含 messageId/conversationId/seq 引用，有当前内容权限时含完整 message |
 | `sync.required` | 服务端 → 客户端 | 提示重扫全部会话或指定 conversationId；不是可靠性唯一触发源 |
 | `ack` | 客户端 → 服务端 | conversationId、deliveredSeq |
 | `ack.confirmed` | 服务端 → 客户端 | conversationId、服务端已提交的 deliveredSeq |
@@ -808,8 +808,8 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
   - [x] P5.1.3 通知执行循环：严格 payload/路由核验、无正文提示、事务外 Redis 发布、保守 lease 预算、有界处理和取消，见[Outbox 执行](outbox-execution.md)。
   - [x] P5.1.4 生产角色工厂与接线：独立就绪/资源来源、正常 drain/强制取消、pending 与存储最终释放责任，见[Outbox 生命周期](outbox-lifecycle.md)。
   - [x] P5.1.5 故障验收：真实 SQL/Redis 响应丢失、lease 过期/迟到结果、子进程强杀、三个真实 worker 角色的 pending/提交未知交叉和唯一集合，见[Outbox 故障验收](outbox-acceptance.md)。
-- [ ] P5.2 统一 message/command.result WebSocket 帧，通知前验证权限。
-- [ ] P5.3 订阅就绪、群列表刷新、单 writer、关闭清理和慢客户端策略。
+- [x] P5.2 统一 message/command.result 帧与独立通知分发适配：严格频道/提示、SQL 规范 DTO、当前权限锁读、自己的终态引用及释放后出站；契约与真实传输验收见[通知帧与权限](notification-frames.md)。
+- [ ] P5.3 v1 API/WebSocket 会话接线、订阅就绪、群列表刷新、单 writer、关闭清理和慢客户端策略。
 - [ ] P5.4 ACK 绑定当前会话和用户，数据库单调更新，提交后 ack.confirmed。
 
 验收：提交后未通知、通知后未标完成两种崩溃均可恢复；重复通知不重复业务；旧 session/越权 ACK 被拒绝；客户端离线不阻塞 MQ ACK。

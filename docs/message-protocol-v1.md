@@ -105,7 +105,7 @@ command.result eventId    = 56f143e224be2614fc13bc2fb656d1ab3e1cb46564871fbbcb85
 | message.persisted | schemaVersion、eventId、commandId、conversationId、messageId、字符串 seq、senderId、targetId、targetType；不包含消息正文 |
 | command.result | schemaVersion、eventId、commandId、senderId、clientMessageId、payloadHash、state；成功包含完整 message DTO，拒绝包含 reasonCode 且无 message |
 
-schemaVersion 为 1，事件身份不含通知 attempt/lease。Outbox 中的身份和完整 DTO 不授予接收权限；P5 worker/网关仍需检查当前授权并适配实际通知/WS 帧，当前尚未实现发布。命令处理 SQL 错误回滚；COMMIT 报错保持 `ErrCommandCommitUnknown`，不能据此 ACK 或换键重发。
+schemaVersion 为 1，事件身份不含通知 attempt/lease。Outbox 中的身份和完整 DTO 不授予接收权限；P5 worker/网关仍需检查当前授权并适配实际通知/WS 帧，Outbox 发布已由 P5.1 完成，P5.2 提供严格提示、SQL 权限核验及帧适配，见[通知帧](notification-frames.md)。命令处理 SQL 错误回滚；COMMIT 报错保持 `ErrCommandCommitUnknown`，不能据此 ACK 或换键重发。
 
 ## P2.6：发送状态查询
 
@@ -160,3 +160,12 @@ conversationId 只接受规范形式：私聊 `p:<小ID>:<大ID>` 的两个正 u
 `go test ./messaging` 覆盖固定向量、无歧义编码、字段变更、重试元数据、严格 JSON/Unicode、内容/字节边界、时间格式、超大 ID/序号、信封篡改和 DTO。`FuzzRequestNormalization` 检查解码/规范化不崩溃，成功数据经 JSON 往返后业务命令不变。
 
 P2.1 的原始范围只包括协议；数据库表/约束、命令终态、权限事务、会话 seq、Outbox、状态及同步/历史仓储已按 P2.2—P2.7 分项实施。可靠 publisher 和独立确认式 HTTP 适配已完成对应库/隔离验证；SubmissionResponse/Submission 定义 code/msg/data、逻辑身份和本次物理 attempt，错误 reasonCode 位于 data，响应不包含 seq。完整应用入口与通知仍待后续阶段；旧发送与历史接口保持现有行为。
+
+
+## P5.2：通知数据帧与内容权限
+
+统一包络为 `{type,eventId,data}`，eventId 使用前述固定派生。message 的 data 与同步 MessageDTO 完全一致。command.result 的 data 包含 clientMessageId/payloadHash/state，拒绝仅增加 reasonCode；成功始终增加 messageId/conversationId/字符串 seq，有当前内容读取权限时再包含完整 message。
+
+发送者退群/群删除后，自己的成功终态仍为 persisted，保留消息引用并省略 message；旧群订阅不允许继续取得正文。私聊历史权限仍按参与者身份，解除好友不撤销已提交历史。网关按当次 SQL 权限锁读决定，不将 Pub/Sub 或旧结果 payload 当成授权依据。
+
+分发器在 SQL 连接/锁释放后才调用出站回调，网络与撤权不是原子操作；P5.3 将在单 writer 临近发送时调用，并完成真实 v1 订阅/会话接线。当前 P5.2 传输验收使用明确的测试 WebSocket endpoint，未改变旧 Chat 路由。完整字段、限制和验收见[通知帧与权限](notification-frames.md)。

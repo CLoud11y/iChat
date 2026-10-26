@@ -51,4 +51,4 @@ go test -mod=readonly -race -tags=integration ./database -run '^TestOutbox(Claim
 
 五条直接 Outbox 结构夹具的身份、payload、路由、创建时间和 attempts 保持（重领一条的 attempts 除外），其他五张可靠性表为空，schema 指纹不变。session +05:30、driver loc +13，写入及回执仍使用 UTC。原领取三组同时回归。没有运行通知发送、业务权限核验、真实提交 OK 丢失或完整 worker 生命周期；这些属于后续小点。实际结果见[实施进度](message-reliability-mq-progress.md)。
 
-[P5.1.3 通知执行循环](outbox-execution.md)已完成；[P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)已完成，P5.1 收口；下一项 **P5.2：统一 WebSocket 帧与通知权限核验**。P5.1 与显式 worker 三角色交叉范围已完成；P5 和完整默认进程保持未完成。
+[P5.1.3 通知执行循环](outbox-execution.md)已完成；[P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)已完成，P5.1 收口；[P5.2 帧与权限核验](notification-frames.md)已完成；下一项 **P5.3：v1 会话接线、订阅与单 writer 生命周期**。P5.1 与显式 worker 三角色交叉范围已完成；P5 和完整默认进程保持未完成。
