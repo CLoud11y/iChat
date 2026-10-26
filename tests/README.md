@@ -1,5 +1,13 @@
 # 独立测试环境
 
+P5.1.5 Outbox 故障验收与 P5.1 收口：
+
+```powershell
+go test -mod=readonly -p=2 -race -tags=integration ./tests/testenv -run '^TestOutboxAcceptanceIntegration$' -count=1 -v -timeout=10m
+```
+
+九项验证四次实际 SQL COMMIT OK 丢失、两次 Redis PUBLISH reply 丢失、真实 lease 到期与迟到结果、两处子进程强杀、三个生产 worker 角色的 pending/新实例接管和持久化提交未知重投。最终 10 command / 10 message / 20 completed Outbox / 1 quarantine / 0 cursor、20 个唯一通知 eventId；逐一核对原消息/终态/事件集合、连续 seq、实际 MQ ACK、审计原始投递与 schema/拓扑。显式三角色 P4 交叉补齐，默认 worker/all 的缺失工厂门禁保持。限制、运行与真实证据见[Outbox 故障验收](../docs/outbox-acceptance.md)。
+
 P5.1.4 Outbox 生产角色与生命周期：
 
 ```powershell
@@ -44,7 +52,7 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarant
 go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQSessionIntegration$' -count=1 -v -timeout=8m
 ```
 
-十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。P5.1.1—.4 领取、结算、执行与角色生命周期已完成，下一项 P5.1.5 故障验收；P4 整体交叉仍待 Outbox 接入。
+十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。P5.1.1—.5 领取、结算、执行、生命周期与故障验收已完成，下一项 P5.2 统一 WebSocket 帧与通知权限核验；P4 整体交叉仍待 Outbox 接入。
 
 P4.2.5.3 终态核验与 resolved：
 

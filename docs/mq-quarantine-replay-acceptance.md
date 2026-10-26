@@ -48,4 +48,4 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitM
 
 实际 runId、夹具修正前失败、回归和最终耗时见[实施进度](message-reliability-mq-progress.md)。生产 handler/仓储/CLI、依赖、配置模板和 migration 未改动，不执行自动提交。
 
-P4.2.5 和 P4 暂停/恢复、可靠隔离、审计与受控重放这一实现范围收口。P4 整体角色退出/提交未知交叉仍依赖 Outbox 完整接入，保持未完成；默认 worker/all 门禁不变。[P5.1.1 Outbox 领取仓储](outbox-claim.md)已完成；[P5.1.2 token 条件结算](outbox-settlement.md)已完成；[P5.1.3 通知执行循环](outbox-execution.md)已完成；[P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；下一项 **P5.1.5：故障验收**。尚未验收 Outbox 发布/lease、通知/客户端交付、完整默认 worker/all、三节点多数故障或磁盘损坏。
+P4.2.5 和 P4 暂停/恢复、可靠隔离、审计与受控重放这一实现范围收口。后续 P5.1.5 已补齐 P4 显式 worker 三角色退出/提交未知交叉；默认 worker/all 门禁不变。[P5.1.1 Outbox 领取仓储](outbox-claim.md)已完成；[P5.1.2 token 条件结算](outbox-settlement.md)已完成；[P5.1.3 通知执行循环](outbox-execution.md)已完成；[P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)已完成，P5.1 收口；下一项 **P5.2：统一 WebSocket 帧与通知权限核验**。Outbox 发布/lease 故障已由后续 P5.1.5 验收；实际客户端交付、完整默认 worker/all、三节点多数故障或磁盘损坏仍待完成。

@@ -8,7 +8,7 @@ P5.1 拆分为五步：
 | P5.1.2 | token 条件完成/失败回退、退避参数与迟到结果保护 | 完成，见[结算契约](outbox-settlement.md) |
 | P5.1.3 | payload 语义核验、事务外通知执行循环与有界失败处理 | 完成，见[执行契约](outbox-execution.md) |
 | P5.1.4 | 生产角色工厂、独立就绪/连接及 drain/pending 所有权 | 完成，见[生命周期](outbox-lifecycle.md) |
-| P5.1.5 | 提交未知、发送后退出、lease 过期/迟到结果与角色交叉故障验收 | 待实现 |
+| P5.1.5 | 提交未知、发送后退出、lease 过期/迟到结果与角色交叉故障验收 | 完成，见[故障验收](outbox-acceptance.md) |
 
 `database.NewOutboxRepository(pool)` 借入 SQL pool；`Claim(ctx, OutboxClaimOptions)` 只领取记录。没有通知发布、完成/失败更新、自动重试、续约、业务表/游标写入或默认后台角色装配。沿用既有 message_outbox schema、索引、CHECK 和 payload，不修改 migration/model。
 
@@ -43,4 +43,4 @@ go test -mod=readonly -race -tags=integration ./database -run '^TestOutboxClaimI
 
 SQL session 时区 +05:30、driver loc +13，lease 仍为 UTC。实际 runId、初轮并发断言修正和清理结果见[实施进度](message-reliability-mq-progress.md)。尚未验证真实 COMMIT 丢响应、通知发送、lease 结算/续约或进程退出。
 
-后续[P5.1.2：token 条件结算与失败回退](outbox-settlement.md)已完成。[P5.1.3 通知执行循环](outbox-execution.md)已完成；[P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；下一项 **P5.1.5：故障验收**。P5.1、P5 和默认完整后台角色保持未完成，P4 整体交叉验收在 Outbox 接入后继续。
+后续[P5.1.2：token 条件结算与失败回退](outbox-settlement.md)已完成。[P5.1.3 通知执行循环](outbox-execution.md)已完成；[P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)已完成，P5.1 收口；下一项 **P5.2：统一 WebSocket 帧与通知权限核验**。P5.1 及显式 worker 三角色的 P4 交叉验收已完成；P5 和默认完整后台进程保持未完成。

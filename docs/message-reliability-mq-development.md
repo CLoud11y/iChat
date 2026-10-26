@@ -776,7 +776,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
     - [x] P4.1.2 顺序 worker 的受控准入、停止/drain/取消/join、角色工厂和有新鲜度的本地就绪；多 worker 组遇错停止领取，真实提交屏障、ACK 丢帧重投和 RunRuntime drain 见 [生命周期适配](mq-persistence-lifecycle.md)。
 - [x] 区分权限拒绝、内容冲突、数据库暂时故障和技术坏消息；分类本身不授权隔离/ACK。
   - [x] P4.2.1 类型化失败分类、回滚未知标记、同 delivery/context 的有界事务冲突重试；实际死锁/锁超时、耗尽、约束失败、提交/回滚响应错误及退避中退出见 [分类与本地重试](mq-persistence-retry.md)。
-- [x] 实现暂停/退避/恢复、可靠隔离转移、隔离记录 worker 和受控重放 CLI；完整默认角色装配与整体退出验收仍依赖 Outbox。
+- [x] 实现暂停/退避/恢复、可靠隔离转移、隔离记录 worker 和受控重放 CLI；显式三角色退出交叉已由 P5.1.5 补齐，完整默认进程装配仍待后续。
   - [x] P4.2.2 数据库故障暂停、退避、恢复及消费者监督；避免重投风暴，不能用测试占位角色放开生产门禁。
     - [x] P4.2.2.1 独立持久化监督器：数据库故障撤销就绪、串行退役与有界抖动探测；显式注入每轮消费者资源来源，旧任务/资源释放调用真实返回后才允许新一轮，停止/超时期间不得复活。实际数据库停机/恢复、提交未知重投及退出见 [持久化监督器](mq-persistence-supervisor.md)。
     - [x] P4.2.2.2 生产消费者连接替换与运行时接线：拓扑复核、部分连接回滚、可替换资源所有权与聚合就绪，避免引用初始 session；保留缺失角色门禁。显式监督工厂、真实 MySQL/MQ 连接替换及握手黑洞清理见 [运行时连接来源](mq-persistence-connections.md)。
@@ -796,21 +796,21 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
     - [x] P4.2.5.2 确认式重发与独立 replay attempt：重新核验精确选择与期望旧 attempt，保持业务身份/hash，独立生成物理尝试，confirm 且无 return 后事务核验旧快照并记录 replay_pending；原文/状态冲突和未知结果保留责任。CLI、真实重发/Return 与边界见[受控重发](mq-quarantine-replay.md)。
     - [x] P4.2.5.3 终态核验与 resolved：同一事务锁定核验完整审计与匹配身份/hash 的规范 persisted/rejected，persisted 还校验实际消息；仅更新解决状态/时间，保留原文/attempt/业务终态，并发解决和重复核验不改首次时间，见[终态核验](mq-quarantine-resolve.md)。
     - [x] P4.2.5.4 重放故障验收：实际 CLI confirm/Return/NACK、COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放、迟到回调与解决交叉；十二项核对 12 条审计、16 条实际主队列物理投递和唯一业务集合，见[重放验收](mq-quarantine-replay-acceptance.md)。
-- [ ] P4 整体优雅退出和 DB 提交不确定恢复；持久化/隔离监督恢复、退出及受控重放已覆盖，Outbox 和整体角色交叉仍待 P5 接入后验证。
+- [x] P4 显式 worker 三角色的优雅退出和 DB 提交不确定恢复：持久化/隔离既有监督恢复、受控重放及新增 Outbox 三角色交叉已验收，见[故障收口](outbox-acceptance.md)；默认完整进程和 API+worker all 模式交叉不在此验收内。
 
 验收：杀死提交后 ACK 前的 worker，重投只形成一条业务消息；DB 故障期间可缓冲已登录用户发送，恢复后完成业务处理；隔离转移目标故障不丢原消息。
 
 ### P5：Outbox、通知与服务端 ACK
 
-- [ ] P5.1 lease + token + SKIP LOCKED 的 Outbox worker。
+- [x] P5.1 lease + token + SKIP LOCKED 的 Outbox worker，显式角色故障验收收口；默认完整后台进程仍保持缺失工厂门禁。
   - [x] P5.1.1 有界原子领取仓储：数据库 UTC 时钟、READ COMMITTED/SKIP LOCKED、每行独立 token、过期回收和整批提交门禁；真实锁定/并发及边界见[Outbox 领取](outbox-claim.md)。
   - [x] P5.1.2 token 条件结算与失败回退：完成/重试更新、数据库时钟指数抖动、token/attempt/deadline fencing 与迟到/过期 owner 保护，见[Outbox 结算](outbox-settlement.md)。
   - [x] P5.1.3 通知执行循环：严格 payload/路由核验、无正文提示、事务外 Redis 发布、保守 lease 预算、有界处理和取消，见[Outbox 执行](outbox-execution.md)。
   - [x] P5.1.4 生产角色工厂与接线：独立就绪/资源来源、正常 drain/强制取消、pending 与存储最终释放责任，见[Outbox 生命周期](outbox-lifecycle.md)。
-  - [ ] P5.1.5 故障验收：真实提交/发布未知、lease 过期与迟到结果、进程/角色交叉恢复及唯一集合。
-- [ ] 统一 message/command.result WebSocket 帧，通知前验证权限。
-- [ ] 订阅就绪、群列表刷新、单 writer、关闭清理和慢客户端策略。
-- [ ] ACK 绑定当前会话和用户，数据库单调更新，提交后 ack.confirmed。
+  - [x] P5.1.5 故障验收：真实 SQL/Redis 响应丢失、lease 过期/迟到结果、子进程强杀、三个真实 worker 角色的 pending/提交未知交叉和唯一集合，见[Outbox 故障验收](outbox-acceptance.md)。
+- [ ] P5.2 统一 message/command.result WebSocket 帧，通知前验证权限。
+- [ ] P5.3 订阅就绪、群列表刷新、单 writer、关闭清理和慢客户端策略。
+- [ ] P5.4 ACK 绑定当前会话和用户，数据库单调更新，提交后 ack.confirmed。
 
 验收：提交后未通知、通知后未标完成两种崩溃均可恢复；重复通知不重复业务；旧 session/越权 ACK 被拒绝；客户端离线不阻塞 MQ ACK。
 

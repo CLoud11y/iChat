@@ -1,6 +1,6 @@
 # P5.1.3：通知执行循环
 
-在[领取](outbox-claim.md)和[结算](outbox-settlement.md)仓储上加入独立 `workers.OutboxLoop`、严格的 `messaging.DecodeOutboxNotification` 和借入 Redis client 的发布适配。`RunBatch` 执行一个有界批次，`Run` 持续轮询。后续 [P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；下一项为 **P5.1.5：故障验收**。
+在[领取](outbox-claim.md)和[结算](outbox-settlement.md)仓储上加入独立 `workers.OutboxLoop`、严格的 `messaging.DecodeOutboxNotification` 和借入 Redis client 的发布适配。`RunBatch` 执行一个有界批次，`Run` 持续轮询。后续 [P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)也已完成，P5.1 收口；下一项为 **P5.2：统一 WebSocket 帧与通知权限核验**。
 
 ## payload 与路由
 
@@ -53,6 +53,6 @@ go test -mod=readonly -race -tags=integration ./workers -run '^TestOutboxLoopInt
 
 真实独立 MySQL/Redis suite 三组：生产 PersistCommand 生成私聊/群聊成功和权限拒绝事件，订阅确认后核对路由和五条无正文提示；单连接 pool 下，发布回调可查询已提交 leased 行，证明未持有 SQL 连接等待网络。关闭订阅后真实 PUBLISH 成功，回调注入 unknown，固定原因回退后自然到期重领相同 eventId，零订阅者也可完成。额外坏 payload 不发布，仅回退。
 
-最终 4 command / 3 message / 2 conversation / 8 Outbox（7 completed、1 invalid pending），cursor/quarantine 均 0，schema 指纹不变。unknown 是**真实发布成功后返回错误注入**，不是 Redis TCP 丢响应；真实提交未知、进程故障和角色交叉留给 P5.1.5。runId、命令结果和资源清理见[实施进度](message-reliability-mq-progress.md)。
+最终 4 command / 3 message / 2 conversation / 8 Outbox（7 completed、1 invalid pending），cursor/quarantine 均 0，schema 指纹不变。unknown 是**真实发布成功后返回错误注入**，不是 Redis TCP 丢响应；后续 [P5.1.5](outbox-acceptance.md)已补齐真实提交/发布未知、进程故障和角色交叉。runId、命令结果和资源清理见[实施进度](message-reliability-mq-progress.md)。
 
-P5.1.3 范围完成，P5.1/P5、P4 整体交叉和默认完整 worker/all 仍待收口。
+P5.1.3 及后续 P5.1 故障范围均已完成，P4 显式 worker 三角色交叉已补齐；P5 与默认完整 worker/all 仍待收口。

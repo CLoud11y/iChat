@@ -3601,3 +3601,56 @@ limit 1—100，lease 1 秒—5 分钟、整数微秒。核验事件派生身份
 下一项 **P5.1.5：故障验收**，涵盖真实提交/发布未知、lease 过期和迟到结果、进程及角色交叉恢复。
 
 建议 commit message：`feat(outbox): wire production lifecycle and resource ownership`
+
+
+## 2026-10-26：P5.1.5 Outbox 故障验收与 P5.1 收口
+
+状态：本小点完成，P5.1.1—.5 的 Outbox worker 范围收口，并补齐 P4 显式 worker 三角色的退出/提交未知交叉。默认 worker/all 仍缺 Persistence/Quarantine 工厂注册、继续在 I/O 前门禁拒绝；API+三个 worker 的 all 模式交叉、实际 WebSocket/客户端交付及 P5 整体尚未完成。下一项 P5.2 统一 WebSocket message/command.result 帧与通知权限核验。
+
+### 实现与实际故障
+
+新增三份仅 integration 编译的夹具/验收文件：主 suite、RESP2 命令响应代理和私有强杀 helper；复用既有具备所有权校验的独立测试环境与 classic SQL 代理。没有修改生产行为、schema、依赖或默认配置，也没有自动提交。
+
+1. 领取 COMMIT OK 被真实 SQL TCP 代理消费后丢弃，数据库已提交整批 leased，但循环返回 unknown、无领取回执/通知；实际等待数据库 lease 到期再恢复。
+2. 完成 COMMIT OK 丢失，实际 Redis 发布与 SQL completed 均已发生，循环不报告完成；后续恢复不重新发送 completed eventId。
+3. Redis PUBLISH integer reply 丢失，随后 Retry COMMIT OK 也丢失，SQL pending/NOTIFICATION_UNKNOWN/attempts=1 与原身份保留；按数据库 available_at 恢复相同事件。
+4. 单独 Redis PUBLISH reply 丢失，直接订阅者证明服务端已经发布；回退/重领后重复同一 eventId，业务集合不扩大。
+5. 实际发布后持有返回回调，等待真实 lease 过期并由新 owner 换 token/attempt 完成。释放旧 nil 结果后不能结算；旧 Complete/Retry 均 LeaseLost，重复观察保持原身份。
+6. 真实 OutboxService 子进程在 Claim 已提交、通知前的屏障强杀。等待进程及其 SQL connection ID 消失，事件未通知、lease 保留；到期后新 owner 恢复。
+7. 子进程在真实 PUBLISH 成功、Complete 前强杀，原通知已被观察；lease 到期后重复原 eventId，不重复业务消息。
+8. 同时运行真实持久化、隔离审计与 Outbox 工厂。一个正常命令与一个技术坏投递分别形成业务集合/完整审计并实际 ACK；Outbox Complete 提交后的返回屏障与短 drain/close 交叉，RunRuntime 返回 pending/健康 stopping，旧 Outbox owner 仍持有共享 SQL。释放后所有 owner Done，新运行实例处理原剩余 lease 与后来新命令。
+9. 仅持久化角色的真实业务 COMMIT OK 丢失，同时真实 Outbox 在线消费已经提交的事件；持久化监督器退役、重新获取连接、重投原消息并 ACK，原业务终态/seq/事件不变。
+
+四次 SQL OK 丢失、两次 Redis PUBLISH reply 丢失均是真实服务端响应经过代理再丢弃，不以 callback 返回 EOF 代替。迟到/退出屏障明确位于真实操作完成后的回调中；两个 helper 是父进程实际 Kill 并 join，不把 observer timeout 当成已终止。凭证只通过私有子进程环境，未进入参数/日志。
+
+### 最终集合与资源
+
+最终 10 command / 10 message / 1 conversation / 20 completed Outbox / 1 quarantine / 0 delivery cursor。20 个唯一 eventId，实际 24 次无正文通知观察；重复允许发生，业务没有重复。逐个保留并比对消息内容/媒体/路由/seq/服务端时间、命令 hash/首次终态和时间，以及事件 payload/身份/路由/创建时间。水位等于条数与最大 seq，无缺号；通知频道按发送者/接收者核对，重复事件不改变路由。
+
+三角色验收等待管理 API 确认两队列 ready/unacked 均为 0，主队列实际 ACK 至少 4 次、隔离队列至少 1 次，不以 SQL 行或本地 ACK 返回冒充 broker 确认。唯一隔离记录经完整审计 JSON 解码核对原 body、messageId、correlationId、transport identity 和 open 状态。schema 指纹与 RabbitMQ 只读拓扑复核不变。
+
+三次实际运行均九项全通过，无 fail/skip/race：
+
+| runId | suite / package | 范围 |
+| --- | --- | --- |
+| `d928997261d1446a2fa2bbfeed7e243c` | 48.72s / 51.721s | 初轮九项全部通过 |
+| `45cc2318ad86fe1bc7df7980c8ec8747` | 45.06s / 48.256s | 增强原命令终态快照、原始审计与拓扑核验后通过 |
+| `fb5f99489eaa2e22ef1257d4c915954d` | 44.83s / 48.043s | 最终增加迟到场景重复观察和通知总数下界，实际 24 次 / 20 唯一事件 |
+
+三轮 fixture Close 成功，按每轮项目标签只读确认容器/卷/网络均为 0；父进程 Kill helper 后另等其 SQL 会话消失。Docker 自动审批通过，无拒绝，不访问开发配置或共享数据。
+
+### 回归
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.644s、application 4.037s、rabbitmq 9.501s、workers 4.179s，无 race |
+| `go test -mod=readonly -p=2 -race ./workers ./application ./database ./messaging -run '^TestOutbox' -count=30 -timeout=120s` | 30 轮通过；workers 45.133s、application 3.625s、database 3.388s、messaging 2.393s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 最终全仓库标签编译通过，不代表执行全部历史集成 suite |
+| `go test -mod=readonly -p=2 -race -tags=integration ./tests/testenv -run '^TestOutboxAcceptanceIntegration$' -count=1 -v -timeout=10m` | 最终九项通过，包 48.043s |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache 和不存在的单元测试 ICHAT_CONFIG_FILE。没有扩大为三节点多数故障、磁盘破坏、管理员删除数据或实际客户端交付测试；默认完整 worker/all 装配仍保留门禁。
+
+详细场景、原 MQ 投递与直接仓储夹具的区分、资源/协议限制见[Outbox 故障验收](outbox-acceptance.md)。下一项 **P5.2：统一 WebSocket 帧与通知权限核验**。
+
+建议 commit message：`test(outbox): verify crash recovery and cross-role faults`
