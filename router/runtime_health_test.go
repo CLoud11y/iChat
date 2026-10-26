@@ -27,6 +27,10 @@ func TestRuntimeHealthHTTPUsesCurrentSeparateObservations(t *testing.T) {
 		body  string
 	}{
 		{health.RuntimeStatus{}, "/health/ready/accept", 503, "MQ_ACCEPTANCE_NOT_CONFIGURED"},
+		{health.RuntimeStatus{}, "/health/ready/outbox", 503, "OUTBOX_NOT_CONFIGURED"},
+		{health.RuntimeStatus{Outbox: health.OutboxUnavailable, Acceptance: health.Ready}, "/health/ready/outbox", 503, "OUTBOX_UNAVAILABLE"},
+		{health.RuntimeStatus{Outbox: health.Ready, Consumers: health.ConsumerUnavailable}, "/health/ready/outbox", 200, `"status":"ready"`},
+		{health.RuntimeStatus{Outbox: health.Stopping}, "/health/ready/outbox", 503, "RUNTIME_STOPPING"},
 		{health.RuntimeStatus{Acceptance: health.Starting}, "/health/ready/accept", 503, "RUNTIME_STARTING"},
 		{health.RuntimeStatus{Acceptance: health.Ready}, "/health/ready/accept", 200, `"status":"ready"`},
 		{health.RuntimeStatus{Acceptance: health.AuthenticationUnavailable}, "/health/ready/accept", 503, "AUTHENTICATION_UNAVAILABLE"},

@@ -23,6 +23,7 @@ type observedRuntimeService struct {
 func (s *observedRuntimeService) AcceptanceReady() bool     { return s.accept.Load() }
 func (s *observedRuntimeService) AuthenticationReady() bool { return s.auth.Load() }
 func (s *observedRuntimeService) ConsumerReady() bool       { return s.consumer.Load() }
+func (s *observedRuntimeService) OutboxReady() bool         { return s.consumer.Load() }
 
 type observedPublisher struct {
 	*fakeMQPublisher
@@ -130,12 +131,13 @@ func TestRuntimeHealthModesAndActivation(t *testing.T) {
 				}
 			}
 			cancel, result, observed := startReadinessHarness(t, h, mode)
-			want := health.RuntimeStatus{Acceptance: health.Ready, Consumers: health.Ready}
+			want := health.RuntimeStatus{Acceptance: health.Ready, Consumers: health.Ready, Outbox: health.Ready}
 			if mode == config.ModeWorker {
 				want.Acceptance = health.NotConfigured
 			}
 			if mode == config.ModeAPI {
 				want.Consumers = health.NotConfigured
+				want.Outbox = health.NotConfigured
 			}
 			if status := observed.RuntimeReadiness(); status != want {
 				t.Fatal("incorrect role readiness", status, want)

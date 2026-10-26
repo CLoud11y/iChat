@@ -27,6 +27,9 @@ type RuntimeConsumerReadiness interface {
 	ConsumerReady() bool
 }
 
+// Outbox readiness is independent of MQ and API authentication availability.
+type RuntimeOutboxReadiness interface{ OutboxReady() bool }
+
 type readinessRole struct {
 	role    RuntimeRole
 	service RuntimeService
@@ -77,6 +80,7 @@ func (h *runtimeHealth) RuntimeReadiness() health.RuntimeStatus {
 		}
 		if hasConsumers {
 			status.Consumers = state
+			status.Outbox = state
 		}
 		return status
 	}
@@ -130,6 +134,15 @@ func (h *runtimeHealth) RuntimeReadiness() health.RuntimeStatus {
 		}
 	}
 	if hasConsumers {
+		status.Outbox = health.OutboxUnavailable
+		for _, role := range roles {
+			if role.role == RoleOutbox {
+				outbox, ok := role.service.(RuntimeOutboxReadiness)
+				if ok && !nilRoleCapability(outbox) && outbox.OutboxReady() {
+					status.Outbox = health.Ready
+				}
+			}
+		}
 		status.Consumers = health.Ready
 		if len(consumers) == 0 || !consumerResourcesReady {
 			status.Consumers = health.ConsumerUnavailable

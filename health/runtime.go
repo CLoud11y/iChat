@@ -15,6 +15,7 @@ const (
 	PublisherUnavailable
 	ConsumerUnavailable
 	Ready
+	OutboxUnavailable
 )
 
 func (s ReadinessState) ReasonCode() string {
@@ -35,6 +36,8 @@ func (s ReadinessState) ReasonCode() string {
 		return "MQ_CONSUMER_UNAVAILABLE"
 	case Ready:
 		return "READY"
+	case OutboxUnavailable:
+		return "OUTBOX_UNAVAILABLE"
 	default:
 		return "READINESS_UNAVAILABLE"
 	}
@@ -43,6 +46,7 @@ func (s ReadinessState) ReasonCode() string {
 type RuntimeStatus struct {
 	Acceptance ReadinessState
 	Consumers  ReadinessState
+	Outbox     ReadinessState
 }
 
 // RuntimeHealth is an observation capability, with no setters or lifecycle

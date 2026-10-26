@@ -66,6 +66,11 @@ func (e *OutboxError) Unwrap() error    { return e.cause }
 // means Redis returned success, never client delivery. Unknown settlement is
 // not repeated or compensated. Remaining leases recover by expiry.
 func (w *OutboxLoop) RunBatch(ctx context.Context) (result OutboxBatch, err error) {
+	return w.runBatch(ctx, ctx)
+}
+
+// admission can be canceled without canceling already committed claims.
+func (w *OutboxLoop) runBatch(ctx, admission context.Context) (result OutboxBatch, err error) {
 	if w == nil || w.store == nil || w.publisher == nil || ctx == nil {
 		return result, ErrOutboxWorkerInput
 	}
@@ -73,7 +78,7 @@ func (w *OutboxLoop) RunBatch(ctx context.Context) (result OutboxBatch, err erro
 		return result, err
 	}
 	start := time.Now()
-	claimCtx, cancel := context.WithTimeout(ctx, w.options.ClaimTimeout)
+	claimCtx, cancel := context.WithTimeout(admission, w.options.ClaimTimeout)
 	leases, err := w.store.Claim(claimCtx, w.options.Claim)
 	cancel()
 	if err != nil {

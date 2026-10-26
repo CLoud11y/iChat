@@ -1,5 +1,7 @@
 # 进程入口分流与现代运行时信号（P3.5.3.3.3.1）
 
+P5.1.4 已加入[Outbox 生产工厂与生命周期](outbox-lifecycle.md)：默认 worker/all 选择惰性真实 Outbox 工厂，显式工厂优先；默认 Persistence/Quarantine 仍需外部注册，缺失门禁保持。健康新增独立 Outbox 能力与 `/health/ready/outbox`，资源 owner 等真实 Done 后最终释放。以下历史阶段的装配/夹具范围按原验收理解。
+
 `main → run → runProcess` 按配置选择 legacy 生命周期或 `application.RunRuntime`。配置只加载一次，所选角色全部通过纯检查后才允许进入相应路径。P3.6.2 已为显式 api 模式注册[生产 API 工厂](api-runtime-lifecycle.md)，其配置也在信号和 I/O 前校验；worker/all 继续在外部连接前报出缺失的持久化、隔离、Outbox 角色。默认模式仍为 legacy。
 
 ## 分流与所有权

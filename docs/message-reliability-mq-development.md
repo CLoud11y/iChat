@@ -806,7 +806,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
   - [x] P5.1.1 有界原子领取仓储：数据库 UTC 时钟、READ COMMITTED/SKIP LOCKED、每行独立 token、过期回收和整批提交门禁；真实锁定/并发及边界见[Outbox 领取](outbox-claim.md)。
   - [x] P5.1.2 token 条件结算与失败回退：完成/重试更新、数据库时钟指数抖动、token/attempt/deadline fencing 与迟到/过期 owner 保护，见[Outbox 结算](outbox-settlement.md)。
   - [x] P5.1.3 通知执行循环：严格 payload/路由核验、无正文提示、事务外 Redis 发布、保守 lease 预算、有界处理和取消，见[Outbox 执行](outbox-execution.md)。
-  - [ ] P5.1.4 生产角色工厂与接线：独立就绪/资源来源、drain/pending 和存储最终释放责任。
+  - [x] P5.1.4 生产角色工厂与接线：独立就绪/资源来源、正常 drain/强制取消、pending 与存储最终释放责任，见[Outbox 生命周期](outbox-lifecycle.md)。
   - [ ] P5.1.5 故障验收：真实提交/发布未知、lease 过期与迟到结果、进程/角色交叉恢复及唯一集合。
 - [ ] 统一 message/command.result WebSocket 帧，通知前验证权限。
 - [ ] 订阅就绪、群列表刷新、单 writer、关闭清理和慢客户端策略。

@@ -1,5 +1,7 @@
 # 角色构造器与服务实例检查（P3.5.3.3.2.1）
 
+P5.1.4 已加入[Outbox 生产工厂与生命周期](outbox-lifecycle.md)：默认 worker/all 选择惰性真实 Outbox 工厂，显式工厂优先；默认 Persistence/Quarantine 仍需外部注册，缺失门禁保持。健康新增独立 Outbox 能力与 `/health/ready/outbox`，资源 owner 等真实 Done 后最终释放。以下历史阶段的装配/夹具范围按原验收理解。
+
 后续 [P4.1.2](mq-persistence-lifecycle.md)提供单轮 `NewPersistenceFactory(sharedPool, options)`；[P4.2.2.2](mq-persistence-connections.md)另提供显式 NewSupervisedPersistenceFactory，纯本地 claim 仅传给持久化角色的 PersistenceConsumers 来源，Start 后才获取/核验连接。共享 SQL 由调用方持有至服务 Done，默认进程未注册后台工厂；本页缺失角色检查及 worker/all 门禁继续适用，不能用测试隔离/Outbox 占位服务补齐生产装配。
 
 `application.RuntimeFactories.Check(conf)` 从 Config 重新解析角色，检查所选业务服务的实际构造函数是否存在。它不调用构造函数、不创建 MQ/数据库连接、不检查依赖在线状态。缺少任一必需角色时返回空 RuntimeAssembly 和全部缺失角色，不允许使用半份装配结果。

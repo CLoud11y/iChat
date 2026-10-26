@@ -18,6 +18,7 @@ import (
 	"iChat/router"
 	scheduledtasks "iChat/scheduledTasks"
 	"iChat/service"
+	"iChat/workers"
 
 	"github.com/go-redis/redis/v8"
 	"gorm.io/gorm"
@@ -44,6 +45,52 @@ func processTestFactories() application.RuntimeFactories {
 	return application.RuntimeFactories{API: factory, Persistence: factory, Quarantine: factory, Outbox: factory}
 }
 
+func TestRunProcessDefaultOutboxFactoryIsLazyAndExplicitWins(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		deps := defaultProcessDependencies()
+		conf := apiTestConfig()
+		conf.RUNTIME.Mode = config.ModeWorker
+		deps.legacy.loadConfig = func() (config.Config, error) { return conf, nil }
+		deps.factories = processTestFactories()
+		if !explicit {
+			deps.factories.Outbox = nil
+		}
+		calls := 0
+		original := deps.outbox
+		deps.outbox = func(c config.Config) (application.RuntimeFactory, error) { calls++; return original(c) }
+		deps.notifyContext = func(c context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) { return c, func() {} }
+		deps.runRuntime = func(c context.Context, _ config.Config, f application.RuntimeFactories, _ application.RuntimeOptions) error {
+			if calls != 0 {
+				t.Fatal("production resource factory ran before runtime construction")
+			}
+			if explicit {
+				return nil
+			}
+			s, err := f.Outbox(c, application.RoleDependencies{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := s.(*workers.OutboxService); !ok {
+				t.Fatal("default Outbox is not production service")
+			}
+			if s.(application.RuntimeOutboxReadiness).OutboxReady() {
+				t.Fatal("idle factory became ready")
+			}
+			return s.Close(c)
+		}
+		if err := runProcess(deps); err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if explicit {
+			want = 0
+		}
+		if calls != want {
+			t.Fatal("explicit role was replaced", calls)
+		}
+	}
+}
+
 func TestRunProcessGuardBeforeDependenciesAndSignals(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -65,6 +112,7 @@ func TestRunProcessGuardBeforeDependenciesAndSignals(t *testing.T) {
 			before := legacyState()
 			deps := defaultProcessDependencies()
 			deps.api = nil // This matrix deliberately supplies no production defaults.
+			deps.outbox = nil
 			if strings.HasSuffix(tc.name, "_api_only") {
 				deps.factories.API = processTestFactories().API
 			}
@@ -214,7 +262,7 @@ func TestRunProcessDefaultAPIAssemblyAndPreflight(t *testing.T) {
 				}
 				if name == "all" || name == "worker" {
 					var missing *application.RuntimeAssemblyError
-					if !errors.As(err, &missing) || !reflect.DeepEqual(missing.MissingRoles(), []application.RuntimeRole{application.RolePersistence, application.RoleQuarantine, application.RoleOutbox}) {
+					if !errors.As(err, &missing) || !reflect.DeepEqual(missing.MissingRoles(), []application.RuntimeRole{application.RolePersistence, application.RoleQuarantine}) {
 						t.Fatal("missing background roles not reported", err)
 					}
 				} else if !errors.Is(err, errAPIInput) {

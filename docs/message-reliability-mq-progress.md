@@ -3550,3 +3550,54 @@ limit 1—100，lease 1 秒—5 分钟、整数微秒。核验事件派生身份
 下一项 **P5.1.4：生产角色工厂与接线**。
 
 建议 commit message：`feat(outbox): add bounded notification execution loop`
+
+
+## 2026-10-26：P5.1.4 Outbox 生产角色工厂与生命周期
+
+状态：本小点完成。加入真实 Outbox 角色、独立资源来源/就绪、正常 drain/强制取消和 pending 后最终释放。下一项 P5.1.5 故障验收；P5.1/P5、P4 整体交叉及默认完整后台管线保持未完成。
+
+### 实现与边界
+
+- `workers.OutboxService` 提供 Start/StopAdmission/Drain/Close/Done/Err。构造闲置，Start 的 owner goroutine 取得资源并检查 SQL/Redis 后激活，setup 与处理 lifetime 分离。来源/探针迟到时 Start 可按期限返回，但原 owner 继续等待并保留迟到资源，真实清理后才 Done。
+- 正常停止只取消 setup、Claim 和探针，已提交领取批次保持原处理期限；Close/lifetime 取消停止发布/结算机会，未完成 lease 等到期恢复。observer 超时返回 ErrOutboxServicePending，不提前关 SQL/Redis 或 Done。Close 回调自身阻塞也由原 owner 等待。资源按一次最终关闭处理，不在错误后自动替换来源或重发未知结算。
+- `NewOutboxFactory` 借入明确 pool/client，调用者等全部使用者 Done 后释放；`NewConfiguredOutboxFactory` 在 Start 才建立独立、有限连接与 I/O 的 SQL/Redis，无迁移、无隐式 Redis 重试、无全局绑定；`NewOutboxSourceFactory` 保留 handle+error 的部分资源。Outbox 拒绝其他角色的 MQ capability。配置资源由角色 owner 在真实回调加入后自行关闭，runtime 返回本身不触发外部重复关闭。
+- 运行期探针/处理不可结算错误采用 fail-stop，经 RunRuntime 统一退出，没有新增自动恢复或续约。SQL 探针 Ping 加只读 Outbox 列检查，Redis 为 PING；不冒充完整 schema 指纹或通知投递权限证明。
+- 新增 RuntimeOutboxReadiness、RuntimeStatus.Outbox 与 `/health/ready/outbox`，独立于接受/消费者状态。只读本地准入、lifetime 和探针新鲜度，缺能力失败关闭；观察无 I/O，停止后永久撤销当前实例 ready。
+- 默认 process 对 worker/all 注册惰性真实 Outbox 工厂，显式工厂优先。默认 Persistence/Quarantine 仍未注册，缺失门禁在信号/I/O 前继续拒绝；显式提供两个既有监督工厂可通过角色清单。没有将完整默认后台管线或交叉故障验收标为完成。
+
+契约、默认参数、资源责任和健康状态见[Outbox 生命周期](outbox-lifecycle.md)。不新增 schema、依赖、YAML/env 或自动提交。
+
+### 实际验收
+
+初轮生命周期 run `264dd7bf01c8540d883b765baa938540` 六组通过，suite 20.41s、包 23.577s。最终代码 run `4446a887e8591278577523a0cd5deec6` 六组再次全部通过，suite 20.75s、application 包 23.969s，无 fail/skip/race：
+
+1. 配置生产工厂从闲置到真实 SQL/Redis ready，正常 drain 后退出；借入工厂退出后调用方 pool/client 仍可使用。
+2. 捕获真实配置来源的私有资源，Done 后 SQL 返回 database is closed、Redis 返回 ErrClosed，最终关闭有实际证据。
+3. 配置到本轮 schema 前缀下不存在的库，SQL 启动失败，所有已构造私有资源关闭。
+4. 对本轮 Redis 使用错误认证，SQL 成功后 Redis 启动失败，两个资源均关闭。
+5. 实际 PUBLISH 成功后在返回回调中设置屏障，正常停止/短 drain 返回 pending，SQL 行保持 leased、资源可继续探测；释放后完成 SQL 结算并最终关闭一次。
+6. 同样的发布后屏障中强制 Close，observer pending 不释放资源；回调返回后不再结算，SQL 保持 leased，资源实际加入后关闭一次。
+
+本项两条直接 Outbox 结构夹具最终为 1 completed / 1 leased，其他五张可靠性表均 0、schema 指纹不变。屏障是实际发布后的回调等待，不是 Redis TCP 丢响应、SQL 提交未知或进程强杀。生产业务生成/payload/无正文路由由原执行 suite 回归：run `0be063b7f2fa6ffcf3064fa864cca07f`，三组全通过，suite 20.96s、workers 包 24.016s；仍为 4 command / 3 message / 2 conversation / 8 Outbox（7 completed、1 invalid pending），cursor/quarantine 为 0。
+
+三轮 fixture Close 成功，按项目标签只读确认容器/卷/网络均为 0。Docker 自动审批通过，无拒绝；不访问开发配置或共享数据。
+
+### 默认回归
+
+初轮新增 Outbox 独立状态及默认工厂后，旧测试仍要求 RuntimeStatus 没有 Outbox 字段、默认缺失清单包含 Outbox；更新观察夹具和角色预期，不用占位服务回避生产门禁。最终所有默认测试通过。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -race ./workers ./application ./router . -run '^Test(Outbox\|RuntimeHealth\|RuntimeHealthHTTP\|RunProcess)' -count=30 -timeout=120s` | 30 轮通过；workers 45.117s、application 4.482s、router 2.389s、主包 4.521s，无 race |
+| `go test -mod=readonly -race ./... -count=1 -timeout=120s` | 最终全仓库通过；主包 11.510s、application 4.891s、rabbitmq 8.855s、workers 3.885s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | GOMAXPROCS=2 下通过 |
+| `go test -mod=readonly -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表运行所有集成 suite |
+| `go test -mod=readonly -race -tags=integration ./application ./workers -run '^TestOutbox(Lifecycle\|Loop)Integration$' -count=1 -v -timeout=8m` | 最终生命周期六组与执行三组均通过 |
+
+并行运行多个 Go 校验进程时，首轮 vet 因 Windows 分页文件不足无法启动子进程；其他回归完成后以 GOMAXPROCS=2、-p=2 重跑通过，没有以修改实现来绕过失败。固定 Go 1.27.1、空 GOROOT、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE。
+
+默认测试另覆盖迟到来源/探针/关闭、panic/错误、非法与 typed nil 资源、重复启动、样本过期、闲置关闭、能力隔离、显式工厂优先和独立 HTTP 就绪。RunRuntime 的真实 Outbox 服务加 companion 夹具验证 observer 已返回 pending 时原 Claim 仍保留资源，实际回调退出才 Done；不将这些 companion 声称为完整真实生产管线。
+
+下一项 **P5.1.5：故障验收**，涵盖真实提交/发布未知、lease 过期和迟到结果、进程及角色交叉恢复。
+
+建议 commit message：`feat(outbox): wire production lifecycle and resource ownership`

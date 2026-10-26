@@ -1,6 +1,6 @@
 # P5.1.3：通知执行循环
 
-在[领取](outbox-claim.md)和[结算](outbox-settlement.md)仓储上加入独立 `workers.OutboxLoop`、严格的 `messaging.DecodeOutboxNotification` 和借入 Redis client 的发布适配。`RunBatch` 执行一个有界批次，`Run` 持续轮询。本项不装配生产角色；下一项为 **P5.1.4：生产角色工厂与接线**。
+在[领取](outbox-claim.md)和[结算](outbox-settlement.md)仓储上加入独立 `workers.OutboxLoop`、严格的 `messaging.DecodeOutboxNotification` 和借入 Redis client 的发布适配。`RunBatch` 执行一个有界批次，`Run` 持续轮询。后续 [P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；下一项为 **P5.1.5：故障验收**。
 
 ## payload 与路由
 
@@ -40,7 +40,7 @@ seq 保持规范 uint64 十进制字符串，不经浮点转换。command.result
 
 `RunBatch` 回传 Claimed/Published/Completed/Retried/Deferred，错误时保留此前已确认计数。Published 只统计及时返回 nil 的调用，未知发送不计；Deferred 含剩余及结果未确认的条目，不代表它们在数据库中必定未完成。错误展示固定 stage，底层 cause 仅通过 Unwrap 保留，不拼接正文、SQL 或连接信息。生产 Redis client 可能有内部重试，仍是至少一次语义。
 
-`Run` 每批（含空批、部分处理批）后可取消地等待 PollInterval，SKIP LOCKED 暂空继续轮询；遇错误返回生命周期 owner，由 P5.1.4 决定监督/就绪/退出策略。没有热循环重试。P5.1.4 还需实现正常 drain 与强制取消的区别、pending/共享存储释放责任；本接口的 context 取消是停止处理，不是完整角色 drain。
+`Run` 每批（含空批、部分处理批）后可取消地等待 PollInterval，SKIP LOCKED 暂空继续轮询；遇错误返回生命周期 owner，由 P5.1.4 决定监督/就绪/退出策略。没有热循环重试。后续 [P5.1.4](outbox-lifecycle.md)已实现正常 drain 与强制取消的区别及 pending/资源释放责任；本循环接口的 context 取消仍是停止处理，角色 drain 由服务层管理。
 
 ## 验证
 

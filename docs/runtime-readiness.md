@@ -1,5 +1,7 @@
 # 接受就绪汇总与健康接口（P3.5.4.2）
 
+P5.1.4 已加入[Outbox 生产工厂与生命周期](outbox-lifecycle.md)：默认 worker/all 选择惰性真实 Outbox 工厂，显式工厂优先；默认 Persistence/Quarantine 仍需外部注册，缺失门禁保持。健康新增独立 Outbox 能力与 `/health/ready/outbox`，资源 owner 等真实 Done 后最终释放。以下历史阶段的装配/夹具范围按原验收理解。
+
 [P4.1.2 持久化服务](mq-persistence-lifecycle.md)已实现具体 ConsumerReady：本地订阅/准入/lifetime 加真实 SQL 探测的新鲜度。后续 [P4.2.2.2](mq-persistence-connections.md)的显式监督工厂通过生产连接来源管理恢复，聚合健康改读当前轮次，旧 session 的 Done 不再阻止新轮次 ready；旧单轮工厂保持停止策略。隔离/Outbox 在集成中仍是明确测试占位服务，不代表完整生产 worker 已装配。
 
 [P4.2.2.3](mq-persistence-shutdown.md)已验证停止中的真实 SQL/Ping 返回屏障、ACK 丢帧和部分替换握手：即使 RunRuntime observer 已超时返回，健康仍保持 stopping，旧任务晚成功也不会重新 ready；共享 SQL 的释放须另等监督器 Done。

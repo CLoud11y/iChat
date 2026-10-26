@@ -1,5 +1,7 @@
 # 受控服务构造、激活与退出（P3.5.3.3.2.2）
 
+P5.1.4 已加入[Outbox 生产工厂与生命周期](outbox-lifecycle.md)：默认 worker/all 选择惰性真实 Outbox 工厂，显式工厂优先；默认 Persistence/Quarantine 仍需外部注册，缺失门禁保持。健康新增独立 Outbox 能力与 `/health/ready/outbox`，资源 owner 等真实 Done 后最终释放。以下历史阶段的装配/夹具范围按原验收理解。
+
 后续 [P4.1.2 持久化生命周期](mq-persistence-lifecycle.md)已以真实工厂/SQL/ACK 验证本执行器的 drain 顺序；[P4.2.2.2](mq-persistence-connections.md)通过显式监督工厂接入生产连接替换和当前轮次就绪。共享 SQL 仍属外部 owner，服务 Close 返回 pending 时必须等其 Done 后释放；默认后台装配及隔离/Outbox 尚未完成。
 
 [P4.2.2.3 退出验收](mq-persistence-shutdown.md)已进一步验证 RunRuntime 有界返回与监督器实际 Done 的区别：恢复中的 dial/probe/group join 或已提交 SQL 回调尚未返回时，pending owner 继续持有资源；晚成功不能复活健康状态。外部 SQL owner 等监督器 Done 后再释放 pool，不能以执行器返回或 MQ 关闭代替。

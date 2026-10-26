@@ -40,6 +40,15 @@ func RegisterHealth(r *gin.Engine, storage StorageHealth, runtime health.Runtime
 		state := health.ObserveRuntime(runtime).Consumers
 		respondReadiness(c, state, true)
 	})
+	r.GET("/health/ready/outbox", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		state := health.ObserveRuntime(runtime).Outbox
+		if state == health.NotConfigured {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "reasonCode": "OUTBOX_NOT_CONFIGURED"})
+			return
+		}
+		respondReadiness(c, state, false)
+	})
 }
 
 func respondReadiness(c *gin.Context, state health.ReadinessState, consumers bool) {

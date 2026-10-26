@@ -10,6 +10,7 @@ import (
 
 	"iChat/application"
 	"iChat/config"
+	"iChat/workers"
 )
 
 // Dependency construction is deferred until after configuration and role
@@ -20,6 +21,7 @@ type processDependencies struct {
 	runLegacy     func(context.Context, config.Config, startupDependencies, legacyRuntimeOptions) error
 	factories     application.RuntimeFactories
 	api           *apiAssembly
+	outbox        func(config.Config) (application.RuntimeFactory, error)
 	options       application.RuntimeOptions
 	runRuntime    func(context.Context, config.Config, application.RuntimeFactories, application.RuntimeOptions) error
 	notifyContext func(context.Context, ...os.Signal) (context.Context, context.CancelFunc)
@@ -30,10 +32,13 @@ func defaultProcessDependencies() processDependencies {
 		legacy:        defaultStartupDependencies(),
 		legacyOptions: defaultLegacyRuntimeOptions(),
 		runLegacy:     runLegacyRuntime,
-		// Only the confirmed command API is implemented. Missing background
-		// roles remain a hard gate; never substitute test/transport services.
-		factories:     application.RuntimeFactories{},
-		api:           &apiAssembly{options: defaultAPIOptions, dependencies: defaultAPIDependencies()},
+		// API and Outbox have lazy production defaults. Persistence/quarantine
+		// still require explicit factories; missing roles remain a hard gate.
+		factories: application.RuntimeFactories{},
+		api:       &apiAssembly{options: defaultAPIOptions, dependencies: defaultAPIDependencies()},
+		outbox: func(c config.Config) (application.RuntimeFactory, error) {
+			return application.NewConfiguredOutboxFactory(c, workers.DefaultOutboxServiceOptions())
+		},
 		options:       application.DefaultRuntimeOptions(),
 		runRuntime:    application.RunRuntime,
 		notifyContext: signal.NotifyContext,
@@ -51,6 +56,17 @@ func runProcess(deps processDependencies) error {
 	factories := deps.factories
 	var selectedAPI *apiAssembly
 	var apiSettings apiOptions
+	// Supply a lazy production role without constructing storage or connecting
+	// before the complete role gate. Explicit caller factories take precedence.
+	if (conf.RUNTIME.Mode == config.ModeWorker || conf.RUNTIME.Mode == config.ModeAll) && factories.Outbox == nil && deps.outbox != nil {
+		factories.Outbox = func(ctx context.Context, inputs application.RoleDependencies) (application.RuntimeService, error) {
+			factory, err := deps.outbox(conf)
+			if err != nil {
+				return nil, err
+			}
+			return factory(ctx, inputs)
+		}
+	}
 	if (conf.RUNTIME.Mode == config.ModeAPI || conf.RUNTIME.Mode == config.ModeAll) && factories.API == nil && deps.api != nil {
 		copy := *deps.api
 		if copy.options == nil {
