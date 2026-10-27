@@ -2,7 +2,7 @@
 
 增加 `messaging.DecodeNotificationHint`、两种统一 `ServerFrame`、`MessageRepository.ResolveNotification` 和 `service.NotificationDispatcher`。它们把[Outbox 无正文提示](outbox-execution.md)转换为来自 SQL 的规范消息或命令终态，不直接透传 Redis/Outbox 中的正文。
 
-本项提供可接入单 writer 的分发适配；现代 API 的聊天入口、v1 订阅和会话生命周期由下一项 **P5.3：v1 会话接线、订阅与单 writer 生命周期**完成。旧 Chat/旧频道和协议保持原路径，当前现代 API 不会因加入这些构造器自动获得聊天路由。
+本项提供单 writer 的分发适配；后续 [P5.3 生产会话与订阅](reliable-websocket.md)已将它接入现代 API `/auth/chat`。旧 Chat/旧频道保持独立旧路径，业务 ACK 在 P5.4 实现。
 
 ## 帧契约
 

@@ -2,7 +2,7 @@
 
 `main → runProcess → application.RunRuntime` 现在为显式 `RUNTIME.mode: api` 装配真实确认式 API。默认配置仍为 legacy；未完成 consumer 前仅在独立测试环境接受、积压命令。`worker` / `all` 继续在信号注册和外部 I/O 前报告缺失的持久化、隔离及 Outbox 角色。
 
-本 API 只注册 `POST /auth/sendMessage` 和四个 `/health/*` 路由；发送契约见[确认式发送适配](command-submission.md)。旧登录、账号、联系人、历史、WebSocket 路由未接入这个角色，测试使用独立 JWT key 签发的已有用户 token。账号入口及完整状态、同步、通知恢复仍按后续阶段接入，不能据此切换共享开发数据。
+API 注册确认式 `POST /auth/sendMessage`、健康路由，以及后续 [P5.3 生产 v1 WebSocket](reliable-websocket.md)的 `GET /auth/chat`。发送契约见[确认式发送适配](command-submission.md)。旧登录、账号、联系人和历史路由未接入这个角色；账号入口、完整状态/同步及业务 ACK 按后续阶段推进，不能据此切换共享开发数据。
 
 ## 配置与启动
 

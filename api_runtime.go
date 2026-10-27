@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -19,9 +20,11 @@ import (
 	"github.com/go-redis/redis/v8"
 	"iChat/application"
 	"iChat/config"
+	"iChat/database"
 	"iChat/health"
 	"iChat/middlewares"
 	"iChat/router"
+	"iChat/service"
 	"iChat/utils"
 )
 
@@ -66,6 +69,7 @@ type apiMonitor interface {
 type apiDependencies struct {
 	newSQL   func(config.Config) (apiSQL, error)
 	newRedis func(config.Config, apiOptions) (apiRedis, error)
+	chat     func(apiSQL, apiRedis) (*service.ReliableChat, error)
 	tokens   func(config.Config, apiRedis) (*utils.TokenService, error)
 	monitor  func(func(context.Context) error, time.Duration, time.Duration) apiMonitor
 	http     func(http.Handler, apiOptions) (*legacyHTTPServer, error)
@@ -74,6 +78,25 @@ type apiDependencies struct {
 
 func defaultAPIDependencies() apiDependencies {
 	return apiDependencies{
+		chat: func(sqlHandle apiSQL, redisHandle apiRedis) (*service.ReliableChat, error) {
+			pool, ok := sqlHandle.(*sql.DB)
+			if !ok {
+				return nil, errAPIInput
+			}
+			client, ok := redisHandle.(*redis.Client)
+			if !ok {
+				return nil, errAPIInput
+			}
+			source, err := database.NewNotificationSource(pool, client)
+			if err != nil {
+				return nil, err
+			}
+			reader, err := database.NewMessageRepository(pool)
+			if err != nil {
+				return nil, err
+			}
+			return service.NewReliableChat(source, reader, service.DefaultReliableChatOptions())
+		},
 		newSQL: func(c config.Config) (apiSQL, error) {
 			db, err := utils.NewMySQL(c) // Lazy; no schema migration or global binding.
 			if err != nil {
@@ -137,7 +160,7 @@ func checkAPI(c config.Config, o apiOptions, d apiDependencies) error {
 	if err != nil || portErr != nil || p < 0 || p > 65535 || !valid(o.ReadHeaderTimeout) || !valid(o.ReadTimeout) || !valid(o.IdleTimeout) || !valid(o.SubmissionTimeout) || !valid(o.ProbeInterval) || !valid(o.ProbeTimeout) || !valid(o.DrainTimeout) || !valid(o.CloseTimeout) || o.WriteTimeout < o.ReadTimeout+o.SubmissionTimeout || o.WriteTimeout > 2*time.Minute || o.ReadHeaderTimeout > o.ReadTimeout || o.MaxHeaderBytes < 4096 || o.MaxHeaderBytes > 64*1024 {
 		return errAPIInput
 	}
-	if d.newSQL == nil || d.newRedis == nil || d.tokens == nil || d.monitor == nil || d.http == nil || d.listen == nil {
+	if d.newSQL == nil || d.newRedis == nil || d.chat == nil || d.tokens == nil || d.monitor == nil || d.http == nil || d.listen == nil {
 		return errAPIInput
 	}
 	if _, err := utils.NewTokenService(c, utils.NewRedisTokenBlacklist(nil)); err != nil {
@@ -293,6 +316,13 @@ func (s *apiService) Start(setup, lifetime context.Context) (err error) {
 	router.RegisterHealth(r, resources.storage, s.inputs.Health)
 	if err := router.RegisterSubmission(r, tokens, s.inputs.Publisher, s.options.SubmissionTimeout); err != nil {
 		return apiError(errAPIStart, "submission routes", err)
+	}
+	chat, err := s.deps.chat(resources.sql, resources.redis)
+	if err != nil || chat == nil {
+		return apiError(errAPIStart, "chat assembly", err)
+	}
+	if err := router.RegisterReliableChat(r, tokens, chat); err != nil {
+		return apiError(errAPIStart, "chat routes", err)
 	}
 	resources.http, err = s.deps.http(r, s.options)
 	if err != nil || resources.http == nil {

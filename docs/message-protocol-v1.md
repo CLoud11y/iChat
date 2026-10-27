@@ -168,4 +168,13 @@ P2.1 的原始范围只包括协议；数据库表/约束、命令终态、权�
 
 发送者退群/群删除后，自己的成功终态仍为 persisted，保留消息引用并省略 message；旧群订阅不允许继续取得正文。私聊历史权限仍按参与者身份，解除好友不撤销已提交历史。网关按当次 SQL 权限锁读决定，不将 Pub/Sub 或旧结果 payload 当成授权依据。
 
-分发器在 SQL 连接/锁释放后才调用出站回调，网络与撤权不是原子操作；P5.3 将在单 writer 临近发送时调用，并完成真实 v1 订阅/会话接线。当前 P5.2 传输验收使用明确的测试 WebSocket endpoint，未改变旧 Chat 路由。完整字段、限制和验收见[通知帧与权限](notification-frames.md)。
+分发器在 SQL 连接/锁释放后才调用出站回调，网络与撤权不是原子操作；P5.3 已在单 writer 临近发送时调用，并完成真实 v1 订阅/会话接线。当前 P5.2 传输验收使用明确的测试 WebSocket endpoint，未改变旧 Chat 路由。完整字段、限制和验收见[通知帧与权限](notification-frames.md)。
+
+
+## P5.3：生产 v1 WebSocket 会话
+
+现代 API 使用 `GET /auth/chat`，只接受 Authorization Bearer，保留同源 Origin 检查，可协商 `ichat.v1`。全部初始频道确认后第一帧为 ready，data 含 protocolVersion=1、随机 32 位小写 hex sessionId 和 syncIntervalSeconds=10。旧 legacy Chat 保持原协议。
+
+每实例每用户一个 current 会话；替换与实际 socket 写入串行，旧回调/清理不能写入或移除新会话。队列仅存提示，writer 在写入前通过 P5.2 校验 SQL 内容权限；单 writer 也承担所有数据/控制心跳。刷新成员列表时确认新流后再关闭旧流，发送 sync.required/all，并周期复核原 JWT。重复提示、刷新/重连窗口的丢失仍靠客户端去重与周期补拉收敛。
+
+当前只接受严格 JSON ping/pong（data 为空对象）及 WebSocket 心跳控制帧；业务 ACK/ack.confirmed 留给 P5.4，当前 ack 会结束连接。队列满/写超时/依赖失败结束会话，API pending owner 等所有会话与 SQL/订阅回调实际退出后才释放客户端。字段、默认限制、单实例范围与验收见[可靠 WebSocket 生命周期](reliable-websocket.md)。

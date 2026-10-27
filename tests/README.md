@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P5.3 生产 v1 WebSocket 会话与订阅：
+
+```powershell
+go test -mod=readonly -p=2 -race ./service ./database ./messaging . -run '^Test(ReliableChat|NotificationSource|Heartbeat|APIChat|APIStartup)' -count=30 -timeout=120s
+go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProduction(V1Chat|API)Integration$' -count=1 -v -timeout=10m
+```
+
+生产 v1 入口八组验证真实 JWT/订阅确认、Outbox 到规范 message/command.result、替换连接、群刷新/删除后的提示抑制、撤销 token 与 API 关闭归属；最终 5 command/5 message/10 completed Outbox、cursor/quarantine 0、schema 不变。原生产 API 故障 suite 五组同时回归。默认测试验证部分/迟到来源、SQL 回调与 pending、队列满、受控 socket 写期限、严格心跳和关闭 join。API publisher 明确为未使用的测试能力，业务通过生产仓储创建、Outbox 实际发布，不冒充完整 MQ 管线联调；见[生命周期契约](../docs/reliable-websocket.md)。
+
 P5.2 统一通知帧与权限核验：
 
 ```powershell
@@ -61,7 +70,7 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarant
 go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQSessionIntegration$' -count=1 -v -timeout=8m
 ```
 
-十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。P5.1.1—.5 领取、结算、执行、生命周期与故障验收已完成，P5.2 帧与权限核验也已完成，下一项 P5.3 v1 会话/订阅与 writer 接线；P4 显式三角色交叉已补齐，完整默认进程仍待装配。
+十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。P5.1.1—.5 领取、结算、执行、生命周期与故障验收已完成，P5.2 帧与权限核验也已完成，P5.3 生产会话与订阅也已完成，下一项 P5.4 业务 ACK/游标；P4 显式三角色交叉已补齐，完整默认进程仍待装配。
 
 P4.2.5.3 终态核验与 resolved：
 

@@ -52,4 +52,4 @@ go test -mod=readonly -race -tags=integration ./application ./workers -run '^Tes
 
 真实 MySQL/Redis 六组验证配置工厂、借入资源可继续使用、私有资源关闭、SQL/Redis 启动失败清理、PUBLISH 成功后的正常 drain 和强制 pending。后两组在真实发布后的返回回调设置屏障，释放后分别形成 completed 和保留 leased，资源仅在实际加入后关闭。它们不是 TCP 丢响应或进程强杀；两条直接 Outbox 结构夹具只证明本项生命周期，原通知执行 suite 继续验证生产终态 payload。
 
-本项最终集合：2 Outbox（1 completed、1 leased），其余五张可靠性业务表为 0，schema 指纹不变。[P5.1.5 故障验收](outbox-acceptance.md)已完成，P5.1 收口；[P5.2 帧与权限核验](notification-frames.md)已完成；下一项 **P5.3：v1 会话接线、订阅与单 writer 生命周期**。P5.1 与显式三角色交叉范围已完成；P5 和默认完整后台进程保持未完成。运行记录和清理证据见[实施进度](message-reliability-mq-progress.md)。
+本项最终集合：2 Outbox（1 completed、1 leased），其余五张可靠性业务表为 0，schema 指纹不变。[P5.1.5 故障验收](outbox-acceptance.md)已完成，P5.1 收口；[P5.2 帧与权限核验](notification-frames.md)已完成；[P5.3 生产 v1 会话与订阅](reliable-websocket.md)已完成；下一项 **P5.4：当前会话绑定的业务 ACK 与持久化游标**。P5.1 与显式三角色交叉范围已完成；P5 和默认完整后台进程保持未完成。运行记录和清理证据见[实施进度](message-reliability-mq-progress.md)。

@@ -43,4 +43,4 @@ go test -mod=readonly -race -tags=integration ./database -run '^TestOutboxClaimI
 
 SQL session 时区 +05:30、driver loc +13，lease 仍为 UTC。实际 runId、初轮并发断言修正和清理结果见[实施进度](message-reliability-mq-progress.md)。尚未验证真实 COMMIT 丢响应、通知发送、lease 结算/续约或进程退出。
 
-后续[P5.1.2：token 条件结算与失败回退](outbox-settlement.md)已完成。[P5.1.3 通知执行循环](outbox-execution.md)已完成；[P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)已完成，P5.1 收口；[P5.2 帧与权限核验](notification-frames.md)已完成；下一项 **P5.3：v1 会话接线、订阅与单 writer 生命周期**。P5.1 及显式 worker 三角色的 P4 交叉验收已完成；P5 和默认完整后台进程保持未完成。
+后续[P5.1.2：token 条件结算与失败回退](outbox-settlement.md)已完成。[P5.1.3 通知执行循环](outbox-execution.md)已完成；[P5.1.4 生产角色与生命周期](outbox-lifecycle.md)已完成；[P5.1.5 故障验收](outbox-acceptance.md)已完成，P5.1 收口；[P5.2 帧与权限核验](notification-frames.md)已完成；[P5.3 生产 v1 会话与订阅](reliable-websocket.md)已完成；下一项 **P5.4：当前会话绑定的业务 ACK 与持久化游标**。P5.1 及显式 worker 三角色的 P4 交叉验收已完成；P5 和默认完整后台进程保持未完成。

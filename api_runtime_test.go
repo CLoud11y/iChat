@@ -21,6 +21,7 @@ import (
 	"iChat/health"
 	"iChat/messaging"
 	"iChat/messaging/rabbitmq"
+	"iChat/service"
 	"iChat/utils"
 )
 
@@ -142,6 +143,7 @@ func newAPIHarness() *apiHarness {
 	h.d = defaultAPIDependencies()
 	h.d.newSQL = func(config.Config) (apiSQL, error) { return h.sql, nil }
 	h.d.newRedis = func(config.Config, apiOptions) (apiRedis, error) { return h.redis, nil }
+	h.d.chat = apiFixtureChat
 	h.d.tokens = func(c config.Config, r apiRedis) (*utils.TokenService, error) {
 		return utils.NewTokenService(c, apiFakeBlacklist{r})
 	}
@@ -382,7 +384,7 @@ func TestAPIExpiredCloseRetainsClientsUntilRequestsAndProbesJoin(t *testing.T) {
 }
 
 func TestAPIStartupRollbackOwnsEveryPartialHandle(t *testing.T) {
-	for _, stage := range []string{"sql_error", "sql_nil", "redis_error", "redis_nil", "tokens_error", "auth_nil", "storage_nil", "http_error", "http_nil", "listener_error", "listener_nil", "handoff_cancel"} {
+	for _, stage := range []string{"sql_error", "sql_nil", "redis_error", "redis_nil", "tokens_error", "auth_nil", "storage_nil", "chat_error", "chat_nil", "http_error", "http_nil", "listener_error", "listener_nil", "handoff_cancel"} {
 		t.Run(stage, func(t *testing.T) {
 			h := newAPIHarness()
 			cause := errors.New("PRIVATE_START_CAUSE")
@@ -417,6 +419,12 @@ func TestAPIStartupRollbackOwnsEveryPartialHandle(t *testing.T) {
 					return nil, cause
 				}
 				return baseTokens(c, r)
+			}
+			if stage == "chat_error" {
+				h.d.chat = func(apiSQL, apiRedis) (*service.ReliableChat, error) { return nil, cause }
+			}
+			if stage == "chat_nil" {
+				h.d.chat = func(apiSQL, apiRedis) (*service.ReliableChat, error) { return nil, nil }
 			}
 			probes := 0
 			h.d.monitor = func(f func(context.Context) error, i, d time.Duration) apiMonitor {

@@ -3704,3 +3704,64 @@ SQL 权限锁保护材料化阶段，网络在释放后执行，撤权与字节�
 下一项 **P5.3：v1 会话接线、订阅与单 writer 生命周期**。
 
 建议 commit message：`feat(notifications): authorize canonical websocket frames`
+
+
+## 2026-10-28：P5.3 生产 v1 WebSocket 会话、订阅与单 writer 生命周期
+
+状态：本项完成。现代 API 接入真实 `/auth/chat`、JWT/订阅确认、单实例当前会话替换、群刷新、提示队列与关闭/join；下一项 P5.4 当前会话绑定的业务 ACK 与持久化游标。P5 整体、默认完整 worker/all、全局多实例 session 所有权及实际客户端恢复仍未完成，没有自动提交。
+
+### 实现
+
+- `database.NotificationSource` 借入 SQL/Redis，独立 v1 频道清单来自只读快照中的当前有效用户、未删除群/成员关系，去重/排序/有界读取；无群只订阅个人频道，超过 MaxGroups 失败关闭，不截断假装完整。订阅复用既有确认/有界转发/Close/join 传输机制，不复用旧业务频道或全局 manager。
+- `service.ReliableChat` 闲置构造，setup 内完成身份和全部初始 subscribe 确认后升级。首帧 ready 含 protocolVersion=1、随机 32 位 hex sessionId、syncIntervalSeconds=10；成功 setup 与长期订阅 lifetime 分离，临时 setup 取消不会关闭活跃流，部分/迟到句柄仍由原请求持有并关闭。
+- 单 writer 承担 message/command.result、ready/sync.required、JSON 心跳与 WebSocket 控制 pong，覆盖默认自动控制写。队列只存提示/小控制数据，临近 socket 写入才调用 P5.2 SQL 权限核验，不排队授权正文；SQL 已释放后才出站。
+- 每 UID 门闩串行化实际写入和 current-session 切换，替换取消并关闭旧连接；旧 SQL 晚回调受 context/current 检查拒绝，旧清理不删除新记录。引用计数包含待建立/退役回调，真实加入后才释放注册表及容量。局限于单 API 实例，没有声称全局跨进程单会话。
+- 默认每 10 秒复核原 JWT/黑名单及 SQL 频道清单；列表变化先确认新订阅再关闭旧流，允许重复提示。每轮发送 sync.required/all，客户端仍须周期补拉；群删除/退群的旧排队提示由 writer 当前 SQL 权限门禁抑制正文。JWT 撤销关闭有刷新间隔延迟，不声称跨 Redis/SQL/socket 原子撤权。
+- 有界 setup/resolve/write、队列与会话/群数量，写入受较早的解析/写期限约束；队列满或写超时终止会话，心跳只刷新活跃时间。严格 JSON heartbeat 拒绝重复/别名/null/未知应用帧，当前业务 ack 尚不支持，关闭连接而非伪造 ack.confirmed；工作回调 panic 终止本会话，不输出 panic 原文。
+- `router.RegisterReliableChat` 只读 Authorization Bearer，保留同源 Origin，支持协商 ichat.v1，不信任 URL token/UID。API 默认 chat 工厂以实际 SQL/Redis 类型装配；不迁移、不绑定旧全局。新 chat 构造失败/空实例进入既有启动回滚，旧测试注入显式闲置 chat 依赖，未用假来源替代生产默认工厂。
+- 会话 handler 等所有当前/被替换的 reader/writer/SQL/订阅回调真正退出才返回。API 沿用 hijacked 请求 owner，observer pending 不释放依赖；HTTP RequestsDone、探针和 accept loop 全部加入后才关闭 SQL/Redis。没有新依赖、schema 或 YAML/env 选项。
+
+默认参数、协议、资源责任和边界见[可靠 WebSocket 生命周期](reliable-websocket.md)；v1 协议、API 角色说明、阶段表和当前下一项均已同步。旧 legacy Chat 路径保持独立；历史/同步 HTTP 和客户端周期恢复仍在后续阶段。
+
+### 真实验收与资源
+
+| runId | 范围 | suite / package |
+| --- | --- | --- |
+| `f5696eb603c68281f5d5fceab93f2252` | 首轮生产 v1 七组通过 | 50.38s / 53.234s |
+| `5a6da8a7a74a6ec591cc627d0e9b1329` | 加强写 context/心跳及回调隔离后的生产 v1 七组通过 | 56.07s / 合并包 82.769s |
+| `d3c9bf66432f113d9d5be210bde90f6e` | 同轮原生产 API/MQ 故障五组通过 | 23.92s / 同上合并包 |
+| `23787c95e1416a6955859112c18a6f37` | 最终增加同一生产个人订阅上的 command.result，八组全通过 | 50.03s / 52.950s |
+
+最终八组无 fail/skip/race：
+
+1. 实际 JWT header 校验、query token/错误 token 拒绝、跨 Origin 升级失败及部分订阅清理；无群只确认一个个人频道后 ready。
+2. 生产 PersistCommand+实际 Outbox loop+Redis 发布，通过真正挂载的生产 `/auth/chat` 得到 SQL 规范 message DTO。
+3. 同 UID 新连接有新 sessionId，旧 socket/订阅退役到恰一条个人订阅。
+4. 当前连接自己的反向私聊命令，通过相同个人订阅得到规范 command.result、固定 eventId 和 SQL 完整 DTO。
+5. SQL 入群后按生产默认 10 秒刷新，确认真实群订阅再收到规范群消息。
+6. 群消息已提交但未通知时删除群，再执行 Outbox；旧群提示不写正文，后续私聊作为出站顺序屏障正常到达；刷新后群频道人数归零。
+7. 真实 Redis 黑名单撤销 JWT，既有连接在默认周期复核后关闭并退订。
+8. API StopAdmission/Close 加入 hijacked 会话，socket/订阅关闭后 SQL/Redis 客户端实际关闭；外部 fixture pool 仍可使用。
+
+生产 v1 suite 的 API publisher 明确为未使用的 fixture capability，命令直接经生产仓储创建、实际 Outbox 发布，不报告完整 HTTP 202→MQ→消费者→socket 联调。原 API suite 用真实 MQ 回归 Redis 离线/恢复、确认后 drain、强制 pending、监听冲突回滚和 MySQL 离线仍可接受。
+
+最终 v1 集合 5 command / 5 message / 2 conversation / 10 completed Outbox / 0 cursor / 0 quarantine，迁移指纹不变。旧 API/MQ 回归有其独立环境，不混合报告业务集合。四轮 fixture Close 成功，按各自项目标签只读确认容器/卷/网络全部 0；Docker 自动审批通过，无拒绝，不读取开发配置或共享数据。
+
+### 默认验证
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 最终生产实现全仓库通过；主包 10.423s、application 3.075s、database 3.286s、rabbitmq 8.628s、service 3.347s，无 race |
+| `go test -mod=readonly -p=2 -race ./service ./database ./messaging . -run '^Test(ReliableChat\|NotificationSource\|Heartbeat\|APIChat\|APIStartup)' -count=30 -timeout=120s` | 30 轮通过；service 11.662s、database 2.192s、messaging 1.498s、主包 3.353s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 最终标签编译通过，不代表运行全部集成 suite |
+| `go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProduction(V1Chat\|API)Integration$' -count=1 -v -timeout=10m` | 新 v1 七组与原 API 五组通过，合并包 82.769s |
+| `go test -mod=readonly -p=2 -race -tags=integration . -run '^TestProductionV1ChatIntegration$' -count=1 -v -timeout=7m` | 最终八组通过，包 52.950s |
+
+默认测试覆盖确认/刷新后取消 setup 不影响长期流、晚 SQL 与替换/队列满交叉、保留旧 handler owner、部分/迟到订阅和失败刷新清理、JWT 复核失败、严格/未知帧、回调 panic、频道列表/上限/释放错误，以及 API pending 后 clients 延后释放。受控真实 socket 在 ready 后阻塞写并遵守 SetWriteDeadline，验证写期限与单 writer 关闭；不是自然网络拥塞的吞吐基准。
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE。最后一次仅补充 integration 的 own command.result 验收，生产实现未再改变。
+
+下一项 **P5.4：当前会话绑定的业务 ACK 与持久化游标**。
+
+建议 commit message：`feat(websocket): wire reliable sessions and subscriptions`
