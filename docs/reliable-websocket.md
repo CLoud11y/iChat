@@ -63,4 +63,4 @@ go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProduction(V1Cha
 
 最终 5 command / 5 message / 2 conversation / 10 completed Outbox / 0 cursor / 0 quarantine，schema 指纹不变。默认测试另验证迟到 SQL/来源、部分刷新、单 writer 的阻塞 socket deadline、队列溢出、旧会话不清除新记录、严格心跳、回调 panic 和 API pending 后保留客户端。运行及清理证据见[实施进度](message-reliability-mq-progress.md)。
 
-P5.4 [业务 ACK 与持久化游标](delivery-ack.md)已完成；原生产 suite 增加 ACK 单调提交验收后为九组，最终 cursor 数量为 1。[P6.1 状态 HTTP 接口](command-status.md)已完成；P6.2.2 [会话列表 HTTP](conversations-http.md)已完成；P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成；P6.2.3.2 [历史 HTTP](message-history-http.md)已完成；下一项 **P6.3：模拟客户端发送恢复**；默认 worker/all 装配与真实客户端恢复仍待完成。
+P5.4 [业务 ACK 与持久化游标](delivery-ack.md)已完成；原生产 suite 增加 ACK 单调提交验收后为九组，最终 cursor 数量为 1。[P6.1 状态 HTTP 接口](command-status.md)已完成；P6.2.2 [会话列表 HTTP](conversations-http.md)已完成；P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成；P6.2.3.2 [历史 HTTP](message-history-http.md)已完成；P6.3.1 [发送状态核心](client-sender-simulator.md)已完成；下一项 **P6.3.2：磁盘快照与跨进程恢复**；默认 worker/all 装配与真实客户端恢复仍待完成。

@@ -62,4 +62,4 @@ go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionConver
 
 真实默认工厂 suite 九组覆盖规范 DTO/当前用户 ACK/空数组、严格 query/JWT、排他分页和新增 ID 后重扫、退群/删群/失效读者 403、损坏游标 503、占满实际四连接池后的默认三秒期限/恢复、实际 Redis 客户端故障、MySQL 停机/离线启动/重启，以及关闭后真实客户端释放。重启若更换 Docker 映射端口则显式重建 API，本轮实际发生了端口更换，不声称原池自动发现新地址。
 
-业务由生产 PersistCommand 创建，MQ capability 明确未使用。最终 9 command / 9 message / 7 conversation / 18 untouched pending Outbox / 3 cursor / 0 quarantine；逐条原终态/规范消息和 schema 指纹保持。没有执行完整 HTTP 202→MQ→客户端恢复管线或性能压测。运行、默认测试和清理证据见[实施记录](message-reliability-mq-progress.md)。P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成，P6.2.3.2 [历史 HTTP](message-history-http.md)已完成，下一项 P6.3 模拟客户端发送恢复。
+业务由生产 PersistCommand 创建，MQ capability 明确未使用。最终 9 command / 9 message / 7 conversation / 18 untouched pending Outbox / 3 cursor / 0 quarantine；逐条原终态/规范消息和 schema 指纹保持。没有执行完整 HTTP 202→MQ→客户端恢复管线或性能压测。运行、默认测试和清理证据见[实施记录](message-reliability-mq-progress.md)。P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成，P6.2.3.2 [历史 HTTP](message-history-http.md)已完成，P6.3.1 [发送状态核心](client-sender-simulator.md)已完成，下一项 P6.3.2 磁盘快照与跨进程恢复。

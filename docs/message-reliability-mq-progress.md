@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。下一项 P6.3 模拟客户端发送恢复，开始前细分。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。下一项 P6.3.2 磁盘快照与跨进程恢复。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4069,3 +4069,50 @@ run **`a068351c78635794b16c785898f2d08f`**，九组全部通过，无 fail/skip/
 默认测试另覆盖无/错 UID、nil/typed nil、取消/期限/迟到权限错误、加入释放故障的权限错误 503、各种坏 DTO/连续范围/重复消息/游标字段、Bearer-only 与不读 body、实际取消后晚回调不能成功、pending 后最终释放、Panic/停止准入/缓存探针解耦、失败工厂回滚及激活前参数校验。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release、单元测试不存在的 ICHAT_CONFIG_FILE。
 
 建议 commit message：`feat(api): expose reliable message history`
+
+
+## P6.3 实施前拆分
+
+用户继续下一项后，按开发规范将模拟客户端发送恢复拆分为四个独立验收点：
+
+- P6.3.1：本地待发送记录、稳定身份、单调状态与可恢复快照，先定义注入式原子提交契约。
+- P6.3.2：磁盘快照适配、独占所有权、跨进程恢复及存储故障验收。
+- P6.3.3：有界 HTTP 提交和状态查询、退避/取消、原键原内容重试。
+- P6.3.4：通知结果/HTTP 交叉与真实生产 API 发送恢复验收。
+
+本次仅实施 P6.3.1；接收侧幂等消息集/连续游标归 P6.4，重连与周期同步归 P6.5。
+
+## 2026-10-30：P6.3.1 待发送记录与发送状态核心
+
+状态：本小点实现、代码审查、默认回归完成，没有自动提交。下一项 **P6.3.2：磁盘快照与跨进程恢复**。P6.3 整体、真实发送恢复、P6.4/P6.5 和实际前端仍未完成。没有更改生产 API、schema、依赖或默认运行模式。
+
+### 实现与审查
+
+- 新增独立 `tests/clientsim`，借入单用户独占 SnapshotStore；Queue 保存原请求后才返回记录，BeginSubmit 保存 inFlight/本地计数后才释放 Attempt。没有内部网络、后台 goroutine、token 或自动分配/更换业务键。
+- 保留 UUID 原写法、目标规范化前写法、正文空白/NUL/Unicode 和纳秒 clientSentAt；共享 Normalize 派生规范 key/commandId/hash。已存在键拒绝任何原请求字段改变；调用方明确修改内容或业务拒绝后重新发送须使用新 ID。
+- CompleteSubmission 核对身份/hash、规范发布 attempt、固定状态/reasonCode；ApplyStatus 复用共享 ValidateFor，核对发送者/key/hash 和完整规范消息。HTTP status/code、严格网络解码及调度仍归后续传输适配。
+- persisted/rejected 不被迟到 accepted/unknown/pending/隔离/冲突覆盖，重复终态幂等，矛盾终态/不同规范消息返回 ErrContradiction。隔离与冲突保留记录并禁止直接重发，完整匹配的业务终态可完成核对；不证明接收侧保存或送达。
+- 本地尝试单键互斥、按计数及原请求识别旧回执；accepted 证据不因后续未知响应倒退。not_published 后开始新尝试进入 submitting，避免重启后保留旧尝试的未发布结论。
+- Save 错误可能发生在实际提交之前或之后，当前 Sender 均拒绝继续读写，须重新加载；操作不返回可提交的新记录/Attempt。存储 panic 即使被上层恢复也保留不可用状态。已知 Save 成功不因随后 context 取消而抹除，传输仍须自行检查 context。
+- 恢复清除 inFlight，中断提交变为 publish_unknown，原请求和计数保持；已知 accepted/隔离/冲突/终态保持。恢复变更先保存再返回可用对象，失败不放行。
+- 私有 version=1 精确 JSON 绑定发送者、规范键排序，最多 512 记录/16 MiB。加载重算身份/hash、校验状态/消息，重编码拒绝损坏、重复/未知/null 字段、非法 Unicode 替换和非规范格式。容量/uint64 计数上限显式失败，不自动删除记录或回绕。输出结果深复制，默认格式化正文与存储诊断隐藏。
+
+契约、状态表、存储所有权和后续边界见[发送模拟器](client-sender-simulator.md)。README、协议、开发清单、测试入口及相关指南当前下一项已同步。
+
+### 验证
+
+14 个顶层测试及子场景覆盖：保存返回前不可取得 Attempt、同键原请求保持、对象重建恢复、早终态/迟回执、旧/重复/并发回调、错误证据不改快照、队列/提交/终态写入失败前后两种结果、存储 panic/取消、12 种状态恢复、坏快照与跨用户、512 记录排序/容量、最大 uint64 计数及输出/指针隔离。
+
+测试使用保留字节的受控原子 SnapshotStore，跨 Sender 对象重建验证恢复契约，**不是磁盘或 OS 进程崩溃恢复验收**。没有创建 Docker/数据库/MQ 资源，也未进行真实 HTTP/WebSocket 或前端联调；相应工作按已拆分小点继续。
+
+| 命令 | 最终结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./tests/clientsim -count=30 -shuffle=on -timeout=120s` | 30 轮通过，5.306s，无 race |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 11.118s、clientsim 1.547s、database 3.506s、service 3.905s、rabbitmq 8.944s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过；clientsim 0.703s，不代表执行真实集成 suite |
+| `git diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和单元测试不存在的 ICHAT_CONFIG_FILE。
+
+建议 commit message：`feat(clientsim): add recoverable pending send state`
