@@ -566,6 +566,8 @@ P2.6 已实现 `MessageRepository.GetCommandStatus` 和共享 `CommandStatus` DT
 
 `conversations` 返回每个会话 lastSeq 和服务器 deliveredSeq，并附分页游标。客户端每个周期必须完成一轮所有可见会话扫描，下一轮从头开始；不能拿全局最大 messageId 或某次 updatedAt 作为可靠的永久增量水位，以免遗漏新会话和晚可见数据。
 
+P6.2.1 已提供[会话发现 DTO 与只读仓储](conversation-discovery.md)：按 ASCII conversationId 排他分页，默认 100、最大 500，同一 RR 快照检查有效读者及当前群权限、读取 lastSeq 和本用户 deliveredSeq，缺失 ACK 为零。响应 data 为 items/nextCursor/hasMore，空页保留请求 cursor；游标无需仍存在或仍可见，任何损坏/SQL/释放错误都不返回部分页。仓储不读取正文、Redis 或 MQ，列表 HTTP 接线仍归 P6.2.2。
+
 ### 9.5 WebSocket 帧
 
 | type | 方向 | data |
@@ -818,6 +820,10 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
 
 - [ ] 实现第 9 节接口及响应样例的契约测试。
   - [x] P6.1 状态 HTTP 接口：仅当前发送者、严格 key/hash query、200/409/400/401/503、有界鉴权/SQL、故障不伪装 pending；真实默认 API 故障与恢复见[状态接口](command-status.md)。
+  - [ ] P6.2 会话列表与补拉/历史 HTTP，先分项实现仓储和各入口。
+    - [x] P6.2.1 会话发现 DTO、稳定 ID 游标及同快照权限/水位/ACK 仓储，见[会话发现](conversation-discovery.md)。
+    - [ ] P6.2.2 会话列表 HTTP 契约与 API 装配。
+    - [ ] P6.2.3 补拉/历史 HTTP 接线，开始前按复杂度继续细分。
 - [ ] 模拟客户端本地持久消息集、连续游标、待发送表、ACK、重连与周期同步。
 - [ ] 覆盖持续在线尾消息丢失、分页期间并发写入、乱序到达、浏览器本地存储重置。
 - [ ] 输出前端接入说明；真实前端不在仓库时标注实际联调待办，不伪造完成。

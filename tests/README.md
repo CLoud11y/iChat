@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P6.2.1 会话发现 DTO 与只读仓储：
+
+```powershell
+go test -mod=readonly -p=2 -race ./messaging ./database -run '^TestConversation' -count=30 -shuffle=on -timeout=120s
+go test -mod=readonly -p=1 -race -tags=integration ./database -run '^TestConversationsIntegration$' -count=1 -v -timeout=7m
+```
+
+真实八组覆盖 ASCII 分页/失效游标、当前权限及用户隔离、同快照并发提交/ACK/撤权、跨页新增后重扫、未提交更新不阻塞、最大 uint64 元数据边界及损坏/取消/关闭失败。最终 11 command / 11 message / 7 conversation / 22 untouched pending Outbox / 3 cursor，schema 不变，原终态逐条保持。边界夹具已恢复，未启用列表/sync/history HTTP 或 MQ 管线，下一项 P6.2.2；见[会话发现契约](../docs/conversation-discovery.md)。
+
 P6.1 只读发送状态 HTTP 接口：
 
 ```powershell

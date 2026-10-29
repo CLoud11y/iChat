@@ -155,7 +155,15 @@ conversationId 只接受规范形式：私聊 `p:<小ID>:<大ID>` 的两个正 u
 
 每次 SQL 最多读取 `limit+1` 行，额外一行仅用于确认后续范围完整，不作为返回 item。对本次范围（含额外行）逐一检查预期连续 seq，并核验规范消息身份、会话、正文 hash、媒体和 UTC 微秒时间；消息对应的规范命令必须为 persisted。缺少预期消息、缺少命令、内容损坏或 SQL/迭代/快照释放错误返回空结果和错误，不返回部分页、不跳过缺号、不伪造 hasMore=false。检查是有界范围检查，不宣称每页审计全部历史。
 
-每页建立独立快照，不维持跨页数据库事务。分页期间的新提交可被下一页或后续周期扫描发现；客户端仍应持久化连续本地游标、去重并定期核对。HTTP 路由、会话发现及周期同步归 P6，通知和 ACK 归 P5；本阶段没有改动旧历史入口。
+每页建立独立快照，不维持跨页数据库事务。分页期间的新提交可被下一页或后续周期扫描发现；客户端仍应持久化连续本地游标、去重并定期核对。P6.2.1 已补齐[会话发现仓储](conversation-discovery.md)，列表和补拉/历史 HTTP 路由及周期同步仍按 P6 后续小点实施；旧历史入口保持原路径。
+
+## P6.2.1：会话发现与稳定 ID 分页
+
+`ListConversations(ctx, authenticatedReader, cursor, limit)` 返回 `items/nextCursor/hasMore`，每项为 `{conversationId,lastSeq,deliveredSeq}`，两个序号均为 uint64 JSON 字符串。默认 limit=100、最大 500，cursor 是排他的规范 conversationId；按 ASCII 二进制顺序排列，不要求 cursor 仍存在或仍可见。非空页取最后返回 ID 作为 nextCursor，空页保留请求 cursor，items 为 `[]`。
+
+同一只读 RR 快照核验有效读者、私聊参与者或当前群成员，并读取 lastSeq 与本用户 deliveredSeq（缺失为零）。每页最多读取 limit+1 个匹配结果，额外行也核验但不返回；身份/排序/水位损坏、SQL/取消/释放错误清空整页。群主/普通好友关系不单独授予群权限，解除好友不撤销私聊参与者的既有历史。
+
+跨页独立快照，客户端每周期必须从空 cursor 重扫；新会话可能落在当前扫描位置之前。服务器 ACK 不能替代浏览器本地连续游标，也不表示已读。列表不包含正文、不读取 Redis/MQ、不证明全部历史无缺口。HTTP 接线仍归 P6.2.2；完整字段和边界见[会话发现协议](conversation-discovery.md)。
 
 ## 验证与后续
 

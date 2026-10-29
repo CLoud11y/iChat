@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标和 P6.1 状态 HTTP 接口已完成对应验收。下一项 P6.2 会话列表与补拉/历史接口，开始前继续细分。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口和 P6.2.1 会话发现仓储已完成对应验收。下一项 P6.2.2 会话列表 HTTP 契约与 API 装配。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -18,7 +18,7 @@
 | P3 | P3.1 核验 broker/client 版本和隔离 vhost；P3.2 本地拓扑及可靠 DLX；P3.3 有界 publisher 和 confirm/return 关联；P3.4.1 I/O/关闭硬界与 unknown；P3.4.2 supervisor 退避重连、单调 epoch 和拓扑复核；P3.5.1 应用配置与纯构造；P3.5.2.1 连接内核与独立消费者基础生命周期；P3.5.2.2 有界消费 channel / 手动 ACK 传输所有权；P3.5.3.1 模式配置/角色计划/启动检查；P3.5.3.2.1 消费者参数与纯 MQ 依赖计划；P3.5.3.2.2 受控 MQ 连接创建/失败清理；P3.5.3.3 生命周期装配与角色能力核验；P3.5.4 接受 readiness 与持续拓扑核验；P3.6 隔离环境接入 HTTP 202 |
 | P4 | P4.1 消费事务与提交后 ACK；P4.2 错误分类和数据库故障退避；P4.3 可靠隔离转移；P4.4 隔离审计 worker；P4.5 受控重放 CLI；P4.6 提交不确定和退出恢复 |
 | P5 | P5.1.1—.5 Outbox 领取、结算、执行、生命周期和故障验收；P5.2 通知帧与内容授权；P5.3 WS 订阅、慢客户端及单实例会话替换；P5.4 当前会话 ACK 持久化与确认（按实际已执行编号） |
-| P6 | P6.1 状态接口契约；P6.2 会话列表及补拉/历史接口；P6.3 模拟客户端发送恢复；P6.4 本地幂等和连续游标；P6.5 重连及周期同步；P6.6 分页/乱序/本地清空测试；P6.7 前端接入文档 |
+| P6 | P6.1 状态接口契约；P6.2.1 会话发现仓储；P6.2.2 会话列表 HTTP；P6.2.3 补拉/历史 HTTP；P6.3 模拟客户端发送恢复；P6.4 本地幂等和连续游标；P6.5 重连及周期同步；P6.6 分页/乱序/本地清空测试；P6.7 前端接入文档 |
 | P7 | P7.1 明确开发资源的切换脚本；P7.2 停旧入口/cron 并切换；P7.3 删除旧队列路径及旧协议；P7.4 README、配置和压测指南同步 |
 | P8 | P8.1 发布故障矩阵；P8.2 消费/隔离/Outbox 故障矩阵；P8.3 WS/同步恢复矩阵；P8.4 三节点配置；P8.5 单节点及多数故障演练；P8.6 loadtest 对账和容量基线；P8.7 版本、环境与交付报告 |
 
@@ -3859,3 +3859,58 @@ Docker 首次尝试因 Desktop 引擎未运行失败（run `55c7909b75949eace576
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE，最终命令设 GIN_MODE=release 以压低测试路由日志。没有自动提交。
 
 建议 commit message：`feat(api): expose authenticated command status queries`
+
+## P6.2 开始前拆分
+
+按既定“复杂项先拆分、每次完成一个小点”的约定：
+
+- P6.2.1：会话发现 DTO、稳定 ID 游标及只读仓储；同一快照返回当前可见会话、lastSeq 和本用户 deliveredSeq，并完成仓储验收（本次）。
+- P6.2.2：会话列表 HTTP 参数/鉴权/响应及 API 默认工厂接线，验证生命周期与依赖失败。
+- P6.2.3：补拉/历史 HTTP 接线及分页/权限契约；开始时按实际复杂度继续细分。
+
+本次不将新增仓储报告为 `/auth/conversations`、sync/history HTTP 或实际客户端恢复已完成。
+
+## 2026-10-29：P6.2.1 会话发现 DTO 与只读仓储
+
+状态：本小点实现、代码审查、默认回归和真实隔离验收完成，没有自动提交。下一项 **P6.2.2：会话列表 HTTP 契约与 API 装配**。本次没有改动 schema、依赖、默认运行模式、旧历史入口或生产 HTTP 路由；P6.2 和客户端恢复尚未整体完成。
+
+### 实现与审查
+
+- `messaging.NormalizeConversationListQuery` 约束非零鉴权 UID、规范会话 ID cursor、默认 100/最大 500 的 limit。cursor 是 ASCII 顺序的排他位置，不是授权凭据，无需对应仍存在/可见的行；没有使用 updatedAt、最大消息 ID 或会话 seq 作为永久扫描游标。
+- `ConversationSummary` 仅返回 conversationId/lastSeq/deliveredSeq，两个序号使用现有 uint64 JSON 字符串；`ConversationPage` 返回 items/nextCursor/hasMore，成功空页为 `[]`、保留原 cursor。非空页 nextCursor 是最后返回 ID，额外行只判断 hasMore，不推进 cursor。
+- `MessageRepository.ListConversations` 建立只读 REPEATABLE READ 快照，先核验当前有效用户，再查询私聊参与者或当前未删除群/成员关系，并 LEFT JOIN 本 UID 的持久 ACK；缺失 ACK 为零，其他用户进度不能混入。EXISTS 避免关系行导致重复会话，普通好友关系或群主身份不代替当前群成员，未产生 conversation 的群/好友关系不凭空生成会话。
+- 同页最多读取 limit+1 个匹配结果，逐条（含额外行）核验规范身份、严格排序/不重复及 deliveredSeq<=lastSeq。SQL/scan/迭代/关闭/快照释放/取消或损坏错误清空整页，未使用 FOR UPDATE/SKIP LOCKED、Redis、MQ 或写事务；没有分离查询 goroutine。
+- 权限及两个水位以同页快照为准，跨页重新建快照；成员后变更/新会话可能在下一轮出现，客户端必须周期从空 cursor 重扫。服务器 ACK 不证明当前客户端有本地数据，不能作为本地清空后的恢复起点。列表是发现元数据，不替代 P2.7 对消息连续范围的完整性检查。
+
+SQL 返回行数有界，但实际扫描/过滤工作量不承诺等于页长；没有顺便增加索引/迁移或声明性能基线。完整协议与后续 HTTP 边界见[会话发现仓储](conversation-discovery.md)。开发规范、消息协议、README、测试说明和当前下一项已同步。
+
+### 真实验收
+
+run **`787aa206a1335eb316e17713b5ecdcc6`**，八组全部通过，无 fail/skip/race；suite **23.58s**，package **26.280s**：
+
+1. 实际私聊/群消息由生产 PersistCommand 生成，当前有效用户只见有权的四个会话；ASCII 排序确认 g:10 在 g:2 之前、p:1:10 在 p:1:2 之前。缺失 ACK 为零，同私聊的两用户分别看到自己的 2/3，空用户返回非 nil 空数组；群主但非成员、成员但无 conversation 均不凭空出现。
+2. limit=1 的多页串接无重复/遗漏，正确 hasMore 和末页/空页游标；未存在的 p:1:15 也可作为排序位置继续扫描。
+3. 独立连接默认隔离显式设 READ COMMITTED，方法建立 RR；有效用户 SELECT 后通过另一 SQL 池提交新消息、ACK 4 和退群，原页仍见旧成员及 last=3/delivered=2；新页见新成员状态和 last=4/delivered=4，证明同快照读取。
+4. 扫描位置已过 g:2 后再提交新 g:1 会话，本轮后续页保持排他顺序，下一次从头扫描发现新会话，验证永久增量位置不可靠。
+5. 已退群、软删除群、只有错误类型关系及只有群主身份均不授予群访问；失效旧游标仍能继续翻页。解除好友后私聊参与者仍可见旧会话；已删除读者返回错误和零页。
+6. 单独事务持有会话/游标/成员更新，真实列表在 500ms context 内不阻塞、不跳过旧会话，且仅见已提交 last=4/delivered=4；回滚后恢复原集合。
+7. 临时将真实群元数据和 ACK 设置为最大 uint64，列表正确读取/分页且不做 seq+1 算术；随后恢复 last=2/delivered=1，不把此边界夹具冒充实际提交了最大条数的消息。
+8. 把本轮游标显式损坏为超过水位，列表拒绝并清空已读取的前缀；恢复后，真实单连接池占满时等待取消返回 DeadlineExceeded、无部分页/连接遗留，关闭 pool 后也不伪造空页。
+
+最终 **11 command / 11 message / 7 conversation / 22 untouched pending Outbox / 3 cursor / 0 quarantine**。逐个保留并比较全部命令原终态和完整规范消息；最终 reader=1 的 p:1:2 为 last=4/delivered=4、g:2 为 2/1，schema 指纹不变。只使用本轮自有 MySQL，复用的 fixture 同时管理隔离 Redis，但仓储不访问 Redis；未启用 MQ/Outbox/HTTP 管线或真实客户端恢复。
+
+fixture Close 成功，按本轮专属标签只读确认容器/卷/网络均归零；Docker 自动审批通过，无拒绝，未访问共享开发配置或数据。
+
+### 默认验证
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./messaging ./database -run '^TestConversation' -count=30 -shuffle=on -timeout=120s` | 30 轮通过；messaging 2.150s、database 3.350s，无 race |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.473s、database 3.148s、service 4.061s、rabbitmq 8.674s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表执行全部历史 suite |
+| `git diff --check` | 通过 |
+
+默认测试覆盖空/缺失 cursor、最大 UID/序号、limit 边界、失效游标、正确 SQL 绑定/只读 RR、额外行/排序/重复/错误参与者/身份形状/游标超前，以及 SQL 各阶段和 rows/快照释放失败的零页门禁。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE 和 GIN_MODE=release。没有自动提交。
+
+建议 commit message：`feat(storage): discover visible conversations with snapshot cursors`
