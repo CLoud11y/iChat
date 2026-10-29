@@ -39,3 +39,31 @@ type ConversationPage struct {
 	NextCursor string                `json:"nextCursor"`
 	HasMore    bool                  `json:"hasMore"`
 }
+
+// ValidateFor checks the HTTP adapter's result before exposing metadata. Group
+// authorization remains the repository's responsibility within its snapshot.
+func (p ConversationPage) ValidateFor(query ConversationListQuery) error {
+	normal, err := NormalizeConversationListQuery(query.ReaderID, query.Cursor, query.Limit)
+	if err != nil || normal != query || p.Items == nil || len(p.Items) > query.Limit || (p.HasMore && len(p.Items) != query.Limit) {
+		return invalid("conversation page")
+	}
+	previous := query.Cursor
+	for _, item := range p.Items {
+		conversation, err := ParseConversationID(item.ConversationID)
+		if err != nil || item.ConversationID <= previous || item.DeliveredSeq > item.LastSeq ||
+			(conversation.Type == Private && query.ReaderID != conversation.LowUser && query.ReaderID != conversation.HighUser) {
+			return invalid("conversation summary")
+		}
+		previous = item.ConversationID
+	}
+	if p.NextCursor != previous {
+		return invalid("nextCursor")
+	}
+	return nil
+}
+
+type ConversationsResponse struct {
+	Code int              `json:"code"`
+	Msg  string           `json:"msg"`
+	Data ConversationPage `json:"data"`
+}

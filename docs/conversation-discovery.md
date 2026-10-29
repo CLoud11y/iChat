@@ -1,6 +1,6 @@
 # P6.2.1：会话发现仓储与分页协议
 
-`MessageRepository.ListConversations(ctx, authenticatedReader, cursor, limit)` 只读列出用户当前可见的既有 conversation 行。此项提供 DTO 和仓储；`GET /auth/conversations` 的鉴权、参数/响应包装及生产 API 接线归 P6.2.2，sync/history HTTP 接线归后续小点。
+`MessageRepository.ListConversations(ctx, authenticatedReader, cursor, limit)` 只读列出用户当前可见的既有 conversation 行。此项提供 DTO 和仓储；P6.2.2 已完成 [`GET /auth/conversations` HTTP 接线](conversations-http.md)，sync/history HTTP 接线归后续小点。
 
 ## 字段与游标
 
@@ -19,7 +19,7 @@
 }
 ```
 
-这是 data DTO 示例，HTTP 包装尚未接线。ID/游标为字符串，lastSeq/deliveredSeq 使用现有 Sequence 的规范 uint64 JSON 字符串，支持零和最大 uint64。每页返回最多 limit 个 items，nextCursor 取最后返回的 ID；空页保持请求 cursor，items 为 `[]`。hasMore 根据同一快照内的额外一行决定，额外行也须通过身份/水位校验，但不返回、不推进 nextCursor。末页即使 hasMore=false，也保留最后返回 ID。
+这是 data DTO 示例，P6.2.2 已使用 code/msg/data 包装接线。ID/游标为字符串，lastSeq/deliveredSeq 使用现有 Sequence 的规范 uint64 JSON 字符串，支持零和最大 uint64。每页返回最多 limit 个 items，nextCursor 取最后返回的 ID；空页保持请求 cursor，items 为 `[]`。hasMore 根据同一快照内的额外一行决定，额外行也须通过身份/水位校验，但不返回、不推进 nextCursor。末页即使 hasMore=false，也保留最后返回 ID。
 
 ## 权限与快照
 
@@ -34,7 +34,7 @@
 
 权限以本页数据库快照建立时为准；稍后撤权不会撤回已经开始的页，下一页/下一轮重新判定。列表是发现元数据，不审计全部历史消息或证明每个 seq 对应的内容完整；实际补拉仍使用 P2.7 的连续范围校验。
 
-每页最多读取 limit+1 个匹配结果，SQL 实际扫描/过滤工作量可能大于返回行数，本项未增加索引、schema 或容量承诺。读操作遵守调用者 context，没有分离查询 goroutine；HTTP 请求期限和 owner 装配在 P6.2.2 落实。
+每页最多读取 limit+1 个匹配结果，SQL 实际扫描/过滤工作量可能大于返回行数，本项未增加索引、schema 或容量承诺。读操作遵守调用者 context，没有分离查询 goroutine；HTTP 请求期限和 owner 装配已在 P6.2.2 落实。
 
 ## 周期扫描与本地恢复
 
@@ -51,4 +51,4 @@ go test -mod=readonly -p=1 -race -tags=integration ./database -run '^TestConvers
 
 真实八组验证权限/ASCII 排序/本用户 ACK、排他及失效游标、同快照内并发消息提交/ACK/撤权、跨页插入后下一轮重扫、退群/删群/错误关系类型、未提交更新不阻塞旧视图、真实 uint64 元数据边界，以及损坏游标/等待连接取消/关闭 pool 的失败清空。快照测试显式将连接默认隔离设为 READ COMMITTED，证明方法自己建立 RR；写入经另一实际 SQL 连接完成。
 
-最终 11 command / 11 message / 7 conversation / 22 untouched pending Outbox / 3 cursor / 0 quarantine。最大序号测试是临时元数据边界夹具，随后恢复，不声称实际生成了最大 uint64 条消息。逐条比较生产命令的原终态和规范消息，schema 指纹不变。未启用 HTTP 路由、MQ/Outbox 管线或实际客户端恢复；运行及清理记录见[实施进度](message-reliability-mq-progress.md)。下一项 P6.2.2 会话列表 HTTP 契约与 API 装配。
+最终 11 command / 11 message / 7 conversation / 22 untouched pending Outbox / 3 cursor / 0 quarantine。最大序号测试是临时元数据边界夹具，随后恢复，不声称实际生成了最大 uint64 条消息。逐条比较生产命令的原终态和规范消息，schema 指纹不变。P6.2.1 当时未启用 HTTP 路由、MQ/Outbox 管线或实际客户端恢复；后续 P6.2.2 已完成[列表 HTTP 接线](conversations-http.md)，运行及清理记录见[实施进度](message-reliability-mq-progress.md)。下一项 P6.2.3 补拉/历史 HTTP。

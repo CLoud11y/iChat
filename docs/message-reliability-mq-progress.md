@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口和 P6.2.1 会话发现仓储已完成对应验收。下一项 P6.2.2 会话列表 HTTP 契约与 API 装配。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储和 P6.2.2 会话列表 HTTP 已完成对应验收。下一项 P6.2.3 补拉/历史 HTTP，开始前继续细分。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -3914,3 +3914,55 @@ fixture Close 成功，按本轮专属标签只读确认容器/卷/网络均归�
 默认测试覆盖空/缺失 cursor、最大 UID/序号、limit 边界、失效游标、正确 SQL 绑定/只读 RR、额外行/排序/重复/错误参与者/身份形状/游标超前，以及 SQL 各阶段和 rows/快照释放失败的零页门禁。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE 和 GIN_MODE=release。没有自动提交。
 
 建议 commit message：`feat(storage): discover visible conversations with snapshot cursors`
+
+## 2026-10-29：P6.2.2 会话列表 HTTP 契约与生产 API 装配
+
+状态：本小点实现、代码审查、默认回归及真实隔离验收完成，没有自动提交。下一项 **P6.2.3：补拉/历史 HTTP 接线**，开始前按复杂度继续细分。P6.2、完整 worker/all、恢复客户端和全管线交叉尚未整体完成；未修改 schema、依赖、默认运行模式或旧历史入口。
+
+### 实现与审查
+
+- `service.QueryConversations`、`router.RegisterConversations` 实现 `GET /auth/conversations`，UID 只取真实 Bearer/JWT 鉴权上下文，不读取 GET body。query 上限 1024 字节，只允许各一次的可选 cursor/limit，拒绝重复/未知/别名/非法编码；cursor 可为空或为已失效的规范位置，显式 limit 为规范十进制 1—500（省略默认 100），HTTP limit=0 不沿用仓储默认哨兵。
+- 成功 200/code=0/msg=conversations/data=ConversationPage，保留 `items:[]`、nextCursor/hasMore 和 uint64 字符串。错误 400/401/403/503 带稳定 reasonCode，不附部分页、业务 state 或 SQL/Redis 诊断，所有响应 no-store。
+- 只有仓储纯 ErrConversationForbidden 且 context 未取消才映射 403；权限与 SQL/释放错误混合时仍为 503，不能误报权限拒绝或空页。坏 reader、取消、期限及迟到 nil 结果也为 503。非成员群会话由 SQL 过滤，不将旧 cursor 当授权或强制要求它仍可见。
+- `ConversationPage.ValidateFor` 重新核验规范 query、非 nil items、页长/hasMore、严格排他顺序/去重、私聊参与者、deliveredSeq<=lastSeq 和 nextCursor。群权限继续由 P6.2.1 同快照 SQL 证明，HTTP 不另读一次权限混合视图。
+- 现代 API 默认工厂显式借入自有 SQL 池构造真实 reader，缺失工厂在 I/O 前校验，失败/nil/typed nil 回到原启动回滚。新增内部 ConversationsTimeout 默认 3 秒，共享父 deadline 覆盖 Redis 鉴权、等连接和 SQL；WriteTimeout 校验覆盖 ReadTimeout 加三种请求期限的最大值，没有新增 YAML/env 配置。
+- handler 始终持有实际回调，observer pending 不释放原 SQL/Redis，不用分离查询 goroutine 假装完成。Panic/停止准入继续使用 API 的依赖失败响应；列表查询不按 publisher 或缓存探针门禁，发送 accepted/unknown 契约保持原行为。
+
+请求/响应示例和资源边界见[会话列表 HTTP](conversations-http.md)。仓储/协议、开发规范、API 生命周期、README、测试说明和当前下一项已同步；本项没有提前挂载 sync/history 路由。
+
+### 真实验收
+
+两次运行九组均通过，无 fail/skip/race：
+
+| runId | 范围 | suite / package |
+| --- | --- | --- |
+| `483a06a505cfa2206a07f616d5f1e98a` | 首轮默认 API 九组 | 31.10s / 34.832s |
+| `cbddc6f0065000f46172a230ba42fdbf` | 最终增加重启后 HTTP/独立 SQL 页和双用户 ACK 逐值核对 | 30.04s / 32.883s |
+
+1. 通过生产 PersistCommand 建立真实消息和 P5.4 ACK，默认 GET 与独立仓储页完全一致；当前用户只见有权会话，自己的 ACK=2 与另一用户 ACK=3 分开，缺失 ACK=0；有效空用户返回 `[]`。
+2. 重复/未知/伪造 userId、limit=0/01 和非规范 cursor 均为 400；query token 和真实 Redis 撤销 token 无法授权。
+3. limit=2 按 ASCII ID 排他分页，末页/空页保留正确游标；分页中新增更早的 g:1，只在下一轮从头扫描发现。不可见 g:20 可作为位置继续翻页，但不授予读取权。
+4. 当前退群、软删除群、错误类型关系和群主身份不泄露群元数据；解除好友保留私聊历史。已删除或缺失的 SQL 读者在有效 JWT 下返回 403，无部分页。
+5. 显式将自有 fixture 的 ACK 损坏为超过 lastSeq，真实列表在已经读取前缀后返回 503，HTTP 不输出部分 items；随后恢复原 ACK。
+6. 持有 API 实际四个 SQL 连接，列表等连接触发生产默认 3 秒期限（两轮均 3.02s），返回 503；归还连接后同一 API 立即正常读取，不依赖缓存 readiness。
+7. 关闭 API 实际 Redis 客户端，列表鉴权 503；原 owner 等任务退出，允许故障客户端重复 Close 的已知 ErrClosed，新 API 客户端恢复。这是客户端故障，不冒充 Redis server 停机。
+8. 停止本轮 MySQL 容器，旧 API 对有数据和空用户均为 503；新 API 离线启动仍存活，列表也返回 503。两轮 Docker 重启都更换了映射端口，明确按刷新后的地址重建 API/验证连接池后恢复，不声称原池自动发现新地址。
+9. 正常 API Close 后实际 SQL/Redis 客户端已关闭，所有请求/探针加入；独立外部 fixture pool 保持可用。
+
+最终 **9 command / 9 message / 7 conversation / 18 untouched pending Outbox / 3 cursor / 0 quarantine**，逐条原终态/完整规范消息、schema 指纹不变。重启后最终 HTTP 页与独立 SQL 页相同：reader=1 的 g:2 为 last=1/delivered=1、p:1:10 为 1/0、p:1:2 为 3/2，reader=2 的同私聊 ACK 仍为 3。
+
+命令直接通过生产仓储创建，MQ publisher 是明确未使用的 fixture capability，未运行 HTTP 202→MQ→持久化→客户端恢复管线或容量压测。两套 fixture Close 成功，按各自专属标签只读确认容器/卷/网络均为 0；Docker 自动审批通过，无拒绝，未访问共享开发配置或数据。
+
+### 默认验证
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./messaging ./service ./router . -run '^Test(Conversation\|APIConversations\|APIStartup\|APIValidation)' -count=30 -shuffle=on -timeout=120s` | 30 轮通过；messaging 2.012s、service 4.389s、router 3.112s、主包 3.823s，无 race |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 11.273s、database 3.371s、service 3.778s、rabbitmq 8.876s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过，未将编译报告为执行全部历史 suite |
+| `git diff --check` | 通过 |
+
+默认测试覆盖严格参数、body 不读取、字符串序号上界、nil/typed nil、错私聊用户/身份、损坏水位/顺序/页长/游标、纯与混合权限错误、鉴权/操作期限、Panic/停止准入、缓存探针与读取解耦、失败工厂回滚，以及 pending 后等实际取消/回调退出再释放客户端。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE、GIN_MODE=release。
+
+建议 commit message：`feat(api): expose authenticated conversation listing`

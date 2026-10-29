@@ -40,7 +40,7 @@ type apiOptions struct {
 	Address                                                                    string
 	ReadHeaderTimeout, ReadTimeout, WriteTimeout, IdleTimeout                  time.Duration
 	SubmissionTimeout, ProbeInterval, ProbeTimeout, DrainTimeout, CloseTimeout time.Duration
-	StatusTimeout                                                              time.Duration
+	StatusTimeout, ConversationsTimeout                                        time.Duration
 	MaxHeaderBytes                                                             int
 }
 
@@ -50,7 +50,7 @@ func defaultAPIOptions(c config.Config) apiOptions {
 		address = ":" + port
 	}
 	return apiOptions{Address: address, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: max(30*time.Second, 11*time.Second+c.RABBITMQ.PublishTimeout), IdleTimeout: 30 * time.Second,
-		SubmissionTimeout: c.RABBITMQ.PublishTimeout, StatusTimeout: service.DefaultCommandStatusTimeout, ProbeInterval: 2 * time.Second, ProbeTimeout: time.Second, DrainTimeout: 10 * time.Second, CloseTimeout: 5 * time.Second, MaxHeaderBytes: 32 * 1024}
+		SubmissionTimeout: c.RABBITMQ.PublishTimeout, StatusTimeout: service.DefaultCommandStatusTimeout, ConversationsTimeout: service.DefaultConversationsTimeout, ProbeInterval: 2 * time.Second, ProbeTimeout: time.Second, DrainTimeout: 10 * time.Second, CloseTimeout: 5 * time.Second, MaxHeaderBytes: 32 * 1024}
 }
 
 type apiSQL interface {
@@ -68,18 +68,26 @@ type apiMonitor interface {
 	Done() <-chan struct{}
 }
 type apiDependencies struct {
-	newSQL   func(config.Config) (apiSQL, error)
-	newRedis func(config.Config, apiOptions) (apiRedis, error)
-	chat     func(apiSQL, apiRedis) (*service.ReliableChat, error)
-	status   func(apiSQL) (service.CommandStatusReader, error)
-	tokens   func(config.Config, apiRedis) (*utils.TokenService, error)
-	monitor  func(func(context.Context) error, time.Duration, time.Duration) apiMonitor
-	http     func(http.Handler, apiOptions) (*legacyHTTPServer, error)
-	listen   func(context.Context, string) (net.Listener, error)
+	newSQL        func(config.Config) (apiSQL, error)
+	newRedis      func(config.Config, apiOptions) (apiRedis, error)
+	chat          func(apiSQL, apiRedis) (*service.ReliableChat, error)
+	status        func(apiSQL) (service.CommandStatusReader, error)
+	conversations func(apiSQL) (service.ConversationReader, error)
+	tokens        func(config.Config, apiRedis) (*utils.TokenService, error)
+	monitor       func(func(context.Context) error, time.Duration, time.Duration) apiMonitor
+	http          func(http.Handler, apiOptions) (*legacyHTTPServer, error)
+	listen        func(context.Context, string) (net.Listener, error)
 }
 
 func defaultAPIDependencies() apiDependencies {
 	return apiDependencies{
+		conversations: func(handle apiSQL) (service.ConversationReader, error) {
+			pool, ok := handle.(*sql.DB)
+			if !ok {
+				return nil, errAPIInput
+			}
+			return database.NewMessageRepository(pool)
+		},
 		status: func(handle apiSQL) (service.CommandStatusReader, error) {
 			pool, ok := handle.(*sql.DB)
 			if !ok {
@@ -170,10 +178,10 @@ func checkAPI(c config.Config, o apiOptions, d apiDependencies) error {
 	valid := func(v time.Duration) bool { return v > 0 && v <= time.Minute }
 	_, port, err := net.SplitHostPort(o.Address)
 	p, portErr := strconv.Atoi(port)
-	if err != nil || portErr != nil || p < 0 || p > 65535 || !valid(o.ReadHeaderTimeout) || !valid(o.ReadTimeout) || !valid(o.IdleTimeout) || !valid(o.SubmissionTimeout) || !valid(o.StatusTimeout) || !valid(o.ProbeInterval) || !valid(o.ProbeTimeout) || !valid(o.DrainTimeout) || !valid(o.CloseTimeout) || o.WriteTimeout < o.ReadTimeout+max(o.SubmissionTimeout, o.StatusTimeout) || o.WriteTimeout > 2*time.Minute || o.ReadHeaderTimeout > o.ReadTimeout || o.MaxHeaderBytes < 4096 || o.MaxHeaderBytes > 64*1024 {
+	if err != nil || portErr != nil || p < 0 || p > 65535 || !valid(o.ReadHeaderTimeout) || !valid(o.ReadTimeout) || !valid(o.IdleTimeout) || !valid(o.SubmissionTimeout) || !valid(o.StatusTimeout) || !valid(o.ConversationsTimeout) || !valid(o.ProbeInterval) || !valid(o.ProbeTimeout) || !valid(o.DrainTimeout) || !valid(o.CloseTimeout) || o.WriteTimeout < o.ReadTimeout+max(o.SubmissionTimeout, o.StatusTimeout, o.ConversationsTimeout) || o.WriteTimeout > 2*time.Minute || o.ReadHeaderTimeout > o.ReadTimeout || o.MaxHeaderBytes < 4096 || o.MaxHeaderBytes > 64*1024 {
 		return errAPIInput
 	}
-	if d.newSQL == nil || d.newRedis == nil || d.chat == nil || d.status == nil || d.tokens == nil || d.monitor == nil || d.http == nil || d.listen == nil {
+	if d.newSQL == nil || d.newRedis == nil || d.chat == nil || d.status == nil || d.conversations == nil || d.tokens == nil || d.monitor == nil || d.http == nil || d.listen == nil {
 		return errAPIInput
 	}
 	if _, err := utils.NewTokenService(c, utils.NewRedisTokenBlacklist(nil)); err != nil {
@@ -341,6 +349,13 @@ func (s *apiService) Start(setup, lifetime context.Context) (err error) {
 	}
 	if err := router.RegisterCommandStatus(r, tokens, statusReader, s.options.StatusTimeout); err != nil {
 		return apiError(errAPIStart, "status routes", err)
+	}
+	conversationReader, err := s.deps.conversations(resources.sql)
+	if err != nil || apiNil(conversationReader) {
+		return apiError(errAPIStart, "conversations assembly", err)
+	}
+	if err := router.RegisterConversations(r, tokens, conversationReader, s.options.ConversationsTimeout); err != nil {
+		return apiError(errAPIStart, "conversations routes", err)
 	}
 	chat, err := s.deps.chat(resources.sql, resources.redis)
 	if err != nil || chat == nil {

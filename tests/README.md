@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P6.2.2 会话列表 HTTP 与生产 API 装配：
+
+```powershell
+go test -mod=readonly -p=2 -race ./messaging ./service ./router . -run '^Test(Conversation|APIConversations|APIStartup|APIValidation)' -count=30 -shuffle=on -timeout=120s
+go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionConversationsIntegration$' -count=1 -v -timeout=7m
+```
+
+真实默认工厂九组覆盖规范分页/各用户 ACK/空数组、严格参数/JWT、跨页新增后重扫、当前权限/失效读者、损坏游标 503、实际 SQL 四连接池占满后的默认三秒期限、Redis 客户端故障、MySQL 离线启动/重启，以及客户端最终关闭。最终 9 command / 9 message / 7 conversation / 18 untouched pending Outbox / 3 cursor，原终态与 schema 保持；本轮 Docker 更换 MySQL 端口后显式重建池恢复，不声称自动发现地址。MQ capability 未使用，sync/history HTTP 和完整客户端恢复仍在后续；见[会话列表 HTTP](../docs/conversations-http.md)。
+
 P6.2.1 会话发现 DTO 与只读仓储：
 
 ```powershell

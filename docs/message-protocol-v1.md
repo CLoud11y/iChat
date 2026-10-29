@@ -163,7 +163,15 @@ conversationId 只接受规范形式：私聊 `p:<小ID>:<大ID>` 的两个正 u
 
 同一只读 RR 快照核验有效读者、私聊参与者或当前群成员，并读取 lastSeq 与本用户 deliveredSeq（缺失为零）。每页最多读取 limit+1 个匹配结果，额外行也核验但不返回；身份/排序/水位损坏、SQL/取消/释放错误清空整页。群主/普通好友关系不单独授予群权限，解除好友不撤销私聊参与者的既有历史。
 
-跨页独立快照，客户端每周期必须从空 cursor 重扫；新会话可能落在当前扫描位置之前。服务器 ACK 不能替代浏览器本地连续游标，也不表示已读。列表不包含正文、不读取 Redis/MQ、不证明全部历史无缺口。HTTP 接线仍归 P6.2.2；完整字段和边界见[会话发现协议](conversation-discovery.md)。
+跨页独立快照，客户端每周期必须从空 cursor 重扫；新会话可能落在当前扫描位置之前。服务器 ACK 不能替代浏览器本地连续游标，也不表示已读。列表不包含正文，仓储不读取 Redis/MQ、不证明全部历史无缺口。P6.2.2 已完成 HTTP 接线，完整字段和边界见[会话发现协议](conversation-discovery.md)。
+
+## P6.2.2：会话列表 HTTP
+
+现代 API 提供 `GET /auth/conversations?cursor=...&limit=100`，仅接受 Authorization Bearer。cursor 可省略或为空，显式 limit 必须为规范十进制 1—500（缺省 100），不接受 0/前导零；原始 query 最多 1024 字节，重复/未知字段、别名和非法编码为 400。UID 从鉴权上下文取得，不能传 userId/senderId。
+
+成功 HTTP 200，`{"code":0,"msg":"conversations","data":<ConversationPage>}`，空 items 保留 `[]`、序号为字符串。400/401/403/503 统一 code=-1，data 仅含 INVALID_REQUEST/UNAUTHENTICATED/FORBIDDEN/DEPENDENCY_UNAVAILABLE 的 reasonCode，无部分页、业务 state 或诊断。纯权限拒绝才用 403；权限与释放故障混合、取消、损坏输出等均为 503。非成员会话被过滤，失效 cursor 仍是合法扫描位置。
+
+所有响应禁止缓存。默认同一 3 秒父期限覆盖 Redis 鉴权和 SQL；工厂借入 API 自有 SQL 池，observer pending 等回调真正退出才释放资源。出站前再次检查页形状、顺序、私聊参与者、水位和 nextCursor，群权限仍在 SQL 快照中判定，不混合另一次读取。细节及真实故障验收见[会话列表 HTTP](conversations-http.md)；sync/history HTTP 归 P6.2.3。
 
 ## 验证与后续
 

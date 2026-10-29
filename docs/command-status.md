@@ -57,4 +57,4 @@ go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionComman
 
 业务通过生产 PersistCommand 建立；两条隔离行是明确的状态元数据夹具，未经过 MQ/审计 worker。最终 3 command / 2 message / 2 conversation / 5 untouched pending Outbox / 2 quarantine / 0 cursor，schema 不变。默认测试另覆盖 uint64 上界、矛盾/跨请求输出、迟到回调、工厂失败、Panic、停止准入和 pending 后客户端延迟释放。
 
-运行证据见[实施记录](message-reliability-mq-progress.md)。P6.2 已拆分，P6.2.1 [会话发现仓储](conversation-discovery.md)已完成；下一项 P6.2.2 会话列表 HTTP 契约与 API 装配。现有 loadtest acceptance 模式仍只探测发送确认；自动状态轮询、客户端恢复和完整全管线交叉在后续实施。
+运行证据见[实施记录](message-reliability-mq-progress.md)。P6.2 已拆分，P6.2.1 [会话发现仓储](conversation-discovery.md)已完成；P6.2.2 [会话列表 HTTP](conversations-http.md)也已完成；下一项 P6.2.3 补拉/历史 HTTP 接线。现有 loadtest acceptance 模式仍只探测发送确认；自动状态轮询、客户端恢复和完整全管线交叉在后续实施。
