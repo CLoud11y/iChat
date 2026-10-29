@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。下一项 P6.3.3 有界 HTTP 提交/状态查询及原键重试。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。下一项 P6.3.4 通知与生产 API 交叉恢复验收。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4171,3 +4171,48 @@ run **`a068351c78635794b16c785898f2d08f`**，九组全部通过，无 fail/skip/
 Go 固定 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache；全仓回归使用 GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。Linux 编译产物仅位于忽略的 .gocache。
 
 建议 commit message：`feat(clientsim): add crash-recoverable file snapshot store`
+
+
+## 2026-10-30：P6.3.3 有界 HTTP 提交、查询与原键恢复
+
+状态：本小点实现、代码审查、30 轮专项和全仓默认回归完成，没有自动提交。下一项 **P6.3.4：通知与生产 API 交叉恢复验收**。P6.3 整体、真实生产 JWT/MySQL/MQ/通知管线、接收游标和实际前端仍未完成；本次没有修改生产路由、schema、依赖或默认运行模式。
+
+### 实现与审查
+
+- 新增 HTTPRunner/HTTPOptions，借入 Sender 与 token provider，自有 client/transport。构造纯校验；源站禁止用户信息/路径前缀/query/fragment，Bearer 不入快照。默认请求/本地结算各三秒、最多两个请求槽；选项最多一分钟、并发 1—8。
+- Submit 先保存 Attempt，再原样编码原 Request 字段值，POST /auth/sendMessage；Poll 只带本地规范 clientMessageId/payloadHash，GET /auth/messages/status，无 GET body。拒绝重定向、环境代理、Cookie jar 和自动解压，不提供 GetBody/幂等重放 header。复核固定 Go 1.27.1 的 isReplayable/shouldRetryRequest 路径，不依赖隐式 POST 重放。
+- 新增共享 DecodeSubmissionResponse/DecodeCommandStatusResponse，复用现有严格 JSON/Unicode 规则；包装 code/msg/data 必须存在，嵌套 message 也拒绝未知/重复/别名/null。读至 16 KiB 加一判定超限，要求 JSON/UTF-8、无压缩及独立 no-store 指令。
+- 提交同时核对 HTTP/code/state/reason、原身份/hash 和必要 publishAttemptId；旧发送 HTTP 200 或损坏回执不算 accepted。查询复用 ValidateFor，核对发送者/本地 hash/完整规范终态及最大 uint64 序号；503 即使携带 pending 也不伪装成功查询。
+- 完成回调同步写入原状态核心。网络/读取/协议失败或取消后，使用 WithoutCancel 加独立 StoreTimeout 保存 CompleteUnknown；有效完整回执先结算再返回。任何存储不确定错误停止继续 HTTP，保留原请求，要求重开快照；既有 accepted/业务终态不倒退。
+- 有限 Recover 默认八轮、最多两次提交、指数退避一至十五秒。queued 可先提交，已有非终态先查询；仅有效 pending 查询允许下一轮原键原内容重发，提交后再查询。隔离只查询、冲突停止；数据库/网络/协议查询错误不授权重发，耗尽预算保留记录并返回 ErrRecoveryExhausted。
+- Retry-After 秒数/HTTP 日期及 pollAfterMs 作为等待下限，服务器提示最多一分钟；可超过客户端指数退避上限。请求/计时器/槽等待可取消，同键最多一个活动任务。Close 撤销准入、取消并等待实际调用返回，不关闭借入 Sender/FileStore，不放弃不合作的 token/存储回调。
+
+HTTP 契约、默认配置、退避与所有权见[客户端 HTTP 恢复](client-sender-http.md)。开发规范、协议、README、模拟器指南、测试入口和当前下一项已同步。
+
+### 真实 loopback HTTP 与本地磁盘验证
+
+12 个顶层 HTTP/恢复测试及子场景覆盖：
+
+- POST 原始 UUID/目标/正文/NUL/Unicode/纳秒时间、Bearer-only、202，以及所有查询终态/非终态、409 和最大字符串 seq。
+- 错 HTTP/code/身份/attempt、缺 code/msg、重复/转义重复字段、大小写别名/null、未知字段、非法 Unicode/UTF-8、尾随对象、嵌套损坏消息、超大响应、错误媒体/压缩/缓存头均不能推进成功状态。
+- 307 重定向目的服务器收到零请求；已读取 POST 后直接断开连接，实际只收到一次提交；慢 body 和调用方取消返回后，原请求保留且本地 inFlight 已结算。
+- 三键并发填满两个请求槽，第三键等待；同键另一次入口立即拒绝。Close 在 token 或本地结算回调被屏障阻塞时继续等待，真实取消/释放后才退出；迟到 token 不能发请求，完整已知回执能保存。
+- 真实 FileStore 流程：首 POST 丢失响应 → 关闭/重开磁盘 → 查询 pending → 同键同内容提交 202 → 查询 persisted → 再次重开保留终态。两个 POST 字节完全相同，原 key/hash、attempts=2 和规范消息保持。
+- 恢复预算精确限制请求/提交上限，隔离只查、冲突停止、认证停止，SQL/坏查询不授权重发。确定性计时器核对二秒 poll 下限、三秒 Retry-After 和指数上限；实际长计时器另验证 cancel/Close 打断，不报告这些建议等待值为实际耗时。
+- 完整 accepted 已写本地后存储回执报错，恢复任务立即停止且只发一个请求；重新加载仍可读回 accepted。不存在删除 pending、生成新 ID、无界后台轮询或提前释放回调。
+
+以上服务器为真实 HTTP loopback 夹具，响应由受控契约数据生成；没有借用它声称生产 JWT/MySQL/MQ/通知端到端验收。磁盘均位于 t.TempDir，HTTP server/runner 全部关闭，默认全仓回归也再次执行既有磁盘强杀测试；没有新建 Docker 资源。
+
+### 最终回归
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./messaging ./tests/clientsim -run '^TestHTTP' -count=30 -shuffle=on -timeout=120s` | 最终 30 轮通过，clientsim 8.450s，无 race；messaging 在此筛选下仅编译，严格解码由 HTTP 测试实际调用 |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.426s、clientsim 3.011s、messaging 1.506s、database 3.439s、service 3.735s、rabbitmq 8.625s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过，clientsim 1.338s；不代表执行生产基础设施 suite |
+| `git diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache；全仓回归使用 GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。
+
+建议 commit message：`feat(clientsim): add bounded HTTP send recovery`

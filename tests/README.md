@@ -1,5 +1,13 @@
 # 独立测试环境
 
+P6.3.3 模拟客户端有界 HTTP 提交/查询及原键恢复：
+
+```powershell
+go test -mod=readonly -p=2 -race ./messaging ./tests/clientsim -run '^TestHTTP' -count=30 -shuffle=on -timeout=120s
+```
+
+真实 loopback HTTP 覆盖严格嵌套回执/错误码/身份、响应上限、实际断开/慢 body/取消、拒绝重定向、并发与同键 owner、Close 等 token/本地结算回调退出、有限恢复预算与服务器退避提示。真实磁盘流程从丢失响应恢复为原请求重发及持久终态，两次 POST 字节完全相同；SQL/协议失败不授权重发，隔离只查询、冲突停止。退避值使用确定性计时器验证，取消另用实际计时器。生产 JWT/MQ/SQL 与通知交叉归 P6.3.4，见[HTTP 恢复](../docs/client-sender-http.md)。
+
 P6.3.2 发送模拟器磁盘日志、独占锁与真实跨进程恢复：
 
 ```powershell
@@ -7,7 +15,7 @@ go test -mod=readonly -p=2 -race ./tests/clientsim -count=30 -shuffle=on -timeou
 go test -mod=readonly -p=2 -race ./tests/clientsim -run '^TestFileStoreCrossProcess' -count=1 -v -timeout=90s
 ```
 
-每轮一个跨进程竞争锁及八个真实强杀点：queued/submitting/accepted/persisted/rejected、半写、Sync 前后。原键/请求/hash/计数和终态保持，半写尾部恢复后重用原键；写完但未返回的提交保守恢复。真实文件包装另覆盖短写、写后/Sync 后报错、panic、坏完整记录/最新快照、恢复 I/O 失败、取消、Close 等待与关闭错误。只操作 t.TempDir，子进程 Kill 后均 Wait，未创建 Docker/SQL/MQ 资源。Windows 实际执行，Linux 仅交叉编译；不代表断电或真实前端验收。下一项 P6.3.3，见[磁盘存储](../docs/client-sender-file-store.md)。
+每轮一个跨进程竞争锁及八个真实强杀点：queued/submitting/accepted/persisted/rejected、半写、Sync 前后。原键/请求/hash/计数和终态保持，半写尾部恢复后重用原键；写完但未返回的提交保守恢复。真实文件包装另覆盖短写、写后/Sync 后报错、panic、坏完整记录/最新快照、恢复 I/O 失败、取消、Close 等待与关闭错误。只操作 t.TempDir，子进程 Kill 后均 Wait，未创建 Docker/SQL/MQ 资源。Windows 实际执行，Linux 仅交叉编译；不代表断电或真实前端验收。后续 P6.3.3 已完成 HTTP 适配，见[磁盘存储](../docs/client-sender-file-store.md)。
 
 P6.3.1 模拟客户端待发送记录、单调状态与可恢复快照：
 

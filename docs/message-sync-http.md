@@ -1,6 +1,6 @@
 # P6.2.3.1：向前补拉 HTTP
 
-现代 API 提供 `GET /auth/messages/sync`，默认工厂从自有 SQL 池构造真实 `MessageRepository.SyncMessages`。权限、单页 RR 快照、连续范围和规范 MessageDTO 沿用 P2.7；P6.2.3.2 已完成[历史 HTTP](message-history-http.md)，P6.3.1 [发送状态核心](client-sender-simulator.md)已完成，P6.3.2 [磁盘存储](client-sender-file-store.md)已完成，下一项 P6.3.3 有界 HTTP 提交/状态查询。
+现代 API 提供 `GET /auth/messages/sync`，默认工厂从自有 SQL 池构造真实 `MessageRepository.SyncMessages`。权限、单页 RR 快照、连续范围和规范 MessageDTO 沿用 P2.7；P6.2.3.2 已完成[历史 HTTP](message-history-http.md)，P6.3.1 [发送状态核心](client-sender-simulator.md)已完成，P6.3.2 [磁盘存储](client-sender-file-store.md)已完成，P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，下一项 P6.3.4 通知与生产 API 交叉恢复验收。
 
 ## 请求与响应
 
