@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P6.2.3.1 向前补拉 HTTP 与连续页门禁：
+
+```powershell
+go test -mod=readonly -p=2 -race ./messaging ./database ./service ./router . -run '^Test(SyncPage|MessageSync|APISync|APIStartup|APIValidation)' -count=30 -shuffle=on -timeout=120s
+go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionMessageSyncIntegration$' -count=1 -v -timeout=7m
+```
+
+真实默认 API 九组覆盖三类媒体规范 DTO、从零补拉忽略较大的服务器 ACK、分页期间新提交、入群前历史/退群/删群、lookahead 损坏与缺号不返回部分内容、实际 JWT 撤销、三秒 SQL 等待期限、Redis 客户端/MySQL 故障恢复及最终资源关闭。最终 7 command / 7 message / 3 conversation / 14 untouched pending Outbox / 3 unchanged cursor，原终态、消息及 schema 保持。本轮 Docker 更换映射端口后显式重建池恢复，未使用 MQ publisher 或执行实际客户端恢复；下一项 history HTTP，见[补拉契约](../docs/message-sync-http.md)。
+
 P6.2.2 会话列表 HTTP 与生产 API 装配：
 
 ```powershell

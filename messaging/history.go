@@ -96,6 +96,44 @@ type SyncPage struct {
 	HasMore        bool         `json:"hasMore"`
 }
 
+// ValidateFor checks a complete contiguous prefix within this snapshot's
+// watermark. It does not use the server ACK as the caller's local cursor.
+func (p SyncPage) ValidateFor(query PageQuery) error {
+	cursor := ""
+	if query.HasCursor {
+		cursor = query.Cursor.String()
+	}
+	normal, err := NormalizePageQuery(query.ReaderID, query.Conversation.ID, cursor, query.Limit)
+	if err != nil || normal != query || p.ConversationID != query.Conversation.ID || p.AfterSeq != query.Cursor || p.Items == nil || query.Cursor > p.HighWatermark ||
+		(query.Conversation.Type == Private && query.ReaderID != query.Conversation.LowUser && query.ReaderID != query.Conversation.HighUser) {
+		return invalid("sync page")
+	}
+	available := uint64(p.HighWatermark - query.Cursor)
+	count := min(available, uint64(query.Limit))
+	if uint64(len(p.Items)) != count || p.HasMore != (available > uint64(query.Limit)) || p.NextAfterSeq != query.Cursor+Sequence(count) {
+		return invalid("sync range")
+	}
+	expected := query.Cursor
+	seen := make(map[string]bool, len(p.Items))
+	for _, item := range p.Items {
+		expected++ // count <= watermark - cursor, including at MaxUint64.
+		if item.ConversationID != query.Conversation.ID || item.Seq != expected || seen[item.MessageID] {
+			return invalid("sync message range")
+		}
+		if _, err := canonicalFrameMessage(item); err != nil {
+			return err
+		}
+		seen[item.MessageID] = true
+	}
+	return nil
+}
+
+type SyncResponse struct {
+	Code int      `json:"code"`
+	Msg  string   `json:"msg"`
+	Data SyncPage `json:"data"`
+}
+
 // History items are ascending for display; NextBeforeSeq is the oldest item.
 // An omitted BeforeSeq requests the latest page, including MaxUint64.
 type HistoryPage struct {

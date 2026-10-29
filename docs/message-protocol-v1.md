@@ -155,7 +155,11 @@ conversationId 只接受规范形式：私聊 `p:<小ID>:<大ID>` 的两个正 u
 
 每次 SQL 最多读取 `limit+1` 行，额外一行仅用于确认后续范围完整，不作为返回 item。对本次范围（含额外行）逐一检查预期连续 seq，并核验规范消息身份、会话、正文 hash、媒体和 UTC 微秒时间；消息对应的规范命令必须为 persisted。缺少预期消息、缺少命令、内容损坏或 SQL/迭代/快照释放错误返回空结果和错误，不返回部分页、不跳过缺号、不伪造 hasMore=false。检查是有界范围检查，不宣称每页审计全部历史。
 
-每页建立独立快照，不维持跨页数据库事务。分页期间的新提交可被下一页或后续周期扫描发现；客户端仍应持久化连续本地游标、去重并定期核对。P6.2.1 已补齐[会话发现仓储](conversation-discovery.md)，列表和补拉/历史 HTTP 路由及周期同步仍按 P6 后续小点实施；旧历史入口保持原路径。
+每页建立独立快照，不维持跨页数据库事务。分页期间的新提交可被下一页或后续周期扫描发现；客户端仍应持久化连续本地游标、去重并定期核对。P6.2.1 已补齐[会话发现仓储](conversation-discovery.md)，会话列表与向前补拉 HTTP 已完成，history HTTP 与周期恢复客户端仍归后续小点；旧历史入口保持原路径。
+
+P6.2.3.1 已挂载 `GET /auth/messages/sync`：必填 conversationId，省略 afterSeq 为 0，显式 afterSeq 为规范 uint64 十进制（含零），省略 limit 为 100、显式 1—500；只读 Authorization Bearer，拒绝重复/未知字段（包括 beforeSeq）、空显式序号和非法编码。query 上限 1024 字节，成功为 `code:0/msg:messages synced/data:SyncPage`，所有响应 no-store。
+
+补拉 HTTP 出站前复核同会话、afterSeq、水位内连续完整页、唯一消息身份、规范 DTO、精确 nextAfterSeq/hasMore；支持最大 uint64 且不做水位加一。纯 afterSeq 超水位为 400/INVALID_REQUEST，纯权限拒绝 403/FORBIDDEN；SQL、释放、取消或损坏结果 503/DEPENDENCY_UNAVAILABLE，错误无 items/state/诊断。仓储范围错误使用 ErrSyncCursorAhead 并保留 errors.Is(ErrInvalidInput)，与释放失败 joined 后不能当成纯客户端错误。默认 3 秒共享鉴权/SQL 期限及资源责任见[补拉 HTTP 契约](message-sync-http.md)，history HTTP 仍归 P6.2.3.2。
 
 ## P6.2.1：会话发现与稳定 ID 分页
 
@@ -171,7 +175,7 @@ conversationId 只接受规范形式：私聊 `p:<小ID>:<大ID>` 的两个正 u
 
 成功 HTTP 200，`{"code":0,"msg":"conversations","data":<ConversationPage>}`，空 items 保留 `[]`、序号为字符串。400/401/403/503 统一 code=-1，data 仅含 INVALID_REQUEST/UNAUTHENTICATED/FORBIDDEN/DEPENDENCY_UNAVAILABLE 的 reasonCode，无部分页、业务 state 或诊断。纯权限拒绝才用 403；权限与释放故障混合、取消、损坏输出等均为 503。非成员会话被过滤，失效 cursor 仍是合法扫描位置。
 
-所有响应禁止缓存。默认同一 3 秒父期限覆盖 Redis 鉴权和 SQL；工厂借入 API 自有 SQL 池，observer pending 等回调真正退出才释放资源。出站前再次检查页形状、顺序、私聊参与者、水位和 nextCursor，群权限仍在 SQL 快照中判定，不混合另一次读取。细节及真实故障验收见[会话列表 HTTP](conversations-http.md)；sync/history HTTP 归 P6.2.3。
+所有响应禁止缓存。默认同一 3 秒父期限覆盖 Redis 鉴权和 SQL；工厂借入 API 自有 SQL 池，observer pending 等回调真正退出才释放资源。出站前再次检查页形状、顺序、私聊参与者、水位和 nextCursor，群权限仍在 SQL 快照中判定，不混合另一次读取。细节及真实故障验收见[会话列表 HTTP](conversations-http.md)；P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成，history HTTP 归 P6.2.3.2。
 
 ## 验证与后续
 

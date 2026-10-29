@@ -2,7 +2,7 @@
 
 `main → runProcess → application.RunRuntime` 现在为显式 `RUNTIME.mode: api` 装配真实确认式 API。默认配置仍为 legacy；未完成 consumer 前仅在独立测试环境接受、积压命令。`worker` / `all` 继续在信号注册和外部 I/O 前报告缺失的持久化、隔离及 Outbox 角色。
 
-API 注册确认式 `POST /auth/sendMessage`、[P6.1 状态查询](command-status.md)的 `GET /auth/messages/status`、[P6.2.2 会话列表](conversations-http.md)的 `GET /auth/conversations`、健康路由，以及 [P5.3 生产 v1 WebSocket](reliable-websocket.md)的 `GET /auth/chat`；P5.4 已通过默认工厂显式装配[业务 ACK 仓储](delivery-ack.md)，提交后才由单 writer 确认。发送契约见[确认式发送适配](command-submission.md)。旧登录、账号、联系人和历史路由未接入这个角色；账号入口及同步/历史按后续阶段推进，不能据此切换共享开发数据。
+API 注册确认式 `POST /auth/sendMessage`、[P6.1 状态查询](command-status.md)的 `GET /auth/messages/status`、[P6.2.2 会话列表](conversations-http.md)的 `GET /auth/conversations`、[P6.2.3.1 补拉](message-sync-http.md)的 `GET /auth/messages/sync`、健康路由，以及 [P5.3 生产 v1 WebSocket](reliable-websocket.md)的 `GET /auth/chat`；P5.4 已通过默认工厂显式装配[业务 ACK 仓储](delivery-ack.md)，提交后才由单 writer 确认。发送契约见[确认式发送适配](command-submission.md)。旧登录、账号、联系人和历史路由未接入这个角色；账号入口及 history HTTP 按后续阶段推进，不能据此切换共享开发数据。
 
 ## 配置与启动
 
@@ -19,13 +19,14 @@ MySQL 使用延迟连接池（最多 4 个连接、2 个空闲连接），Redis 
 | SubmissionTimeout | RABBITMQ.publishTimeout | 包含实际鉴权与发布的请求 deadline |
 | StatusTimeout | 3 秒 | 同一 deadline 覆盖实际鉴权与只读 SQL；独立于发送确认超时 |
 | ConversationsTimeout | 3 秒 | 覆盖列表鉴权、等待 SQL 池和只读快照查询 |
+| SyncTimeout | 3 秒 | 覆盖补拉鉴权、等待 SQL 池和连续范围查询 |
 | WriteTimeout | max(30 秒, 11 秒 + publishTimeout) | 留出正文读取和请求处理时间 |
 | IdleTimeout | 30 秒 | 限制空闲 keep-alive |
 | MaxHeaderBytes | 32 KiB | 请求头上限（net/http 另有读取余量） |
 | ProbeInterval / ProbeTimeout | 2 秒 / 1 秒 | 后台依赖探测与缓存新鲜度 |
 | DrainTimeout / CloseTimeout | 10 秒 / 5 秒 | 意外退出时自有 drain、强制关闭预算 |
 
-正常进程退出使用 RuntimeOptions 的共享 drain/close 预算（默认 10 秒 / 5 秒）。发送正文仍受协议 16 KiB 限制；列表 query 限 1024 字节，响应最多 500 条元数据。除写期限上限 2 分钟外，期限必须为正且不超过一分钟；写期限至少覆盖 ReadTimeout 加 SubmissionTimeout/StatusTimeout/ConversationsTimeout 的最大值。状态/列表读取不按 MQ 或缓存探针门禁，仍须通过实际 Redis 鉴权和 SQL 查询。查询请求的 Panic/停止准入返回 DEPENDENCY_UNAVAILABLE，不复用发送尝试的状态；所有回调真实结束前继续保留请求 owner。
+正常进程退出使用 RuntimeOptions 的共享 drain/close 预算（默认 10 秒 / 5 秒）。发送正文仍受协议 16 KiB 限制；列表/补拉 query 限 1024 字节，每页最多 500 项。除写期限上限 2 分钟外，期限必须为正且不超过一分钟；写期限至少覆盖 ReadTimeout 加 SubmissionTimeout/StatusTimeout/ConversationsTimeout/SyncTimeout 的最大值。状态/列表/补拉读取不按 MQ 或缓存探针门禁，仍须通过实际 Redis 鉴权和 SQL 查询。查询请求的 Panic/停止准入返回 DEPENDENCY_UNAVAILABLE，不复用发送尝试的状态；所有回调真实结束前继续保留请求 owner。
 
 ## 鉴权与健康
 

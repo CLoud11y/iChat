@@ -13,6 +13,10 @@ import (
 
 var ErrConversationForbidden = errors.New("conversation read forbidden")
 
+// A pure range denial is distinguishable from a joined SQL/release failure.
+// Preserve errors.Is(err, messaging.ErrInvalidInput) for repository callers.
+var ErrSyncCursorAhead = fmt.Errorf("%w: afterSeq exceeds watermark", messaging.ErrInvalidInput)
+
 const selectReadMembershipSQL = "SELECT EXISTS(SELECT 1 FROM `group` g JOIN relation r ON r.target_id=g.id WHERE g.id=? AND g.deleted_at IS NULL AND r.owner_id=? AND r.type=? AND r.deleted_at IS NULL)"
 const selectReadConversationSQL = `SELECT type,private_user_a,private_user_b,group_id,last_seq FROM conversation WHERE id=?`
 const selectReadMessagesSQL = `SELECT m.id,m.client_message_id,m.sender_id,m.receiver_id,m.type,m.media,m.content,m.conversation_id,m.seq,
@@ -129,7 +133,7 @@ func (r *MessageRepository) readMessagePage(ctx context.Context, query messaging
 		statement, args = selectHistoryMessagesSQL, []any{conversation.ID, start, query.Limit + 1}
 	} else {
 		if uint64(query.Cursor) > lastSeq {
-			return 0, nil, false, fmt.Errorf("%w: afterSeq exceeds watermark", messaging.ErrInvalidInput)
+			return 0, nil, false, ErrSyncCursorAhead
 		}
 		count = lastSeq - uint64(query.Cursor)
 		if count > 0 {

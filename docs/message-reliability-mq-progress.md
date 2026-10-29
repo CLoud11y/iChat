@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储和 P6.2.2 会话列表 HTTP 已完成对应验收。下一项 P6.2.3 补拉/历史 HTTP，开始前继续细分。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP 和 P6.2.3.1 向前补拉 HTTP 已完成对应验收。下一项 P6.2.3.2 历史 HTTP。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -3966,3 +3966,58 @@ fixture Close 成功，按本轮专属标签只读确认容器/卷/网络均归�
 默认测试覆盖严格参数、body 不读取、字符串序号上界、nil/typed nil、错私聊用户/身份、损坏水位/顺序/页长/游标、纯与混合权限错误、鉴权/操作期限、Panic/停止准入、缓存探针与读取解耦、失败工厂回滚，以及 pending 后等实际取消/回调退出再释放客户端。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE、GIN_MODE=release。
 
 建议 commit message：`feat(api): expose authenticated conversation listing`
+
+## P6.2.3 开始前拆分
+
+- P6.2.3.1：向前补拉 `/auth/messages/sync` 的严格参数、连续页校验、生产 API 接线及故障验收（本次）。
+- P6.2.3.2：历史 `/auth/messages/history` 的省略/排他 beforeSeq、反向取页与升序响应、API 接线及独立验收。
+
+两类游标语义分别落实；本次不将补拉接口的完成报告为 history HTTP 或客户端恢复已完成。
+
+## 2026-10-30：P6.2.3.1 向前补拉 HTTP 与生产 API 装配
+
+状态：本小点实现、代码审查、默认回归和真实隔离验收完成，没有自动提交。下一项 **P6.2.3.2：历史 HTTP 接线与独立验收**。P6.2.3/P6.2、完整 worker/all、恢复客户端和全管线交叉尚未整体完成；未修改 schema、依赖、默认运行模式或旧历史入口。
+
+### 实现与审查
+
+- `service.QueryMessageSync`、`router.RegisterMessageSync` 提供 `GET /auth/messages/sync`，使用实际 Bearer/JWT，UID 只来自鉴权上下文，不读取 GET body。query 上限 1024 字节，conversationId 必填，afterSeq 省略为零/显式必须为规范 uint64 十进制（含零），limit 省略 100/显式 1—500；重复/未知/别名/非法编码和空显式序号均为 400，beforeSeq 不在此路由接受。
+- 成功 200/code=0/msg=messages synced/data=既有 SyncPage，保留完整规范 MessageDTO、空数组及字符串 ID/序号。错误 400/401/403/503 只带稳定 reasonCode，无部分正文、业务 state 或底层诊断，全部 no-store。
+- `SyncPage.ValidateFor` 核验规范 query、会话/afterSeq、非 nil items、水位内完整连续前缀、唯一消息身份、规范 DTO、精确 nextAfterSeq/hasMore。按水位与游标的差值计算范围，最大 uint64 不回绕；坏 reader 的空/缺号/重复/乱序/错路由/超水位/矛盾字段不能成功。正文与存储 hash 的一致性仍由 P2.7 在原 SQL 快照验证，不另读一次存储混合视图。
+- 增加可辨认的纯范围错误 `database.ErrSyncCursorAhead`，保留原错误文本及 `errors.Is(err,messaging.ErrInvalidInput)` 兼容性。只有纯超水位拒绝映射 400、纯权限拒绝映射 403；与 SQL/快照释放错误 joined 或 context 已取消时统一 503，不能把基础设施故障当客户端错误。
+- 默认 API 工厂闲置构造真实 MessageRepository、显式借入自有 SQL 池；缺失/失败/nil/typed nil 工厂进入原校验/启动回滚。内部 SyncTimeout 默认 3 秒，共享父 deadline 覆盖实际 Redis 鉴权、等连接和 SQL，写期限校验覆盖 ReadTimeout 加四类请求期限的最大值，无新 YAML/env 配置。
+- 仓储权限/快照/连续范围语义保持 P2.7：当前群成员可读入群前消息，下一页重新判定退群/删群，解除好友不撤销既有私聊历史。补拉不读取或更新 server deliveredSeq；客户端从实际本地连续游标补齐，不能因 server ACK 较大而跳过数据。
+- 请求一直持有实际回调，超时后 nil/权限结果不能成功；observer pending 不提前释放 SQL/Redis。Panic/停止准入复用 API 的依赖失败响应；不按 publisher/缓存探针门禁，不自动重发命令，没有分离查询 goroutine。
+
+字段、示例、范围分类、资源责任和后续 history 边界见[补拉 HTTP](message-sync-http.md)。开发规范、协议、API 生命周期、README、测试说明和当前下一项已同步。
+
+### 真实验收
+
+run **`a068351c78635794b16c785898f2d08f`**，九组全部通过，无 fail/skip/race；suite **34.25s**，package **36.901s**：
+
+1. 生产 PersistCommand 生成文本/图片/音频，接收者 server ACK 已为 3 时从本地零仍取得全部 1—3；HTTP 与独立 SQL 页、原命令完整规范 DTO 完全一致。授权但未产生 conversation 的私聊返回水位零及 `[]`，对此空会话 afterSeq=1 为 400。
+2. limit=2 的第一页为 seq 1/2、水位 3；之后提交第 4 条，下一页为 3/4、水位 4，末页后空页保留游标 4。afterSeq=5 为纯范围错误 400，未夹到水位。
+3. 当前非群成员 403；入群后可补齐入群前消息并 ACK 2；退群后即使 afterSeq 已到水位、预计为空也仍 403。软删除群拒绝读取；私聊第三人 403，解除好友后参与者仍可补拉原 1—4。
+4. 损坏真实第 3 条正文，让它位于 limit=2 的额外行，仓储 hash 检查导致 HTTP 整页 503、无部分正文；恢复后再临时将第 2 条移至 seq=100 制造查询范围缺号，仍整页 503。所有夹具修改随后恢复，未以删除真实消息演示恢复。
+5. 重复/空/非规范 afterSeq、beforeSeq、伪造 userId、limit=0 均为 400；query token 和实际 Redis 撤销 token 均不能授权。
+6. 持有 API 实际四个 SQL 连接，补拉触发生产 3 秒期限（3.02s），返回 503；归还连接后同一 API 恢复原完整页。
+7. 关闭实际 Redis 客户端使鉴权 503，原 owner 等任务加入并容纳故障客户端重复 Close 的已知 ErrClosed，新 API 客户端恢复。此场景是客户端故障，不冒充 Redis server 停机。
+8. MySQL 专属容器停机期间，旧 API 对有消息/真实空会话均 503；新 API 离线启动保持 HTTP live，补拉仍 503，不伪造空页。Docker 重启实际更换映射地址，明确刷新配置并重建 API/验证连接池后恢复，不声称旧池自动发现新地址。
+9. Close 后实际 SQL/Redis 已关闭、请求和探针已加入，独立外部 SQL pool 仍可用。
+
+最终 **7 command / 7 message / 3 conversation / 14 untouched pending Outbox / 3 unchanged cursor / 0 quarantine**。重启后 HTTP 全页与新独立 SQL 池的规范页一致；逐条原命令终态/完整消息、三个原 ACK（私聊发送者 1、接收者 3，群接收者 2）和 schema 指纹不变。
+
+业务直接调用生产仓储，MQ publisher 是明确未使用的 fixture capability，未运行完整 HTTP 202→MQ→持久化→客户端恢复管线或容量压测。fixture Close 成功，按本轮标签只读确认容器/卷/网络均归零；Docker 自动审批通过，无拒绝，未读取共享开发配置或访问开发数据。
+
+### 默认验证
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./messaging ./database ./service ./router . -run '^Test(SyncPage\|MessageSync\|APISync\|APIStartup\|APIValidation)' -count=30 -shuffle=on -timeout=120s` | 30 轮通过；messaging 1.948s、database 2.945s、service 3.998s、router 2.945s、主包 4.050s，无 race |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.369s、database 3.258s、service 3.632s、rabbitmq 8.622s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表执行全部历史 suite |
+| `git diff --check` | 通过 |
+
+默认测试另覆盖最大 uint64 的连续/空页与 JSON 字符串、不合法 query/身份、坏 DTO/范围/next/hasMore、纯范围拒绝与实际仓储释放失败的类型区别、nil/typed nil、期限/迟到、Panic/停止准入、缓存探针解耦、失败工厂回滚，以及 pending 等真实取消/回调退出再释放资源。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE、GIN_MODE=release。
+
+建议 commit message：`feat(api): expose reliable forward message sync`
