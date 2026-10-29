@@ -1,12 +1,21 @@
 # 独立测试环境
 
+P6.3.2 发送模拟器磁盘日志、独占锁与真实跨进程恢复：
+
+```powershell
+go test -mod=readonly -p=2 -race ./tests/clientsim -count=30 -shuffle=on -timeout=120s
+go test -mod=readonly -p=2 -race ./tests/clientsim -run '^TestFileStoreCrossProcess' -count=1 -v -timeout=90s
+```
+
+每轮一个跨进程竞争锁及八个真实强杀点：queued/submitting/accepted/persisted/rejected、半写、Sync 前后。原键/请求/hash/计数和终态保持，半写尾部恢复后重用原键；写完但未返回的提交保守恢复。真实文件包装另覆盖短写、写后/Sync 后报错、panic、坏完整记录/最新快照、恢复 I/O 失败、取消、Close 等待与关闭错误。只操作 t.TempDir，子进程 Kill 后均 Wait，未创建 Docker/SQL/MQ 资源。Windows 实际执行，Linux 仅交叉编译；不代表断电或真实前端验收。下一项 P6.3.3，见[磁盘存储](../docs/client-sender-file-store.md)。
+
 P6.3.1 模拟客户端待发送记录、单调状态与可恢复快照：
 
 ```powershell
 go test -mod=readonly -p=2 -race ./tests/clientsim -count=30 -shuffle=on -timeout=120s
 ```
 
-默认无外部依赖，覆盖保存后才释放 Attempt、原请求/身份/hash 不变、早终态和迟回执、并发及旧 attempt、重建对象恢复、存储失败前/后已写入两种结果、panic、取消、坏快照/用户隔离、容量与计数上界。使用受控字节存储，不声明磁盘/跨进程恢复或真实网络联调；下一项 P6.3.2，完整边界见[发送模拟器](../docs/client-sender-simulator.md)。
+默认无外部依赖，覆盖保存后才释放 Attempt、原请求/身份/hash 不变、早终态和迟回执、并发及旧 attempt、重建对象恢复、存储失败前/后已写入两种结果、panic、取消、坏快照/用户隔离、容量与计数上界。使用受控字节存储，不声明磁盘/跨进程恢复或真实网络联调；后续 P6.3.2 已完成真实磁盘与跨进程验收，完整边界见[发送模拟器](../docs/client-sender-simulator.md)。
 
 P6.2.3.2 历史 HTTP 与排他游标/连续页校验：
 

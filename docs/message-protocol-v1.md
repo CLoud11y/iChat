@@ -183,13 +183,19 @@ P6.2.3.1 已挂载 `GET /auth/messages/sync`：必填 conversationId，省略 af
 
 成功 HTTP 200，`{"code":0,"msg":"message history loaded","data":<HistoryPage>}`。items 按 seq 升序，nextBeforeSeq 为最老返回序号；空页保留输入游标，省略时为零。beforeSeq 响应字段与请求的有无和值一致。每页复核规范 DTO、连续完整范围、页长、hasMore 和下一游标，省略游标可包含最大 uint64，显式最大值排除该序号。
 
-400 只用于格式错误，401 为无效身份，纯权限拒绝 403；鉴权/SQL/释放/取消/坏页 503，无部分 items/state/底层诊断，所有响应 no-store。默认三秒父期限和关闭资源责任沿用现代 API；不读写服务器 ACK，不按 MQ 或缓存 readiness 门禁。完整例子、真实故障验收和最大序号夹具边界见[历史接口](message-history-http.md)。P6.2 的 HTTP 范围完成，P6.3.1 发送状态核心已完成，下一项 P6.3.2 磁盘快照与跨进程恢复。
+400 只用于格式错误，401 为无效身份，纯权限拒绝 403；鉴权/SQL/释放/取消/坏页 503，无部分 items/state/底层诊断，所有响应 no-store。默认三秒父期限和关闭资源责任沿用现代 API；不读写服务器 ACK，不按 MQ 或缓存 readiness 门禁。完整例子、真实故障验收和最大序号夹具边界见[历史接口](message-history-http.md)。P6.2 的 HTTP 范围完成，P6.3.1 发送状态核心已完成，P6.3.2 磁盘恢复已完成，下一项 P6.3.3 有界 HTTP 提交/状态查询。
 
 ## P6.3.1：发送模拟器状态核心
 
 `tests/clientsim` 保存原请求和规范身份/hash，Queue 与 BeginSubmit 先完成注入式原子快照保存，再返回记录或提交凭据。重新加载保留原键/原内容，中断的 submitting 按 publish_unknown 恢复；存储结果不确定时停止继续操作，不能换新 ID 或丢弃待发送记录。
 
-共享状态校验核对发送者/key/hash 和规范终态。persisted/rejected 不被迟到 accepted/unknown/pending 覆盖；旧本地 attempt 不能结算新尝试。冲突与隔离保留记录并阻止直接重发，待后续状态核对。详细状态、容量、快照和存储所有权见[客户端发送模拟器](client-sender-simulator.md)。本项只使用受控字节存储验证核心，下一项 P6.3.2 磁盘快照与跨进程恢复；HTTP/通知恢复及实际前端仍待后续。
+共享状态校验核对发送者/key/hash 和规范终态。persisted/rejected 不被迟到 accepted/unknown/pending 覆盖；旧本地 attempt 不能结算新尝试。冲突与隔离保留记录并阻止直接重发，待后续状态核对。详细状态、容量、快照和存储所有权见[客户端发送模拟器](client-sender-simulator.md)。本项只使用受控字节存储验证核心；P6.3.2 已另行完成真实磁盘与跨进程恢复验收。HTTP/通知恢复及实际前端仍待后续。
+
+## P6.3.2：磁盘快照与跨进程恢复
+
+`OpenFileStore(ctx, directory)` 在显式私有目录持有操作系统独占锁，追加带编号、长度及两层校验的完整快照；Sync 成功后才返回。未完成的末尾候选可截断并 Sync 后恢复，完整记录或最新业务快照损坏则拒绝，不能回退到更早状态或更换业务键。Close 等实际同步操作退出后才释放句柄，不删除持久锁文件。
+
+Windows 已以真实文件和强杀子进程验证跨进程互斥、queued/submitting/accepted/两类终态及写入/Sync 前后中断。原请求/ID/hash/计数和终态保持，写入结果不确定时关闭并重新加载。单快照 16 MiB、累计日志 256 MiB，不自动压缩或删除。格式、错误、平台与断电验收边界见[磁盘存储](client-sender-file-store.md)。下一项 P6.3.3 有界 HTTP 提交/状态查询及原键重试。
 
 ## 验证与后续
 

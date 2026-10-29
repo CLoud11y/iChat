@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。下一项 P6.3.2 磁盘快照与跨进程恢复。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。下一项 P6.3.3 有界 HTTP 提交/状态查询及原键重试。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4116,3 +4116,58 @@ run **`a068351c78635794b16c785898f2d08f`**，九组全部通过，无 fail/skip/
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和单元测试不存在的 ICHAT_CONFIG_FILE。
 
 建议 commit message：`feat(clientsim): add recoverable pending send state`
+
+
+## 2026-10-30：P6.3.2 磁盘快照、独占所有权与跨进程恢复
+
+状态：本小点实现、代码审查、默认回归和 Windows 真实文件/强杀子进程验收完成，没有自动提交。下一项 **P6.3.3：有界 HTTP 提交、状态查询与原键重试**。P6.3 整体、通知/真实生产 API 发送恢复、实际前端仍未完成。没有修改生产 API、数据库 schema 或默认运行模式。
+
+### 实现与审查
+
+- 新增 OpenFileStore，显式打开已有私有目录，以 os.Root 使用固定 sender.lock/sender.journal。先取得操作系统锁，再创建/恢复日志；不自动建目录、删除锁、按 PID 判断过期或替换坏日志。
+- Windows LockFileEx 独占且非阻塞；Darwin/DragonFly/FreeBSD/Linux/NetBSD/OpenBSD 使用非阻塞 flock，其他平台明确不支持。关闭数据句柄后才释放锁；旧存储关闭后的回调不能覆盖新 owner。复用既有 x/sys v0.26.0，只将其从间接依赖提升为直接依赖，没有升级/新增版本，go.sum 不变。
+- 追加式完整快照日志含文件格式头、48 字节记录头（长度、连续编号、头校验）、payload、40 字节 payload/头校验与提交标记。Save 按 32 KiB 块写入，File.Sync 成功后才返回；没有依赖 Windows 重命名覆盖来证明原子提交。
+- 一旦开始写入，短写、写后报错、Sync 错误、取消或 panic 均要求停止当前 FileStore/Sender、关闭并重新加载。已知 Sync 成功不因随后 context 取消而抹除。Load 返回独立副本，默认格式化隐藏路径/内容/诊断，errors.Is 保留分类与原因。
+- 启动逐条验证完整记录，只截断末尾合法头前缀但未完成的候选，并 Sync 后才开放使用。头独立校验避免损坏长度掩盖已完成记录；坏完整/旧记录、格式/编号/尾标记、超限或空文件拒绝，不跳过或回退。最新业务快照由原核心继续校验，语义损坏也不能退到旧状态。
+- 单快照 16 MiB、日志累计 256 MiB，核心 512 条记录；没有自动压缩/删除。每次 Load/Save 核对日志大小，外部长度变化停止使用。同步 I/O 之间检查取消，Close 等实际调用返回，重复 Close 保留原错误，不启动背景任务提前放弃 owner。
+
+格式、容量、使用、平台与验收边界见[磁盘存储](client-sender-file-store.md)。Windows 锁和刷新语义核对 Microsoft 官方 LockFileEx/FlushFileBuffers 文档，并复核本机固定 Go 1.27.1 和 x/sys v0.26.0 源码；官方链接保留在该指南。协议、阶段表、README、测试入口和当前下一项已同步。
+
+### 实际文件与进程验收
+
+真实 Windows 测试进程通过同一 race 测试二进制启动 helper，仅使用各自 t.TempDir。一个竞争锁场景确认另一个进程立即得到 ErrStoreBusy；强杀后同一持久锁文件保留，由新 owner 取得锁，没有删除重建锁文件。
+
+八个强杀点：
+
+| 强杀点 | 恢复结果 |
+| --- | --- |
+| queued 已成功保存 | 原 queued、attempts=0，原键可提交 |
+| submitting 已成功保存 | publish_unknown、attempts=1，清除 inFlight |
+| accepted 已成功保存 | accepted 保留，清除 inFlight，原请求可显式重试 |
+| persisted 早于 HTTP 回执 | 原规范终态 DTO 保留，禁止重发 |
+| rejected 早于 HTTP 回执 | 原拒绝原因/终态保留，禁止重发 |
+| 实际半写并 Sync 后、Save 未返回 | 仅回收候选尾部，恢复原 queued/attempts=0；未释放可发送的 Attempt |
+| 整条写完、尚未调用 Sync | 本轮实际可读完整候选，保守恢复 publish_unknown；不声称断电后必然保留 |
+| 实际 Sync 完成、Save 尚未返回 | 完整候选保留，恢复 publish_unknown，不更换业务 ID |
+
+各场景核对原请求（正文空白/NUL/Unicode、UUID/目标原写法、纳秒客户端时间）、规范 ID/hash、尝试计数、终态 DTO；非终态使用原请求继续下一次计数。每轮 9 个 helper 均 Process.Kill 后 Wait，30 轮专项重复共 270 个 helper 全部加入，无遗留清理失败。
+
+磁盘故障包装使用真实文件区分写前失败、实际半写、完整写后报错、实际 Sync 后报错和 panic；另验证取消前/中/已知成功后、损坏头/长度/编号/旧或新完整记录、11 种尾部截断位置、坏最新业务快照、恢复 read/truncate/Sync 错误、跨用户、容量、Close 等待真实 Save 和关闭错误保持。包装报错不是物理硬盘故障，半写及强杀为实际文件/进程操作。
+
+本轮未创建 Docker/MySQL/Redis/MQ，全部本地目录由测试框架清理。Windows 实际运行，Linux/amd64 仅交叉编译；没有实际 Unix、机器断电、远程文件系统、真实 HTTP/WebSocket 或前端联调验收。
+
+### 最终回归
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./tests/clientsim -count=30 -shuffle=on -timeout=120s` | 30 轮通过，28.287s，无 race，含真实子进程强杀 |
+| `go test -mod=readonly -p=2 -race ./tests/clientsim -run '^TestFileStoreCrossProcess' -count=1 -v -timeout=90s` | 竞争锁 0.04s、八组强杀恢复 0.47s；包 2.301s，通过 |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.308s、clientsim 2.700s、database 3.571s、service 3.720s、rabbitmq 8.808s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过；clientsim 1.006s，不代表执行真实基础设施 suite |
+| `GOOS=linux GOARCH=amd64 go test -mod=readonly -p=2 -c -o .gocache/clientsim-linux.test ./tests/clientsim` | Linux 交叉编译通过，不代表运行 |
+| `git diff --check` | 通过 |
+
+Go 固定 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache；全仓回归使用 GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。Linux 编译产物仅位于忽略的 .gocache。
+
+建议 commit message：`feat(clientsim): add crash-recoverable file snapshot store`
