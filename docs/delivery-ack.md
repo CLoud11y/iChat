@@ -45,4 +45,4 @@ ACK 专项八组使用独立 MySQL/Redis、生产 JWT/router/订阅和真实 Web
 
 专项最终 9 command / 9 message / 2 conversation / 18 untouched pending Outbox / 3 cursor / 0 quarantine；私聊接收者为 8、发送者为 1，群接收者为 1。迁移指纹不变。专项通过生产 PersistCommand 建立业务集合，不运行 MQ 消费或 Outbox，不声称 HTTP 202 到客户端的完整恢复联调。原 API 默认工厂 suite 新增真实 ACK 2→0→2，最终 5 message / 10 completed Outbox / 1 cursor；原会话八组继续回归。
 
-默认测试另覆盖严格 JSON、uint64 上界、SQL 各阶段错误/损坏、提交未知零回执、socket 实际确认门禁、旧/错 session 不调用 SQL、panic/迟到回调和 API pending 后延迟释放客户端。具体运行证据见[实施记录](message-reliability-mq-progress.md)。P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成，下一项 P6.2.3.2 历史 HTTP，完整默认 worker/all 和实际客户端恢复仍待后续。
+默认测试另覆盖严格 JSON、uint64 上界、SQL 各阶段错误/损坏、提交未知零回执、socket 实际确认门禁、旧/错 session 不调用 SQL、panic/迟到回调和 API pending 后延迟释放客户端。具体运行证据见[实施记录](message-reliability-mq-progress.md)。P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成，P6.2.3.2 [历史 HTTP](message-history-http.md)已完成，下一项 P6.3 模拟客户端发送恢复，完整默认 worker/all 和实际客户端恢复仍待后续。

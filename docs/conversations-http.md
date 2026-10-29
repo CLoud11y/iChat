@@ -1,6 +1,6 @@
 # P6.2.2：会话列表 HTTP 与 API 装配
 
-现代 API 注册 `GET /auth/conversations`，默认工厂从自有 SQL 池构造真实 `MessageRepository.ListConversations`。数据与分页沿用 [P6.2.1 会话发现仓储](conversation-discovery.md)；向前补拉 HTTP 已由 [P6.2.3.1](message-sync-http.md) 完成，历史 HTTP 和恢复客户端仍待后续，默认运行模式仍为 legacy。
+现代 API 注册 `GET /auth/conversations`，默认工厂从自有 SQL 池构造真实 `MessageRepository.ListConversations`。数据与分页沿用 [P6.2.1 会话发现仓储](conversation-discovery.md)；向前补拉 HTTP 已由 [P6.2.3.1](message-sync-http.md) 完成，[历史 HTTP](message-history-http.md)已由 P6.2.3.2 完成，恢复客户端仍待后续，默认运行模式仍为 legacy。
 
 ## 请求与响应
 
@@ -62,4 +62,4 @@ go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionConver
 
 真实默认工厂 suite 九组覆盖规范 DTO/当前用户 ACK/空数组、严格 query/JWT、排他分页和新增 ID 后重扫、退群/删群/失效读者 403、损坏游标 503、占满实际四连接池后的默认三秒期限/恢复、实际 Redis 客户端故障、MySQL 停机/离线启动/重启，以及关闭后真实客户端释放。重启若更换 Docker 映射端口则显式重建 API，本轮实际发生了端口更换，不声称原池自动发现新地址。
 
-业务由生产 PersistCommand 创建，MQ capability 明确未使用。最终 9 command / 9 message / 7 conversation / 18 untouched pending Outbox / 3 cursor / 0 quarantine；逐条原终态/规范消息和 schema 指纹保持。没有执行完整 HTTP 202→MQ→客户端恢复管线或性能压测。运行、默认测试和清理证据见[实施记录](message-reliability-mq-progress.md)。P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成，下一项 P6.2.3.2 历史 HTTP。
+业务由生产 PersistCommand 创建，MQ capability 明确未使用。最终 9 command / 9 message / 7 conversation / 18 untouched pending Outbox / 3 cursor / 0 quarantine；逐条原终态/规范消息和 schema 指纹保持。没有执行完整 HTTP 202→MQ→客户端恢复管线或性能压测。运行、默认测试和清理证据见[实施记录](message-reliability-mq-progress.md)。P6.2.3.1 [补拉 HTTP](message-sync-http.md)已完成，P6.2.3.2 [历史 HTTP](message-history-http.md)已完成，下一项 P6.3 模拟客户端发送恢复。

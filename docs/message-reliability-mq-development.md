@@ -564,7 +564,9 @@ P2.6 已实现 `MessageRepository.GetCommandStatus` 和共享 `CommandStatus` DT
 
 首版没有消息删除/过滤产生的合法序号洞。若 highWatermark 大于游标却缺失下一个 seq，视为一致性错误：告警并重试，不能把游标直接跳到 highWatermark。未来加入撤回/删除时应使用占序号的 tombstone，再修改协议。
 
-P6.2.3.1 已完成[向前补拉 HTTP](message-sync-http.md)：`GET /auth/messages/sync` 要求 conversationId，可选 afterSeq（省略为零）和 limit（省略 100、显式 1—500），严格唯一字段/规范十进制和 Bearer 鉴权。成功 code/msg/data 使用现有 SyncPage，出站前复核连续范围/hasMore/nextAfterSeq；纯超水位错误 400、纯权限拒绝 403，SQL/释放/取消或矛盾结果 503，不返回部分页。history HTTP 归 P6.2.3.2。
+P6.2.3.1 已完成[向前补拉 HTTP](message-sync-http.md)：`GET /auth/messages/sync` 要求 conversationId，可选 afterSeq（省略为零）和 limit（省略 100、显式 1—500），严格唯一字段/规范十进制和 Bearer 鉴权。成功 code/msg/data 使用现有 SyncPage，出站前复核连续范围/hasMore/nextAfterSeq；纯超水位错误 400、纯权限拒绝 403，SQL/释放/取消或矛盾结果 503，不返回部分页。
+
+P6.2.3.2 已完成[历史 HTTP](message-history-http.md)：`GET /auth/messages/history` 的 beforeSeq 省略为最新页，显式值为排他上界，允许零和超水位；仓储倒序取页、响应升序，nextBeforeSeq 为最老消息序号。HTTP 复核完整连续范围、游标值/有无、规范 DTO 与 hasMore；最大 uint64 不回绕。纯权限拒绝 403，存储/释放/取消/坏页 503。默认三秒共享鉴权/SQL 期限，接口不更新服务器 ACK。
 
 `conversations` 返回每个会话 lastSeq 和服务器 deliveredSeq，并附分页游标。客户端每个周期必须完成一轮所有可见会话扫描，下一轮从头开始；不能拿全局最大 messageId 或某次 updatedAt 作为可靠的永久增量水位，以免遗漏新会话和晚可见数据。
 
@@ -820,14 +822,14 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
 
 ### P6：补拉协议和客户端模拟器
 
-- [ ] 实现第 9 节接口及响应样例的契约测试。
+- [x] 实现第 9 节接口及响应样例的契约测试（P6.1、P6.2.1—P6.2.3.2，发送/WebSocket 沿用既有验收）。
   - [x] P6.1 状态 HTTP 接口：仅当前发送者、严格 key/hash query、200/409/400/401/503、有界鉴权/SQL、故障不伪装 pending；真实默认 API 故障与恢复见[状态接口](command-status.md)。
-  - [ ] P6.2 会话列表与补拉/历史 HTTP，先分项实现仓储和各入口。
+  - [x] P6.2 会话列表与补拉/历史 HTTP，先分项实现仓储和各入口。
     - [x] P6.2.1 会话发现 DTO、稳定 ID 游标及同快照权限/水位/ACK 仓储，见[会话发现](conversation-discovery.md)。
     - [x] P6.2.2 会话列表 HTTP 契约与 API 装配，严格参数、200/400/401/403/503、三秒期限及真实故障恢复见[列表接口](conversations-http.md)。
-    - [ ] P6.2.3 补拉/历史 HTTP 接线，开始前按复杂度继续细分。
+    - [x] P6.2.3 补拉/历史 HTTP 接线，开始前按复杂度继续细分。
       - [x] P6.2.3.1 向前补拉 HTTP、连续页校验、默认 API 工厂与故障验收，见[补拉接口](message-sync-http.md)。
-      - [ ] P6.2.3.2 历史 HTTP 的 beforeSeq 语义、反向取页/升序响应及独立验收。
+      - [x] P6.2.3.2 历史 HTTP 的 beforeSeq 语义、反向取页/升序响应及独立验收，见[历史接口](message-history-http.md)。
 - [ ] 模拟客户端本地持久消息集、连续游标、待发送表、ACK、重连与周期同步。
 - [ ] 覆盖持续在线尾消息丢失、分页期间并发写入、乱序到达、浏览器本地存储重置。
 - [ ] 输出前端接入说明；真实前端不在仓库时标注实际联调待办，不伪造完成。

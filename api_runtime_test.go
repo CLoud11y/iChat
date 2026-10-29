@@ -39,6 +39,7 @@ func apiTestOptions() apiOptions {
 	o.StatusTimeout = 200 * time.Millisecond
 	o.ConversationsTimeout = 200 * time.Millisecond
 	o.SyncTimeout = 200 * time.Millisecond
+	o.HistoryTimeout = 200 * time.Millisecond
 	o.ProbeInterval, o.ProbeTimeout, o.CloseTimeout, o.DrainTimeout = 10*time.Millisecond, 50*time.Millisecond, 200*time.Millisecond, 300*time.Millisecond
 	return o
 }
@@ -150,6 +151,7 @@ func newAPIHarness() *apiHarness {
 	h.d.status = apiFixtureStatus
 	h.d.conversations = apiFixtureConversations
 	h.d.syncMessages = apiFixtureSync
+	h.d.history = apiFixtureHistory
 	h.d.tokens = func(c config.Config, r apiRedis) (*utils.TokenService, error) {
 		return utils.NewTokenService(c, apiFakeBlacklist{r})
 	}
@@ -390,7 +392,7 @@ func TestAPIExpiredCloseRetainsClientsUntilRequestsAndProbesJoin(t *testing.T) {
 }
 
 func TestAPIStartupRollbackOwnsEveryPartialHandle(t *testing.T) {
-	for _, stage := range []string{"sql_error", "sql_nil", "redis_error", "redis_nil", "tokens_error", "auth_nil", "storage_nil", "status_error", "status_nil", "status_typed_nil", "conversations_error", "conversations_nil", "conversations_typed_nil", "sync_error", "sync_nil", "sync_typed_nil", "chat_error", "chat_nil", "http_error", "http_nil", "listener_error", "listener_nil", "handoff_cancel"} {
+	for _, stage := range []string{"sql_error", "sql_nil", "redis_error", "redis_nil", "tokens_error", "auth_nil", "storage_nil", "status_error", "status_nil", "status_typed_nil", "conversations_error", "conversations_nil", "conversations_typed_nil", "sync_error", "sync_nil", "sync_typed_nil", "history_error", "history_nil", "history_typed_nil", "chat_error", "chat_nil", "http_error", "http_nil", "listener_error", "listener_nil", "handoff_cancel"} {
 		t.Run(stage, func(t *testing.T) {
 			h := newAPIHarness()
 			cause := errors.New("PRIVATE_START_CAUSE")
@@ -462,6 +464,17 @@ func TestAPIStartupRollbackOwnsEveryPartialHandle(t *testing.T) {
 					}
 					if stage == "sync_typed_nil" {
 						return apiSyncReaderFunc(nil), nil
+					}
+					return nil, nil
+				}
+			}
+			if strings.HasPrefix(stage, "history_") {
+				h.d.history = func(apiSQL) (service.MessageHistoryReader, error) {
+					if stage == "history_error" {
+						return nil, cause
+					}
+					if stage == "history_typed_nil" {
+						return apiHistoryReaderFunc(nil), nil
 					}
 					return nil, nil
 				}
@@ -594,7 +607,7 @@ func TestAPIUnexpectedListenerExitAndIdleClose(t *testing.T) {
 }
 
 func TestAPIValidationPrecedesActivation(t *testing.T) {
-	for _, name := range []string{"mode", "address", "header", "body", "write", "idle", "submission", "status_timeout", "status_write", "status_factory", "conversations_timeout", "conversations_write", "conversations_factory", "sync_timeout", "sync_write", "sync_factory", "probe", "close", "headers", "jwt", "redis", "redis_pool", "mysql", "dependency", "publisher", "health", "consumer"} {
+	for _, name := range []string{"mode", "address", "header", "body", "write", "idle", "submission", "status_timeout", "status_write", "status_factory", "conversations_timeout", "conversations_write", "conversations_factory", "sync_timeout", "sync_write", "sync_factory", "history_timeout", "history_write", "history_factory", "probe", "close", "headers", "jwt", "redis", "redis_pool", "mysql", "dependency", "publisher", "health", "consumer"} {
 		t.Run(name, func(t *testing.T) {
 			h := newAPIHarness()
 			inputs := application.RoleDependencies{Publisher: h.publisher, Health: apiTestHealth{}}
@@ -631,6 +644,12 @@ func TestAPIValidationPrecedesActivation(t *testing.T) {
 				h.o.SyncTimeout = h.o.WriteTimeout
 			case "sync_factory":
 				h.d.syncMessages = nil
+			case "history_timeout":
+				h.o.HistoryTimeout = 0
+			case "history_write":
+				h.o.HistoryTimeout = h.o.WriteTimeout
+			case "history_factory":
+				h.d.history = nil
 			case "probe":
 				h.o.ProbeTimeout = 0
 			case "close":

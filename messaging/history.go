@@ -144,3 +144,51 @@ type HistoryPage struct {
 	HighWatermark  Sequence     `json:"highWatermark"`
 	HasMore        bool         `json:"hasMore"`
 }
+
+// ValidateFor checks the newest contiguous suffix below an exclusive cursor.
+// Omission includes MaxUint64; explicit MaxUint64 excludes that sequence.
+func (p HistoryPage) ValidateFor(query PageQuery) error {
+	cursor := ""
+	if query.HasCursor {
+		cursor = query.Cursor.String()
+	}
+	normal, err := NormalizePageQuery(query.ReaderID, query.Conversation.ID, cursor, query.Limit)
+	if err != nil || normal != query || p.ConversationID != query.Conversation.ID || p.Items == nil ||
+		(query.HasCursor && (p.BeforeSeq == nil || *p.BeforeSeq != query.Cursor)) || (!query.HasCursor && p.BeforeSeq != nil) ||
+		(query.Conversation.Type == Private && query.ReaderID != query.Conversation.LowUser && query.ReaderID != query.Conversation.HighUser) {
+		return invalid("history page")
+	}
+	start := p.HighWatermark
+	if query.HasCursor {
+		if query.Cursor == 0 {
+			start = 0
+		} else {
+			start = min(start, query.Cursor-1)
+		}
+	}
+	count := min(uint64(start), uint64(query.Limit))
+	next := query.Cursor
+	if count > 0 {
+		next = start - Sequence(count) + 1
+	}
+	if uint64(len(p.Items)) != count || p.HasMore != (uint64(start) > uint64(query.Limit)) || p.NextBeforeSeq != next {
+		return invalid("history range")
+	}
+	seen := make(map[string]bool, len(p.Items))
+	for i, item := range p.Items {
+		if item.ConversationID != query.Conversation.ID || item.Seq != next+Sequence(i) || seen[item.MessageID] {
+			return invalid("history message range")
+		}
+		if _, err := canonicalFrameMessage(item); err != nil {
+			return err
+		}
+		seen[item.MessageID] = true
+	}
+	return nil
+}
+
+type HistoryResponse struct {
+	Code int         `json:"code"`
+	Msg  string      `json:"msg"`
+	Data HistoryPage `json:"data"`
+}

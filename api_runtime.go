@@ -41,7 +41,7 @@ type apiOptions struct {
 	ReadHeaderTimeout, ReadTimeout, WriteTimeout, IdleTimeout                  time.Duration
 	SubmissionTimeout, ProbeInterval, ProbeTimeout, DrainTimeout, CloseTimeout time.Duration
 	StatusTimeout, ConversationsTimeout                                        time.Duration
-	SyncTimeout                                                                time.Duration
+	SyncTimeout, HistoryTimeout                                                time.Duration
 	MaxHeaderBytes                                                             int
 }
 
@@ -51,7 +51,7 @@ func defaultAPIOptions(c config.Config) apiOptions {
 		address = ":" + port
 	}
 	return apiOptions{Address: address, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: max(30*time.Second, 11*time.Second+c.RABBITMQ.PublishTimeout), IdleTimeout: 30 * time.Second,
-		SubmissionTimeout: c.RABBITMQ.PublishTimeout, StatusTimeout: service.DefaultCommandStatusTimeout, ConversationsTimeout: service.DefaultConversationsTimeout, SyncTimeout: service.DefaultSyncTimeout, ProbeInterval: 2 * time.Second, ProbeTimeout: time.Second, DrainTimeout: 10 * time.Second, CloseTimeout: 5 * time.Second, MaxHeaderBytes: 32 * 1024}
+		SubmissionTimeout: c.RABBITMQ.PublishTimeout, StatusTimeout: service.DefaultCommandStatusTimeout, ConversationsTimeout: service.DefaultConversationsTimeout, SyncTimeout: service.DefaultSyncTimeout, HistoryTimeout: service.DefaultHistoryTimeout, ProbeInterval: 2 * time.Second, ProbeTimeout: time.Second, DrainTimeout: 10 * time.Second, CloseTimeout: 5 * time.Second, MaxHeaderBytes: 32 * 1024}
 }
 
 type apiSQL interface {
@@ -75,6 +75,7 @@ type apiDependencies struct {
 	status        func(apiSQL) (service.CommandStatusReader, error)
 	conversations func(apiSQL) (service.ConversationReader, error)
 	syncMessages  func(apiSQL) (service.MessageSyncReader, error)
+	history       func(apiSQL) (service.MessageHistoryReader, error)
 	tokens        func(config.Config, apiRedis) (*utils.TokenService, error)
 	monitor       func(func(context.Context) error, time.Duration, time.Duration) apiMonitor
 	http          func(http.Handler, apiOptions) (*legacyHTTPServer, error)
@@ -83,6 +84,13 @@ type apiDependencies struct {
 
 func defaultAPIDependencies() apiDependencies {
 	return apiDependencies{
+		history: func(handle apiSQL) (service.MessageHistoryReader, error) {
+			pool, ok := handle.(*sql.DB)
+			if !ok {
+				return nil, errAPIInput
+			}
+			return database.NewMessageRepository(pool)
+		},
 		syncMessages: func(handle apiSQL) (service.MessageSyncReader, error) {
 			pool, ok := handle.(*sql.DB)
 			if !ok {
@@ -187,10 +195,10 @@ func checkAPI(c config.Config, o apiOptions, d apiDependencies) error {
 	valid := func(v time.Duration) bool { return v > 0 && v <= time.Minute }
 	_, port, err := net.SplitHostPort(o.Address)
 	p, portErr := strconv.Atoi(port)
-	if err != nil || portErr != nil || p < 0 || p > 65535 || !valid(o.ReadHeaderTimeout) || !valid(o.ReadTimeout) || !valid(o.IdleTimeout) || !valid(o.SubmissionTimeout) || !valid(o.StatusTimeout) || !valid(o.ConversationsTimeout) || !valid(o.SyncTimeout) || !valid(o.ProbeInterval) || !valid(o.ProbeTimeout) || !valid(o.DrainTimeout) || !valid(o.CloseTimeout) || o.WriteTimeout < o.ReadTimeout+max(o.SubmissionTimeout, o.StatusTimeout, o.ConversationsTimeout, o.SyncTimeout) || o.WriteTimeout > 2*time.Minute || o.ReadHeaderTimeout > o.ReadTimeout || o.MaxHeaderBytes < 4096 || o.MaxHeaderBytes > 64*1024 {
+	if err != nil || portErr != nil || p < 0 || p > 65535 || !valid(o.ReadHeaderTimeout) || !valid(o.ReadTimeout) || !valid(o.IdleTimeout) || !valid(o.SubmissionTimeout) || !valid(o.StatusTimeout) || !valid(o.ConversationsTimeout) || !valid(o.SyncTimeout) || !valid(o.HistoryTimeout) || !valid(o.ProbeInterval) || !valid(o.ProbeTimeout) || !valid(o.DrainTimeout) || !valid(o.CloseTimeout) || o.WriteTimeout < o.ReadTimeout+max(o.SubmissionTimeout, o.StatusTimeout, o.ConversationsTimeout, o.SyncTimeout, o.HistoryTimeout) || o.WriteTimeout > 2*time.Minute || o.ReadHeaderTimeout > o.ReadTimeout || o.MaxHeaderBytes < 4096 || o.MaxHeaderBytes > 64*1024 {
 		return errAPIInput
 	}
-	if d.newSQL == nil || d.newRedis == nil || d.chat == nil || d.status == nil || d.conversations == nil || d.syncMessages == nil || d.tokens == nil || d.monitor == nil || d.http == nil || d.listen == nil {
+	if d.newSQL == nil || d.newRedis == nil || d.chat == nil || d.status == nil || d.conversations == nil || d.syncMessages == nil || d.history == nil || d.tokens == nil || d.monitor == nil || d.http == nil || d.listen == nil {
 		return errAPIInput
 	}
 	if _, err := utils.NewTokenService(c, utils.NewRedisTokenBlacklist(nil)); err != nil {
@@ -372,6 +380,13 @@ func (s *apiService) Start(setup, lifetime context.Context) (err error) {
 	}
 	if err := router.RegisterMessageSync(r, tokens, syncReader, s.options.SyncTimeout); err != nil {
 		return apiError(errAPIStart, "sync routes", err)
+	}
+	historyReader, err := s.deps.history(resources.sql)
+	if err != nil || apiNil(historyReader) {
+		return apiError(errAPIStart, "history assembly", err)
+	}
+	if err := router.RegisterMessageHistory(r, tokens, historyReader, s.options.HistoryTimeout); err != nil {
+		return apiError(errAPIStart, "history routes", err)
 	}
 	chat, err := s.deps.chat(resources.sql, resources.redis)
 	if err != nil || chat == nil {

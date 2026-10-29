@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP 和 P6.2.3.1 向前补拉 HTTP 已完成对应验收。下一项 P6.2.3.2 历史 HTTP。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。下一项 P6.3 模拟客户端发送恢复，开始前细分。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4021,3 +4021,51 @@ run **`a068351c78635794b16c785898f2d08f`**，九组全部通过，无 fail/skip/
 默认测试另覆盖最大 uint64 的连续/空页与 JSON 字符串、不合法 query/身份、坏 DTO/范围/next/hasMore、纯范围拒绝与实际仓储释放失败的类型区别、nil/typed nil、期限/迟到、Panic/停止准入、缓存探针解耦、失败工厂回滚，以及 pending 等真实取消/回调退出再释放资源。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE、GIN_MODE=release。
 
 建议 commit message：`feat(api): expose reliable forward message sync`
+
+
+## 2026-10-30：P6.2.3.2 历史 HTTP 接线与独立验收
+
+状态：本小点实现、代码审查、默认回归与真实隔离验收完成，没有自动提交。P6.2.3 与 P6.2 的 HTTP 范围收口，下一项 **P6.3：模拟客户端发送恢复**，开始前继续细分。P6 整体、完整 worker/all、全管线交叉和实际客户端恢复仍未完成。没有修改 schema、依赖、默认运行模式或旧历史入口。
+
+### 实现与审查
+
+- 新增 service/router 历史适配和 `GET /auth/messages/history`，真实 Bearer/JWT 黑名单鉴权，UID 只来自类型正确的上下文；不读 GET body。
+- 严格唯一 conversationId/beforeSeq/limit、规范十进制及 1024 字节 query。省略 beforeSeq 为最新页，显式值为排他上界，零为空页，超水位正常读取；省略 limit 为 100，显式 1—500。未知 afterSeq/userId/token 等、重复/别名/非法 URL 编码均拒绝。
+- `HistoryPage.ValidateFor` 核对规范 query、beforeSeq 的有无和值、非 nil items、完整页长/hasMore/nextBeforeSeq、连续升序范围、唯一消息身份和规范 DTO；安全差值计算避免最大 uint64 回绕。正文 hash 仍由原仓储在同一快照检查，包括额外行。
+- 成功 200/code=0/msg=`message history loaded`/data=HistoryPage。400 参数、401 身份、纯权限拒绝 403，SQL/释放/取消/坏页/迟到结果 503；错误不含 items/state/诊断，所有响应 no-store。仓储本身无需修改。
+- 默认 API 工厂借入自有 SQL 池构造真实 MessageRepository；新增 HistoryTimeout 默认三秒，父 deadline 覆盖真实 Redis 鉴权与 SQL 等待/查询，写期限校验覆盖历史期限。error/nil/typed nil 启动回滚；observer pending 后仍等待真实回调退出再释放 SQL/Redis。读取不按 MQ 或缓存 readiness 门禁，不读写服务器 ACK。
+
+字段、示例、资源责任及边界见[历史 HTTP](message-history-http.md)。开发规范、协议、README、测试说明、API 生命周期和当前下一项已同步。
+
+### 真实隔离验收
+
+运行 `TestProductionMessageHistoryIntegration`，Go race 开启；runId=`2ce596255a028bfe5ad793819639949f`。suite **30.48s**，主包 **33.188s**，十组全部通过：
+
+| 场景 | 实际结果 |
+| --- | --- |
+| 最新/排他/零/超水位、规范媒体 | 三类媒体逐条等于原生产 SQL DTO；省略游标含最新消息，显式零/一为空，99 从水位读取；未创建私聊合法空页保留输入游标 |
+| 分页期间新提交 | 首次最新页 seq2/3，提交 seq4 后 before2 仅 seq1、水位4；再 before1 空页；重新请求最新页得到 seq3/4 |
+| 当前权限 | 非成员拒绝，入群后可读入群前消息；退群后即使 before0 空候选也拒绝；删群/私聊第三方拒绝；解除好友保留参与者历史 |
+| 损坏额外行与缺号 | 最新 limit2 页外的 seq2 内容损坏、范围内 seq3 缺失均整页 503，无部分内容；随后恢复并重新读取 |
+| 最大 uint64 | 独立 schema 临时调整末三条消息序号和水位；省略游标含最大值，显式最大值排除该条，JSON 字符串不丢精度；场景结束恢复 |
+| 严格参数与实际 token 撤销 | 重复/空/非规范/别名字段 400，query token 401，真实 Redis 撤销后 401 |
+| 生产期限 | 占满实际 API 四连接池，**3.02s** 返回 503；释放连接后恢复读取 |
+| 鉴权客户端故障 | 关闭实际 API Redis 客户端后 503，重建 API 恢复；未声称 Redis 服务端故障 |
+| MySQL 离线/重启 | 既有及离线启动 API 均保持存活、读取 503，不伪装为空页；重启后恢复。Docker 实际更换映射端口，显式刷新地址并重建 API 池 |
+| 最终关闭 | API 等请求退出再关闭自有 SQL/Redis，独立核对池仍可用 |
+
+业务由生产 PersistCommand 直接写入，MQ publisher capability 明确未使用。最终 **7 command / 7 message / 3 conversation / 14 untouched pending Outbox / 3 unchanged cursor / 0 quarantine**。逐条原命令终态与规范消息、ACK 1/3/2、schema 指纹不变。最大序号仅为恢复后的边界夹具，不代表生成了最大 uint64 条消息。fixture Close 成功，另按本轮归属标签只读核验容器/卷/网络均为 0。
+
+### 默认回归
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./messaging ./service ./router . -run '^Test(HistoryPage\|MessageHistory\|APIHistory\|APIStartup\|APIValidation)' -count=30 -shuffle=on -timeout=120s` | 30 轮通过；messaging 2.002s、service 7.250s、router 3.116s、主包 4.119s，无 race |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 10.897s、database 3.177s、service 3.643s、rabbitmq 8.694s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表执行全部历史 suite |
+| `git diff --check` | 通过 |
+
+默认测试另覆盖无/错 UID、nil/typed nil、取消/期限/迟到权限错误、加入释放故障的权限错误 503、各种坏 DTO/连续范围/重复消息/游标字段、Bearer-only 与不读 body、实际取消后晚回调不能成功、pending 后最终释放、Panic/停止准入/缓存探针解耦、失败工厂回滚及激活前参数校验。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release、单元测试不存在的 ICHAT_CONFIG_FILE。
+
+建议 commit message：`feat(api): expose reliable message history`
