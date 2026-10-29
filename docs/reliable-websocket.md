@@ -14,7 +14,7 @@
 {"type":"ready","data":{"protocolVersion":1,"sessionId":"<32位随机小写hex>","syncIntervalSeconds":10}}
 ```
 
-sessionId 每次物理连接重新生成。ready 仅表示本连接初始订阅已经确认，不证明没有历史缺口或客户端已经同步。支持 P5.2 的 message/command.result、`sync.required` 和 JSON/控制心跳；JSON 心跳严格为 `{"type":"ping|pong","data":{}}`。重复键、别名、未知字段、二进制应用帧和未实现的应用命令关闭连接。业务 ack/ack.confirmed 留给 P5.4，本项不接收业务发送帧或推进游标。
+sessionId 每次物理连接重新生成。ready 仅表示本连接初始订阅已经确认，不证明没有历史缺口或客户端已经同步。支持 P5.2 的 message/command.result、`sync.required`、P5.4 的 [ack/ack.confirmed](delivery-ack.md) 和 JSON/控制心跳；JSON 心跳严格为 `{"type":"ping|pong","data":{}}`。重复键、别名、未知字段、二进制应用帧和未实现的应用命令关闭连接。业务 ACK 在当前会话 gate 内持久化，成功提交后才确认；不接收业务发送帧。
 
 ## 单 writer 与会话替换
 
@@ -63,4 +63,4 @@ go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProduction(V1Cha
 
 最终 5 command / 5 message / 2 conversation / 10 completed Outbox / 0 cursor / 0 quarantine，schema 指纹不变。默认测试另验证迟到 SQL/来源、部分刷新、单 writer 的阻塞 socket deadline、队列溢出、旧会话不清除新记录、严格心跳、回调 panic 和 API pending 后保留客户端。运行及清理证据见[实施进度](message-reliability-mq-progress.md)。
 
-下一项 **P5.4：当前会话绑定的业务 ACK 与持久化游标**。P5 整体、默认 worker/all 装配与真实客户端恢复仍待完成。
+P5.4 [业务 ACK 与持久化游标](delivery-ack.md)已完成；原生产 suite 增加 ACK 单调提交验收后为九组，最终 cursor 数量为 1。下一项 **P6.1：状态 HTTP 接口契约**；默认 worker/all 装配与真实客户端恢复仍待完成。

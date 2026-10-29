@@ -70,7 +70,7 @@ func TestReliableChatBlockedSocketHonorsWriteDeadline(t *testing.T) {
 	n, f := chatTestFrame(t)
 	c, _ := NewReliableChat(source, notificationReaderFunc(func(context.Context, uint64, messaging.NotificationHint) (messaging.ServerFrame, error) {
 		return f, nil
-	}), chatTestOptions())
+	}), deliveryAckTestFunc(unusedDeliveryACK), chatTestOptions())
 	var finished atomic.Bool
 	r := gin.New()
 	r.GET("/chat", func(g *gin.Context) {

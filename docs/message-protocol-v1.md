@@ -177,4 +177,12 @@ P2.1 的原始范围只包括协议；数据库表/约束、命令终态、权�
 
 每实例每用户一个 current 会话；替换与实际 socket 写入串行，旧回调/清理不能写入或移除新会话。队列仅存提示，writer 在写入前通过 P5.2 校验 SQL 内容权限；单 writer 也承担所有数据/控制心跳。刷新成员列表时确认新流后再关闭旧流，发送 sync.required/all，并周期复核原 JWT。重复提示、刷新/重连窗口的丢失仍靠客户端去重与周期补拉收敛。
 
-当前只接受严格 JSON ping/pong（data 为空对象）及 WebSocket 心跳控制帧；业务 ACK/ack.confirmed 留给 P5.4，当前 ack 会结束连接。队列满/写超时/依赖失败结束会话，API pending owner 等所有会话与 SQL/订阅回调实际退出后才释放客户端。字段、默认限制、单实例范围与验收见[可靠 WebSocket 生命周期](reliable-websocket.md)。
+当前接受严格 JSON ping/pong（data 为空对象）、业务 ack 及 WebSocket 心跳控制帧。队列满/写超时/依赖失败结束会话，API pending owner 等所有会话与 SQL/订阅回调实际退出后才释放客户端。字段、默认限制、单实例范围与验收见[可靠 WebSocket 生命周期](reliable-websocket.md)。
+
+## P5.4：业务 ACK 与已提交游标
+
+客户端帧为 `{"type":"ack","data":{"conversationId":"p:1:2","deliveredSeq":"12"}}`，成功提交后返回 `{"type":"ack.confirmed","data":{"conversationId":"p:1:2","deliveredSeq":"12"}}`，无 eventId。序号是必填的规范 uint64 字符串，允许零；不接受客户端 userId/sessionId、未知字段、别名、重复/null/缺失字段。用户及 sessionId 从当前物理连接内部绑定。
+
+单实例每用户 gate 串行完整 ACK SQL/COMMIT 与会话激活；新会话 ready 后旧 session 不得再次调用仓储或写确认。READ COMMITTED 事务按当前有效用户/群/成员锁读授权，再锁读规范 conversation/已提交 last_seq；不能越权或超过水位。游标按用户/会话唯一键单调推进，较小/重复 ACK 返回原进度且不改时间。不存在会话（含 ACK 0）拒绝，不建空会话。
+
+只有 SQL 成功提交才排队确认。权限/依赖/提交未知/取消错误关闭会话且不确认；提交后确认丢失可在重连后重复 ACK。客户端自行证明本地连续保存，服务器游标不表示已读，也不能代替本地清空后的补拉起点。期限、资源责任、跨实例限制及故障验收见[业务 ACK](delivery-ack.md)。

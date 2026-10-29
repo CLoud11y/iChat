@@ -34,11 +34,15 @@ func (s *apiChatSubscription) Close() error                   { s.once.Do(func()
 
 type apiChatReader struct{}
 
+func (apiChatReader) AcknowledgeDelivery(context.Context, uint64, string, messaging.Sequence) (messaging.Sequence, error) {
+	return 0, errors.New("unexpected fixture ACK")
+}
+
 func (apiChatReader) ResolveNotification(context.Context, uint64, messaging.NotificationHint) (messaging.ServerFrame, error) {
 	return messaging.ServerFrame{}, nil
 }
 func apiFixtureChat(apiSQL, apiRedis) (*service.ReliableChat, error) {
-	return service.NewReliableChat(&apiChatSource{}, apiChatReader{}, service.DefaultReliableChatOptions())
+	return service.NewReliableChat(&apiChatSource{}, apiChatReader{}, apiChatReader{}, service.DefaultReliableChatOptions())
 }
 
 type apiChatBlockedReader struct {
@@ -75,7 +79,7 @@ func TestAPIChatRouteAuthenticationAndPendingOwnership(t *testing.T) {
 	reader := &apiChatBlockedReader{entered: make(chan struct{}), release: release}
 	source := &apiChatCapturedSource{sub: &apiChatSubscription{channel: make(chan *redis.Message, 2)}}
 	h.d.chat = func(apiSQL, apiRedis) (*service.ReliableChat, error) {
-		return service.NewReliableChat(source, reader, service.DefaultReliableChatOptions())
+		return service.NewReliableChat(source, reader, apiChatReader{}, service.DefaultReliableChatOptions())
 	}
 	s := h.service(t)
 	if err := s.Start(context.Background(), context.Background()); err != nil {
@@ -118,5 +122,71 @@ func TestAPIChatRouteAuthenticationAndPendingOwnership(t *testing.T) {
 	apiWait(t, s.Done())
 	if h.sql.closed.Load() != 1 || h.redis.closed.Load() != 1 {
 		t.Fatal("API did not close clients after join")
+	}
+}
+
+type apiChatBlockedACK struct {
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (a *apiChatBlockedACK) AcknowledgeDelivery(ctx context.Context, user uint64, id string, seq messaging.Sequence) (messaging.Sequence, error) {
+	close(a.entered)
+	<-a.release // Deliberately ignores cancellation to exercise the API owner.
+	return seq, nil
+}
+
+func TestAPIChatACKPendingOwnership(t *testing.T) {
+	h := newAPIHarness()
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock()
+	ack := &apiChatBlockedACK{entered: make(chan struct{}), release: release}
+	h.d.chat = func(apiSQL, apiRedis) (*service.ReliableChat, error) {
+		return service.NewReliableChat(&apiChatSource{}, apiChatReader{}, ack, service.DefaultReliableChatOptions())
+	}
+	s := h.service(t)
+	if err := s.Start(context.Background(), context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	headers := http.Header{"Authorization": []string{"Bearer " + apiToken(t, h)}}
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+apiAddress(s)+"/auth/chat", headers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	var ready map[string]any
+	if err := conn.ReadJSON(&ready); err != nil || ready["type"] != "ready" {
+		t.Fatal(ready, err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"ack","data":{"conversationId":"p:42:43","deliveredSeq":"1"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	apiWait(t, ack.entered)
+	observer, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.Close(observer); !errors.Is(err, errAPIPending) {
+		t.Fatal("ACK owner lost", err)
+	}
+	if h.sql.closed.Load() != 0 || h.redis.closed.Load() != 0 {
+		t.Fatal("clients closed while ACK callback active")
+	}
+	unblock()
+	apiWait(t, s.Done())
+	if h.sql.closed.Load() != 1 || h.redis.closed.Load() != 1 {
+		t.Fatal("clients not released after ACK joined")
+	}
+	for {
+		var frame struct {
+			Type string `json:"type"`
+		}
+		if err := conn.ReadJSON(&frame); err != nil {
+			break
+		}
+		if frame.Type == "ack.confirmed" {
+			t.Fatal("canceled ACK callback confirmed")
+		}
 	}
 }

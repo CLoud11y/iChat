@@ -810,7 +810,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
   - [x] P5.1.5 故障验收：真实 SQL/Redis 响应丢失、lease 过期/迟到结果、子进程强杀、三个真实 worker 角色的 pending/提交未知交叉和唯一集合，见[Outbox 故障验收](outbox-acceptance.md)。
 - [x] P5.2 统一 message/command.result 帧与独立通知分发适配：严格频道/提示、SQL 规范 DTO、当前权限锁读、自己的终态引用及释放后出站；契约与真实传输验收见[通知帧与权限](notification-frames.md)。
 - [x] P5.3 生产 v1 `/auth/chat`、真实订阅确认/群刷新、周期鉴权、单 writer 与当前会话替换门禁、有界提示队列/写期限、关闭 join/pending，见[可靠 WebSocket 生命周期](reliable-websocket.md)。
-- [ ] P5.4 ACK 绑定当前会话和用户，数据库单调更新，提交后 ack.confirmed。
+- [x] P5.4 ACK 绑定当前会话和用户，数据库单调更新，提交后 ack.confirmed；当前会话 gate 覆盖完整 SQL/COMMIT，真实提交响应丢失及替换交叉见[业务 ACK](delivery-ack.md)。
 
 验收：提交后未通知、通知后未标完成两种崩溃均可恢复；重复通知不重复业务；旧 session/越权 ACK 被拒绝；客户端离线不阻塞 MQ ACK。
 

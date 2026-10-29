@@ -299,6 +299,43 @@ func TestProductionV1ChatIntegration(t *testing.T) {
 			break
 		}
 	})
+	run("current_session_delivery_ACK_is_durable_and_monotonic", func(t *testing.T) {
+		conversationID := fmt.Sprintf("p:%d:%d", users[0].ID, users[1].ID)
+		for _, seq := range []messaging.Sequence{2, 0, 2} {
+			if err := fresh.WriteJSON(struct {
+				Type string                `json:"type"`
+				Data messaging.DeliveryACK `json:"data"`
+			}{"ack", messaging.DeliveryACK{ConversationID: conversationID, DeliveredSeq: seq}}); err != nil {
+				t.Fatal(err)
+			}
+			fresh.SetReadDeadline(time.Now().Add(3 * time.Second))
+			for {
+				var f struct {
+					Type string          `json:"type"`
+					Data json.RawMessage `json:"data"`
+				}
+				if err := fresh.ReadJSON(&f); err != nil {
+					t.Fatal(err)
+				}
+				if f.Type == "ping" {
+					fresh.WriteMessage(websocket.TextMessage, []byte(`{"type":"pong","data":{}}`))
+					continue
+				}
+				if f.Type == "sync.required" {
+					continue
+				}
+				var ack messaging.DeliveryACK
+				if f.Type != "ack.confirmed" || json.Unmarshal(f.Data, &ack) != nil || ack.ConversationID != conversationID || ack.DeliveredSeq != 2 {
+					t.Fatal("invalid ACK confirmation", f.Type, string(f.Data))
+				}
+				var stored uint64
+				if err := pool.QueryRowContext(ctx, "SELECT delivered_seq FROM message_delivery_cursor WHERE user_id=? AND conversation_id=?", users[1].ID, conversationID).Scan(&stored); err != nil || stored != 2 {
+					t.Fatal("confirmation preceded SQL commit", stored, err)
+				}
+				break
+			}
+		}
+	})
 	run("group_join_refreshes_confirmed_subscription", func(t *testing.T) {
 		if err := db.WithContext(ctx).Create(&models.Relation{OwnerId: users[1].ID, TargetId: group.ID, Type: models.GroupRelation}).Error; err != nil {
 			t.Fatal(err)
@@ -372,7 +409,7 @@ func TestProductionV1ChatIntegration(t *testing.T) {
 	for _, tc := range []struct {
 		table string
 		want  int
-	}{{"message", 5}, {"message_command", 5}, {"message_outbox", 10}, {"conversation", 2}, {"message_delivery_cursor", 0}, {"message_quarantine", 0}} {
+	}{{"message", 5}, {"message_command", 5}, {"message_outbox", 10}, {"conversation", 2}, {"message_delivery_cursor", 1}, {"message_quarantine", 0}} {
 		var n int
 		if err := pool.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tc.table).Scan(&n); err != nil || n != tc.want {
 			t.Fatal("wrong final collection", tc.table, n, err)

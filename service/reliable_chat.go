@@ -26,6 +26,9 @@ type NotificationSubscriptions interface {
 	Channels(context.Context, uint64, int) ([]string, error)
 	Subscribe(context.Context, []string) (database.Subscription, error)
 }
+type DeliveryAcknowledger interface {
+	AcknowledgeDelivery(context.Context, uint64, string, messaging.Sequence) (messaging.Sequence, error)
+}
 type ReliableChatOptions struct {
 	SetupTimeout, ResolveTimeout, WriteTimeout, RefreshInterval, HeartbeatInterval, ReadTimeout time.Duration
 	QueueSize, MaxGroups, MaxSessions                                                           int
@@ -67,23 +70,24 @@ type reliableOutbound struct {
 	control int
 }
 type ReliableChat struct {
-	mu         sync.Mutex
-	source     NotificationSubscriptions
-	dispatcher *NotificationDispatcher
-	options    ReliableChatOptions
-	slots      map[uint64]*reliableSlot
-	count      int
+	mu           sync.Mutex
+	source       NotificationSubscriptions
+	dispatcher   *NotificationDispatcher
+	acknowledger DeliveryAcknowledger
+	options      ReliableChatOptions
+	slots        map[uint64]*reliableSlot
+	count        int
 }
 
-func NewReliableChat(source NotificationSubscriptions, reader NotificationReader, options ReliableChatOptions) (*ReliableChat, error) {
-	if source == nil || nilChatValue(source) || options.Validate() != nil {
+func NewReliableChat(source NotificationSubscriptions, reader NotificationReader, acknowledger DeliveryAcknowledger, options ReliableChatOptions) (*ReliableChat, error) {
+	if source == nil || nilChatValue(source) || acknowledger == nil || nilChatValue(acknowledger) || options.Validate() != nil {
 		return nil, ErrReliableChatInput
 	}
 	d, err := NewNotificationDispatcher(reader)
 	if err != nil {
 		return nil, err
 	}
-	return &ReliableChat{source: source, dispatcher: d, options: options, slots: make(map[uint64]*reliableSlot)}, nil
+	return &ReliableChat{source: source, dispatcher: d, acknowledger: acknowledger, options: options, slots: make(map[uint64]*reliableSlot)}, nil
 }
 func nilChatValue(value any) bool {
 	v := reflect.ValueOf(value)
@@ -366,7 +370,7 @@ func (c *ReliableChat) read(s *reliableSession) {
 		if err != nil || kind != websocket.TextMessage {
 			return
 		}
-		frame, err := messaging.DecodeHeartbeat(body)
+		frame, ack, err := messaging.DecodeClientFrame(body)
 		if err != nil {
 			return
 		}
@@ -380,10 +384,45 @@ func (c *ReliableChat) read(s *reliableSession) {
 			}
 		case "pong":
 			// Heartbeat activity only; business ACK is a separate protocol.
+		case "ack":
+			if c.acknowledge(s, s.id, ack) != nil {
+				return
+			}
 		default:
 			return
 		}
 	}
+}
+
+// The same gate serializes activation, socket writes and the entire ACK SQL
+// callback, including COMMIT. A check followed by releasing the gate before
+// SQL would allow a replaced session to advance the new session's cursor.
+func (c *ReliableChat) acknowledge(s *reliableSession, sessionID string, ack messaging.DeliveryACK) error {
+	ctx, cancel := context.WithTimeout(s.ctx, c.options.ResolveTimeout)
+	defer cancel()
+	select {
+	case s.slot.gate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-s.slot.gate }()
+	if ctx.Err() != nil || sessionID == "" || sessionID != s.id || !s.active() {
+		return context.Canceled
+	}
+	seq, err := c.acknowledger.AcknowledgeDelivery(ctx, s.user, ack.ConversationID, ack.DeliveredSeq)
+	if err != nil {
+		return err
+	}
+	if ctx.Err() != nil || !s.active() {
+		return context.Canceled
+	}
+	if seq < ack.DeliveredSeq {
+		return ErrReliableChatInput
+	}
+	if !s.enqueue(reliableOutbound{body: chatControl("ack.confirmed", messaging.DeliveryACK{ConversationID: ack.ConversationID, DeliveredSeq: seq})}) {
+		return context.Canceled
+	}
+	return nil
 }
 func (c *ReliableChat) receive(s *reliableSession, sub *reliableSubscription, channels []string, authenticate func(context.Context) (uint64, error)) {
 	current := sub

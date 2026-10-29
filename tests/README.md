@@ -1,5 +1,15 @@
 # 独立测试环境
 
+P5.4 当前会话业务 ACK 与持久化游标：
+
+```powershell
+go test -mod=readonly -p=2 -race ./database ./messaging ./service . -run '^Test(DeliveryACK|APIChatACK)' -count=30 -shuffle=on -timeout=120s
+go test -mod=readonly -p=1 -race -tags=integration ./tests/testenv -run '^TestDeliveryACKIntegration$' -count=1 -v -timeout=7m
+go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionV1ChatIntegration$' -count=1 -v -timeout=7m
+```
+
+专项八组验证零/重复/较小 ACK、按用户隔离、越权/水位拒绝、32 路并发、真实群撤权锁等待/取消、实际 COMMIT OK 丢失、替换与迟到回调、重连重试及生产 JWT/WS 确认。最终 9 command / 9 message / 18 pending Outbox / 3 cursor，schema 不变。API 默认工厂原 suite 增加 ACK 2→0→2 后九组通过，最终 5 message / 10 completed Outbox / 1 cursor。默认测试另验证 API pending 等 ACK 回调退出才释放客户端。两套 suite 使用独立 SQL/Redis，业务直接由 PersistCommand 创建，不冒充完整 MQ/客户端恢复；见[业务 ACK 契约](../docs/delivery-ack.md)。
+
 P5.3 生产 v1 WebSocket 会话与订阅：
 
 ```powershell
@@ -70,7 +80,7 @@ go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestQuarant
 go test -mod=readonly -race -tags=integration ./tests/testenv -run '^TestRabbitMQSessionIntegration$' -count=1 -v -timeout=8m
 ```
 
-十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。P5.1.1—.5 领取、结算、执行、生命周期与故障验收已完成，P5.2 帧与权限核验也已完成，P5.3 生产会话与订阅也已完成，下一项 P5.4 业务 ACK/游标；P4 显式三角色交叉已补齐，完整默认进程仍待装配。
+十二项运行实际 mqadmin 子进程，覆盖 confirm/Return/NACK、真实 SQL COMMIT/ROLLBACK OK 丢失、确认后强杀、双进程重放及解决/迟到回调。16 条实际主队列物理投递经生产 handler 提交/ACK，最终 12 审计/12 command/11 message/23 Outbox，无重复业务写入；逐项核对原文、队列/ACK、连接 owner 和 schema/拓扑。私有容量夹具与旧 Ping 断言修正、真实应用回调屏障范围及各轮结果见[重放验收](../docs/mq-quarantine-replay-acceptance.md)。P5.1.1—.5 领取、结算、执行、生命周期与故障验收已完成，P5.2 帧与权限核验也已完成，P5.3 生产会话与订阅、P5.4 业务 ACK/游标也已完成，下一项 P6.1 状态 HTTP 契约；P4 显式三角色交叉已补齐，完整默认进程仍待装配。
 
 P4.2.5.3 终态核验与 resolved：
 

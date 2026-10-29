@@ -172,7 +172,7 @@ func TestReliableChatReadyRefreshHeartbeatAndJoin(t *testing.T) {
 	reader := notificationReaderFunc(func(context.Context, uint64, messaging.NotificationHint) (messaging.ServerFrame, error) {
 		return f, nil
 	})
-	c, e := NewReliableChat(source, reader, chatTestOptions())
+	c, e := NewReliableChat(source, reader, deliveryAckTestFunc(unusedDeliveryACK), chatTestOptions())
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -233,7 +233,7 @@ func TestReliableChatReplacementFencesLateSQLAndRetainsOldOwner(t *testing.T) {
 		}
 		return f, nil
 	})
-	c, _ := NewReliableChat(source, reader, chatTestOptions())
+	c, _ := NewReliableChat(source, reader, deliveryAckTestFunc(unusedDeliveryACK), chatTestOptions())
 	server, finished := chatTestServer(t, c, func(context.Context) (uint64, error) { return 1, nil })
 	old, id1 := chatDial(t, server)
 	first := source.subscription(t, 0)
@@ -282,7 +282,7 @@ func TestReliableChatQueueSaturationCancelsButJoinsCallbacks(t *testing.T) {
 		<-release
 		return f, nil
 	})
-	c, _ := NewReliableChat(source, reader, chatTestOptions())
+	c, _ := NewReliableChat(source, reader, deliveryAckTestFunc(unusedDeliveryACK), chatTestOptions())
 	server, finished := chatTestServer(t, c, func(context.Context) (uint64, error) { return 1, nil })
 	conn, _ := chatDial(t, server)
 	sub := source.subscription(t, 0)
@@ -339,7 +339,7 @@ func TestReliableChatSetupFailuresAndPartialSubscription(t *testing.T) {
 			})
 			o := chatTestOptions()
 			o.SetupTimeout = 30 * time.Millisecond
-			c, _ := NewReliableChat(source, reader, o)
+			c, _ := NewReliableChat(source, reader, deliveryAckTestFunc(unusedDeliveryACK), o)
 			server, finished := chatTestServer(t, c, func(context.Context) (uint64, error) {
 				if mode == "auth" {
 					return 0, errors.New("invalid")
@@ -393,7 +393,7 @@ func TestReliableChatRefreshFailureAndUnsupportedFrames(t *testing.T) {
 				}
 				t.Error("unexpected SQL read")
 				return messaging.ServerFrame{}, nil
-			}), chatTestOptions())
+			}), deliveryAckTestFunc(unusedDeliveryACK), chatTestOptions())
 			if e != nil {
 				t.Fatal(e)
 			}

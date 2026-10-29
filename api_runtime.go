@@ -95,7 +95,7 @@ func defaultAPIDependencies() apiDependencies {
 			if err != nil {
 				return nil, err
 			}
-			return service.NewReliableChat(source, reader, service.DefaultReliableChatOptions())
+			return service.NewReliableChat(source, reader, reader, service.DefaultReliableChatOptions())
 		},
 		newSQL: func(c config.Config) (apiSQL, error) {
 			db, err := utils.NewMySQL(c) // Lazy; no schema migration or global binding.

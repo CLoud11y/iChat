@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0.1—P0.6、P1 和 P2 仓储范围已验收收口；P3.1—P3.4.2 已完成固定版本、正式拓扑/可靠 DLX、有界 publisher/I/O、unknown 与 supervisor 抖动退避/单调 epoch/新连接只读复核，真实 broker 重启恢复及无自动重发已验收；P3.5.1 已完成应用配置；P3.5.2 已完成独立消费者连接、每 worker 有界消费 channel/prefetch、顺序 delivery、原 channel 单条手动 ACK/Reject，以及真实重投/ACK 丢帧/故障隔离；P3.5.3.1 已完成严格运行模式/角色计划/启动检查；P3.5.3.2.1 已完成消费者有界参数、独立操作超时和按角色生成的无 I/O MQ 依赖计划。下一项为 P3.5.3.2.2 按角色受控创建 MQ 连接与失败清理，开始前继续细分。当前业务主程序仅运行 legacy；新事务与 publisher 尚未接入旧入口、HTTP 202 或业务消费任务，不代表端到端可靠性改造完成。旧 worker 仍依赖不自动过期的单消费者注册及人工恢复，依赖共享 Redis 保留锁状态。** 原总清单的 RabbitMQ 测试 vhost 已按既定安排在 P3.1 完成。以下各小点的“当前”“未覆盖”等表述是当时的历史记录，最新结论以文末对应实施记录为准。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket 和 P5.4 当前会话 ACK/持久化游标已完成对应验收。下一项 P6.1 状态 HTTP 接口契约。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -17,7 +17,7 @@
 | P2 | P2.1 DTO、规范化和身份/hash；P2.2 schema 与唯一约束；P2.3 幂等命令结果；P2.4 权限事务和锁顺序；P2.5 seq、消息和 Outbox 原子提交；P2.6 状态仓储；P2.7 同步/历史仓储 |
 | P3 | P3.1 核验 broker/client 版本和隔离 vhost；P3.2 本地拓扑及可靠 DLX；P3.3 有界 publisher 和 confirm/return 关联；P3.4.1 I/O/关闭硬界与 unknown；P3.4.2 supervisor 退避重连、单调 epoch 和拓扑复核；P3.5.1 应用配置与纯构造；P3.5.2.1 连接内核与独立消费者基础生命周期；P3.5.2.2 有界消费 channel / 手动 ACK 传输所有权；P3.5.3.1 模式配置/角色计划/启动检查；P3.5.3.2.1 消费者参数与纯 MQ 依赖计划；P3.5.3.2.2 受控 MQ 连接创建/失败清理；P3.5.3.3 生命周期装配与角色能力核验；P3.5.4 接受 readiness 与持续拓扑核验；P3.6 隔离环境接入 HTTP 202 |
 | P4 | P4.1 消费事务与提交后 ACK；P4.2 错误分类和数据库故障退避；P4.3 可靠隔离转移；P4.4 隔离审计 worker；P4.5 受控重放 CLI；P4.6 提交不确定和退出恢复 |
-| P5 | P5.1 Outbox lease 领取；P5.2 token 条件完成和重试；P5.3 通知协议与内容授权；P5.4 WS 订阅及慢客户端处理；P5.5 session fencing；P5.6 ACK 持久化与确认 |
+| P5 | P5.1.1—.5 Outbox 领取、结算、执行、生命周期和故障验收；P5.2 通知帧与内容授权；P5.3 WS 订阅、慢客户端及单实例会话替换；P5.4 当前会话 ACK 持久化与确认（按实际已执行编号） |
 | P6 | P6.1 状态接口契约；P6.2 会话列表及补拉/历史接口；P6.3 模拟客户端发送恢复；P6.4 本地幂等和连续游标；P6.5 重连及周期同步；P6.6 分页/乱序/本地清空测试；P6.7 前端接入文档 |
 | P7 | P7.1 明确开发资源的切换脚本；P7.2 停旧入口/cron 并切换；P7.3 删除旧队列路径及旧协议；P7.4 README、配置和压测指南同步 |
 | P8 | P8.1 发布故障矩阵；P8.2 消费/隔离/Outbox 故障矩阵；P8.3 WS/同步恢复矩阵；P8.4 三节点配置；P8.5 单节点及多数故障演练；P8.6 loadtest 对账和容量基线；P8.7 版本、环境与交付报告 |
@@ -3765,3 +3765,54 @@ SQL 权限锁保护材料化阶段，网络在释放后执行，撤权与字节�
 下一项 **P5.4：当前会话绑定的业务 ACK 与持久化游标**。
 
 建议 commit message：`feat(websocket): wire reliable sessions and subscriptions`
+
+## 2026-10-28：P5.4 当前会话业务 ACK 与持久化游标
+
+状态：本小点实现、审查、默认回归与真实隔离验收完成，没有自动提交。下一项 **P6.1：状态 HTTP 接口契约**。默认 worker/all 完整装配、全管线交叉、跨实例全局会话所有权和实际客户端恢复仍待后续；本次未修改 schema、依赖、默认运行模式或开发数据。
+
+### 实现与审查
+
+- `messaging.DecodeClientFrame` 接受严格 heartbeat/ack，ACK 两字段为规范 conversationId 和必填字符串 deliveredSeq（包括零和 uint64 上界）；拒绝缺失/null/重复键/别名/未知字段、客户端 userId/sessionId、数字或非规范序号。ack.confirmed 使用相同 data，没有 eventId。
+- `MessageRepository.AcknowledgeDelivery` 在 READ COMMITTED 事务内 FOR SHARE 锁读当前有效用户、群与成员和规范 conversation/已提交 last_seq，按 `(user_id,conversation_id)` 原子单调 UPSERT。首次 ACK 0 建零游标；较小/重复 ACK 返回原进度，保持旧 updated_at；只有前进使用 SQL UTC 微秒时钟更新时间。不存在会话、无权参与者/成员、失效用户、超水位和身份损坏均不提交。
+- 事务锁读实际结果后 COMMIT，成功才返回回执；COMMIT 错误保留 ErrDeliveryCommitUnknown、零回执，不补偿删除。读写/取消/释放错误也不确认。权限锁覆盖提交，等待先行撤权结束后按最新状态决定，不信任旧订阅或 Redis 游标。
+- 现代 API 默认工厂显式把真实仓储传给通知读取和 DeliveryAcknowledger。会话 ACK 从已认证连接内部传入 user/sessionId；current-session gate 覆盖完整 SQL/COMMIT 回调，并与新会话激活、实际写入串行。新连接 ready 后旧 ACK 不能再调用仓储或确认；已准入的旧事务在激活前完成。仅在检查 current 后释放 gate 再更新 SQL 的竞态被排除。
+- ACK 复用 ResolveTimeout（2s）、既有有界队列和单 writer。失败/提交未知/迟到回调结束会话；提交后若队列满、socket 写失败或确认丢失，保留 SQL 进度并允许重连重复 ACK。API observer pending 等原 ACK 回调实际退出才释放 SQL/Redis，未遗弃 goroutine。
+
+详细字段、空会话规则、单实例 fencing 和客户端连续保存责任见[业务 ACK 契约](delivery-ack.md)。开发规范、协议、README、API/WS 契约及测试说明已同步。
+
+### 真实验收
+
+| runId | 范围 | suite / package |
+| --- | --- | --- |
+| `a4b6a6c6c9c4dc7ca5250671b467661a` | ACK 专项首轮八组全部通过 | 24.19s / 26.871s |
+| `d6806d474988faa3f64e3eec69e8e980` | API 默认工厂九组，含新增 ACK 2→0→2 | 52.36s / 55.218s |
+| `efd35fb60c05b9acb3b14a91b184022b` | ACK 专项最终八组，增加提交未知后重复原 ACK，再发较小 ACK | 23.46s / 26.024s |
+
+专项八组无 fail/skip/race：
+
+1. 零/较小/重复 ACK、首次时间保留、双用户独立游标，第三用户及超 last_seq 拒绝。
+2. 32 路真实 SQL 乱序并发，接收者私聊进度最终为 8，回执不低于请求。
+3. 撤权事务持有 relation 更新锁，processlist 确认 ACK 在真实 FOR SHARE 等待；撤权提交后拒绝且不更新。另在真实锁等待中取消，释放后 SQL 恢复。
+4. 生产 JWT/router/真实 SQL/Redis 订阅的 WebSocket 收到已提交确认；关闭再连重复 ACK 保持进度。
+5. classic SQL TCP 代理消费真实 COMMIT OK 后丢弃，连接无 ack.confirmed 且关闭；独立直连 SQL 证明进度已提交。重连发原 ACK 1 和较小 ACK 0 均确认原进度 1。
+6. 原 ACK 回调前屏障与新连接交叉，新 ready 必须等旧操作返回；新 ready 后旧 socket 再发 ACK 不增加仓储调用，新会话可继续确认。
+7. SQL 已提交后的回调屏障超过生产 2 秒期限，原 handler 继续持有 owner；回调实际释放后关闭连接，无迟到成功确认。
+8. 退群后 ACK、伪造 userId 字段及超水位 ACK 关闭连接且保留既有进度。
+
+专项最终 9 command / 9 message / 2 conversation / 18 untouched pending Outbox / 3 cursor / 0 quarantine，私聊接收者 8、发送者 1、群接收者 1，schema 指纹不变。业务直接调用生产 PersistCommand，未运行 MQ/Outbox，明确不冒充 HTTP 202 到客户端的完整联调。API suite 原八组继续验证内容帧、订阅确认/刷新、JWT 撤销与退出，新增 ACK 2→0→2 每次从独立 pool 确认已提交；最终 5 message / 10 completed Outbox / 1 cursor。
+
+三套 fixture Close 成功；按本轮专属标签只读核对容器/卷/网络已归零。Docker 自动审批通过，无拒绝，不访问共享开发配置或数据库。
+
+### 默认回归
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./database ./messaging ./service . -run '^Test(DeliveryACK\|APIChatACK)' -count=30 -shuffle=on -timeout=120s` | 30 轮通过，无 race；database 2.946s、messaging 1.582s、service 8.231s、主包 3.210s |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 最终全仓库通过，无 race；主包 10.658s、database 3.366s、service 3.861s、rabbitmq 8.706s |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库 integration 标签编译通过；后增 API ACK 集成用例另已实际运行通过 |
+| `git diff --check` | 通过 |
+
+默认用例覆盖严格 JSON/uint64 上界、缺失/typed nil 依赖、SQL 各阶段错误/回滚失败/数据损坏、提交未知零回执、实际 socket 提交前无确认、旧/错 session 不调用 SQL、迟到/panic 与 API pending 后资源延迟释放。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache 和不存在的单元测试 ICHAT_CONFIG_FILE。
+
+建议 commit message：`feat(websocket): persist delivery ACKs with current-session fencing`
