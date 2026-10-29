@@ -1,5 +1,14 @@
 # 独立测试环境
 
+P6.1 只读发送状态 HTTP 接口：
+
+```powershell
+go test -mod=readonly -p=2 -race ./service ./router . -run '^Test(CommandStatus|APIStatus|APIStartup|APIValidation)' -count=30 -shuffle=on -timeout=120s
+go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionCommandStatusIntegration$' -count=1 -v -timeout=7m
+```
+
+真实默认 API 六组验证五类状态与 SQL DTO、跨用户/参数/撤销 token、规范终态优先及权限后变更、损坏 SQL 503、实际 Redis 客户端故障、MySQL 停机/离线启动和重启恢复。最终 3 command / 2 message / 5 untouched pending Outbox / 2 quarantine / 0 cursor，schema 不变；两条隔离行为明确的状态元数据夹具。默认测试覆盖严格 query、状态形状、上界字符串、期限/迟到、启动回滚及 pending 后资源持有，见[状态接口](../docs/command-status.md)。本 suite 不运行 MQ/Outbox 全管线或客户端恢复。
+
 P5.4 当前会话业务 ACK 与持久化游标：
 
 ```powershell

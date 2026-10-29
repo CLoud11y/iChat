@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket 和 P5.4 当前会话 ACK/持久化游标已完成对应验收。下一项 P6.1 状态 HTTP 接口契约。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标和 P6.1 状态 HTTP 接口已完成对应验收。下一项 P6.2 会话列表与补拉/历史接口，开始前继续细分。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -3816,3 +3816,46 @@ SQL 权限锁保护材料化阶段，网络在释放后执行，撤权与字节�
 默认用例覆盖严格 JSON/uint64 上界、缺失/typed nil 依赖、SQL 各阶段错误/回滚失败/数据损坏、提交未知零回执、实际 socket 提交前无确认、旧/错 session 不调用 SQL、迟到/panic 与 API pending 后资源延迟释放。固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache 和不存在的单元测试 ICHAT_CONFIG_FILE。
 
 建议 commit message：`feat(websocket): persist delivery ACKs with current-session fencing`
+
+## 2026-10-29：P6.1 发送状态 HTTP 契约与生产 API 接线
+
+状态：本小点实现、审查、默认回归和真实隔离验收完成，没有自动提交。下一项 **P6.2：会话列表与补拉/历史 HTTP 接口**，开始前继续细分。本项不更改 P2.6 状态仓储语义、schema、依赖或默认运行模式；完整 worker/all、客户端状态轮询/本地恢复和全管线交叉仍待后续。
+
+### 实现与审查
+
+- `service.QueryCommandStatus` 和 `router.RegisterCommandStatus` 实现 `GET /auth/messages/status`，使用实际 Bearer/JWT 黑名单校验，仅从鉴权上下文取得 UID。query 限 1024 字节、恰有一个 clientMessageId 和一个 payloadHash，拒绝重复/未知字段、伪造身份、非法编码；UUID 沿用规范化，hash 必须小写 hex，不读取 GET body。
+- persisted/rejected/quarantined/pending_or_unknown 映射 200/code=0，内容冲突映射 409/code=-1，仅返回本次 key/hash/state。400/401/503 使用稳定 reasonCode，不附业务 state。pending/隔离保留 pollAfterMs=2000；没有把数据库无记录当作未入队，也没有把数据库错误伪装为 pending。
+- `CommandStatus.ValidateFor` 出站前核验请求 key/hash、状态形状、轮询字段及 persisted 消息规范身份/hash/时间/seq，坏 reader 的错用户、错内容、矛盾/不完整结果不能泄露。自己的历史终态仍按 P2.6 返回，不因好友解除/退群/删群重判，未改变通知和历史的当前权限契约。
+- 现代 API 默认工厂从自有 SQL 池闲置构造真实 reader，显式注入且失败/typed nil 进入启动回滚；无新增迁移或全局绑定。StatusTimeout 默认 3 秒、独立于发送确认，同一父 deadline 覆盖 Redis 鉴权和 SQL；写期限校验覆盖 ReadTimeout 加两种请求期限的较大值，没有新增 YAML/env 配置。
+- 实际 SQL 读取不按 publisher 或缓存存储探针门禁，错误统一 503。handler 等原回调真实返回，迟到 nil 结果不成功；observer pending 不提前关 SQL/Redis。修正公共 API 的 Panic/停止准入响应：状态请求返回依赖不可用，发送请求继续保留原 publish_unknown/not_published 语义。无查询任务 goroutine 遗弃或自动命令重发。
+
+字段、示例、期限和资源责任见[状态 HTTP 契约](command-status.md)。协议、开发规范、API 说明、README、测试说明和下一项已同步；现有 loadtest acceptance 模式仍只做发送确认，恢复客户端归后续 P6。
+
+### 真实验收
+
+Docker 首次尝试因 Desktop 引擎未运行失败（run `55c7909b75949eace57622379d0a988e`），未创建测试栈，不计作验收通过。启动本机 Docker 后，run **`13656b8bb4bbf1137b0a16c901a151a9`** 六组全部通过，无 fail/skip/race；suite **26.21s**，package **28.929s**：
+
+1. 通过生产 PersistCommand 生成私聊 persisted、业务 rejected、群 persisted；HTTP 五类状态逐项与独立 SQL pool 的规范 DTO 比较，冲突不暴露原 hash/message/reason，pending/隔离带轮询建议。
+2. 当前收件人用发送者的 key/hash 得到自己的 pending，伪造 senderId/重复 hash 为 400；query token 和真实 Redis 撤销 token 不得授权。
+3. 匹配隔离记录不覆盖既有规范终态；随后解除好友、软删除群，发送者仍能查询原 persisted/rejected。
+4. 显式损坏自有 fixture 的 message.content 后 HTTP 返回 503/DEPENDENCY_UNAVAILABLE，无部分消息/state/底层诊断；恢复原文。
+5. 关闭 API 实际 Redis 客户端，状态请求 503；原 owner 加入请求/探针并保留已知重复 Close 的 ErrClosed，新 API 客户端恢复正常查询。此场景为真实客户端故障，不冒充 Redis server 停机。
+6. 停止本轮专属 MySQL 容器，已存在 API 的 persisted/pending 查询和新 API 离线启动后的查询均为 503，不伪造 pending；重启后 persisted/pending 查询恢复；fixture 在同映射地址时保留原进程，端口若更换则显式重建 API，不宣称旧池能发现新地址。
+
+最终 **3 command / 2 message / 2 conversation / 5 untouched pending Outbox / 2 quarantine / 0 cursor**，schema 指纹不变。两条隔离行为状态元数据夹具，不声称经过完整审计 worker；未运行 MQ/Outbox 管线或实际客户端恢复。fixture Close 成功，按本轮标签只读确认容器/卷/网络均归零；自动审批通过，无拒绝，未读取共享开发配置或访问开发数据。
+
+### 默认验证
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./service ./router . -run '^Test(CommandStatus\|APIStatus\|APIStartup\|APIValidation)' -count=30 -shuffle=on -timeout=120s` | 最终 30 轮通过；service 4.052s、router 2.437s、主包 4.103s，无 race |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 最终全仓库通过；主包 10.681s、database 3.195s、service 3.731s、rabbitmq 8.809s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过，不代表重跑全部历史集成 suite |
+| `git diff --check` | 通过 |
+
+默认用例另覆盖严格参数/只读 body、状态形状/JSON uint64 上界、跨请求和坏内容、nil/typed nil、操作/鉴权期限、失败工厂资源回滚、Panic、停止准入、缓存探针与查询解耦，以及 pending 后回调/资源真实 join。测试先前暴露 observer 已到期而 cleanup owner 尚未实际 cancel 的夹具断言竞争；已改为等待原请求 context 真正取消后释放迟到回调，最终随机 30 轮通过，不把早期失败计为通过。
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、不存在的单元测试 ICHAT_CONFIG_FILE，最终命令设 GIN_MODE=release 以压低测试路由日志。没有自动提交。
+
+建议 commit message：`feat(api): expose authenticated command status queries`

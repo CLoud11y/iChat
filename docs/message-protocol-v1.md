@@ -113,7 +113,7 @@ schemaVersion 为 1，事件身份不含通知 attempt/lease。Outbox 中的身�
 
 所有读取使用同一个显式只读 REPEATABLE READ 快照，不加行锁、不写记录、不扫描 MQ/Redis。先查规范命令；同键异 hash 返回 ID_CONFLICT，同 hash 返回原 persisted/rejected。没有规范命令时，才查同 sender/clientMessageId/payloadHash 的未解决隔离记录（open 或 replay_pending，且 resolved_at 为 NULL）；隔离记录可缺少 commandId。两类记录都不存在时返回 pending_or_unknown，不能据此推断命令未入队。
 
-| state | 附加字段 | 后续 HTTP 映射 |
+| state | 附加字段 | HTTP 映射 |
 | --- | --- | --- |
 | persisted | 完整规范 `message` DTO，无轮询字段 | 200 |
 | rejected | 稳定 `reasonCode`，无 message/轮询字段 | 200 |
@@ -134,7 +134,9 @@ schemaVersion 为 1，事件身份不含通知 attempt/lease。Outbox 中的身�
 
 persisted DTO 从同一快照内的 message 重建并核对命令身份、hash、会话及已提交 seq，时间按 UTC 微秒读取。好友解除、离群或删群不会重新判定自己既有发送终态；会话历史/同步的当前读取权限由 P2.7 单独处理。查询期间新终态提交时，本轮可以返回快照中的旧隔离状态，下轮返回终态，避免混合两个时刻误报 unknown。
 
-数据库、快照释放或数据不变量故障返回错误和空结果，不伪装为 pending_or_unknown，也不把底层错误放入状态 DTO。HTTP 路由、code/msg/data 包装和依赖故障映射仍归 P6.1；当前只完成仓储契约。隔离生产/审计/重放仍归 P4。
+数据库、快照释放或数据不变量故障返回错误和空结果，不伪装为 pending_or_unknown，也不把底层错误放入状态 DTO。P6.1 已完成[HTTP 路由、code/msg/data 包装和依赖故障映射](command-status.md)；隔离生产/审计/重放按 P4 契约执行。
+
+P6.1 使用 `GET /auth/messages/status`，只读 Authorization Bearer，query 必须恰有一个 clientMessageId 和一个 payloadHash；重复、未知字段及非法编码为 400。成功用 `code:0/msg/data`，冲突为 409、`code:-1` 和上述原请求 key/hash/state，400/401/503 的 data 仅含稳定 reasonCode，无业务 state。所有响应禁止缓存；默认同一 3 秒期限覆盖鉴权/SQL。出站前重新核验状态形状和规范消息；超时、损坏及存储错误不能降级成 pending，具体示例见[状态 HTTP 契约](command-status.md)。
 
 ## P2.7：会话同步与历史仓储
 

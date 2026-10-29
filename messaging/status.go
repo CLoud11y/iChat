@@ -53,3 +53,42 @@ type CommandStatus struct {
 	Message         *MessageDTO `json:"message,omitempty"`
 	PollAfterMs     int         `json:"pollAfterMs,omitempty"`
 }
+
+// ValidateFor prevents a broken status adapter from exposing another request's
+// identity/content or treating an incomplete result as authoritative unknown.
+func (s CommandStatus) ValidateFor(query StatusQuery) error {
+	if s.ClientMessageID != query.ClientMessageID || s.PayloadHash != query.PayloadHash {
+		return invalid("command status identity")
+	}
+	switch s.State {
+	case StatusPersisted:
+		if s.Message == nil || s.ReasonCode != "" || s.PollAfterMs != 0 {
+			return invalid("persisted status")
+		}
+		command, err := canonicalFrameMessage(*s.Message)
+		if err != nil || command.CommandID != query.CommandID || command.SenderID != strconv.FormatUint(query.SenderID, 10) || command.ClientMessageID != query.ClientMessageID || command.PayloadHash != query.PayloadHash {
+			return invalid("persisted status message")
+		}
+	case StatusRejected:
+		if !notificationReason(s.ReasonCode) || s.Message != nil || s.PollAfterMs != 0 {
+			return invalid("rejected status")
+		}
+	case StatusConflict:
+		if s.Message != nil || s.ReasonCode != "" || s.PollAfterMs != 0 {
+			return invalid("conflict status")
+		}
+	case StatusPendingOrUnknown, StatusQuarantined:
+		if s.Message != nil || s.ReasonCode != "" || s.PollAfterMs != DefaultStatusPollAfterMs {
+			return invalid("pending status")
+		}
+	default:
+		return invalid("command status state")
+	}
+	return nil
+}
+
+type CommandStatusResponse struct {
+	Code int           `json:"code"`
+	Msg  string        `json:"msg"`
+	Data CommandStatus `json:"data"`
+}

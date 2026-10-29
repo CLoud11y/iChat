@@ -526,7 +526,7 @@ Redis PUBLISH 成功（包括没有订阅者）可以标记 Outbox 的“通知�
 
 状态查询应提供建议轮询间隔。若 HTTP 响应丢失导致客户端没有 payloadHash，使用原始请求重发即可获得同一规范 hash，不生成新的 clientMessageId。
 
-P2.6 已实现 `MessageRepository.GetCommandStatus` 和共享 `CommandStatus` DTO，HTTP 路由及响应包装留给 P6.1。发送者必须取自鉴权上下文；clientMessageId 沿用 UUID 规范化，payloadHash 必须为 64 字符小写 hex。查询在显式只读 REPEATABLE READ 快照内完成，使用普通 SELECT，不锁定命令占位，不读取未提交结果，也不查询 MQ/Redis。
+P2.6 已实现 `MessageRepository.GetCommandStatus` 和共享 `CommandStatus` DTO，P6.1 已完成[状态 HTTP 接线与响应包装](command-status.md)。发送者必须取自鉴权上下文；clientMessageId 沿用 UUID 规范化，payloadHash 必须为 64 字符小写 hex。查询在显式只读 REPEATABLE READ 快照内完成，使用普通 SELECT，不锁定命令占位，不读取未提交结果，也不查询 MQ/Redis。
 
 规范终态优先于隔离记录；只有命令不存在时才检查同 sender/clientMessageId/payloadHash、state 为 open/replay_pending 且 resolved_at 为空的隔离行。quarantined 与 pending_or_unknown 带 `pollAfterMs: 2000`，终态及冲突不带轮询字段。冲突只回显该次请求 key/hash，不附原成功消息、原 hash 或原拒绝原因；隔离状态不附原文、headers、transportId 或诊断错误。persisted 返回核验身份/hash、会话及已提交 seq 的完整规范消息，rejected 返回稳定 reasonCode。好友/成员/群的后续变更不重新判定发送者自己的既有终态，当前历史读取权限另由 P2.7 检查。快照中的旧隔离状态可在下一轮变为新终态；SQL、连接池、快照释放及数据不变量故障返回错误和空 DTO，不能降级成 pending。详细字段见 [协议 v1](message-protocol-v1.md#p26发送状态查询)。
 
@@ -817,6 +817,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
 ### P6：补拉协议和客户端模拟器
 
 - [ ] 实现第 9 节接口及响应样例的契约测试。
+  - [x] P6.1 状态 HTTP 接口：仅当前发送者、严格 key/hash query、200/409/400/401/503、有界鉴权/SQL、故障不伪装 pending；真实默认 API 故障与恢复见[状态接口](command-status.md)。
 - [ ] 模拟客户端本地持久消息集、连续游标、待发送表、ACK、重连与周期同步。
 - [ ] 覆盖持续在线尾消息丢失、分页期间并发写入、乱序到达、浏览器本地存储重置。
 - [ ] 输出前端接入说明；真实前端不在仓库时标注实际联调待办，不伪造完成。

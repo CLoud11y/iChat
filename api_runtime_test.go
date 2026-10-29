@@ -36,6 +36,7 @@ func apiTestOptions() apiOptions {
 	o := defaultAPIOptions(apiTestConfig())
 	o.Address = "127.0.0.1:0"
 	o.ReadHeaderTimeout, o.ReadTimeout, o.SubmissionTimeout, o.WriteTimeout, o.IdleTimeout = 60*time.Millisecond, 120*time.Millisecond, 200*time.Millisecond, time.Second, 120*time.Millisecond
+	o.StatusTimeout = 200 * time.Millisecond
 	o.ProbeInterval, o.ProbeTimeout, o.CloseTimeout, o.DrainTimeout = 10*time.Millisecond, 50*time.Millisecond, 200*time.Millisecond, 300*time.Millisecond
 	return o
 }
@@ -144,6 +145,7 @@ func newAPIHarness() *apiHarness {
 	h.d.newSQL = func(config.Config) (apiSQL, error) { return h.sql, nil }
 	h.d.newRedis = func(config.Config, apiOptions) (apiRedis, error) { return h.redis, nil }
 	h.d.chat = apiFixtureChat
+	h.d.status = apiFixtureStatus
 	h.d.tokens = func(c config.Config, r apiRedis) (*utils.TokenService, error) {
 		return utils.NewTokenService(c, apiFakeBlacklist{r})
 	}
@@ -384,7 +386,7 @@ func TestAPIExpiredCloseRetainsClientsUntilRequestsAndProbesJoin(t *testing.T) {
 }
 
 func TestAPIStartupRollbackOwnsEveryPartialHandle(t *testing.T) {
-	for _, stage := range []string{"sql_error", "sql_nil", "redis_error", "redis_nil", "tokens_error", "auth_nil", "storage_nil", "chat_error", "chat_nil", "http_error", "http_nil", "listener_error", "listener_nil", "handoff_cancel"} {
+	for _, stage := range []string{"sql_error", "sql_nil", "redis_error", "redis_nil", "tokens_error", "auth_nil", "storage_nil", "status_error", "status_nil", "status_typed_nil", "chat_error", "chat_nil", "http_error", "http_nil", "listener_error", "listener_nil", "handoff_cancel"} {
 		t.Run(stage, func(t *testing.T) {
 			h := newAPIHarness()
 			cause := errors.New("PRIVATE_START_CAUSE")
@@ -422,6 +424,17 @@ func TestAPIStartupRollbackOwnsEveryPartialHandle(t *testing.T) {
 			}
 			if stage == "chat_error" {
 				h.d.chat = func(apiSQL, apiRedis) (*service.ReliableChat, error) { return nil, cause }
+			}
+			if strings.HasPrefix(stage, "status_") {
+				h.d.status = func(apiSQL) (service.CommandStatusReader, error) {
+					if stage == "status_error" {
+						return nil, cause
+					}
+					if stage == "status_typed_nil" {
+						return apiStatusReaderFunc(nil), nil
+					}
+					return nil, nil
+				}
 			}
 			if stage == "chat_nil" {
 				h.d.chat = func(apiSQL, apiRedis) (*service.ReliableChat, error) { return nil, nil }
@@ -555,7 +568,7 @@ func TestAPIUnexpectedListenerExitAndIdleClose(t *testing.T) {
 }
 
 func TestAPIValidationPrecedesActivation(t *testing.T) {
-	for _, name := range []string{"mode", "address", "header", "body", "write", "idle", "submission", "probe", "close", "headers", "jwt", "redis", "redis_pool", "mysql", "dependency", "publisher", "health", "consumer"} {
+	for _, name := range []string{"mode", "address", "header", "body", "write", "idle", "submission", "status_timeout", "status_write", "status_factory", "probe", "close", "headers", "jwt", "redis", "redis_pool", "mysql", "dependency", "publisher", "health", "consumer"} {
 		t.Run(name, func(t *testing.T) {
 			h := newAPIHarness()
 			inputs := application.RoleDependencies{Publisher: h.publisher, Health: apiTestHealth{}}
@@ -574,6 +587,12 @@ func TestAPIValidationPrecedesActivation(t *testing.T) {
 				h.o.IdleTimeout = 0
 			case "submission":
 				h.o.SubmissionTimeout = time.Minute + 1
+			case "status_timeout":
+				h.o.StatusTimeout = 0
+			case "status_write":
+				h.o.StatusTimeout = h.o.WriteTimeout
+			case "status_factory":
+				h.d.status = nil
 			case "probe":
 				h.o.ProbeTimeout = 0
 			case "close":
