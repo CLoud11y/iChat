@@ -1,13 +1,14 @@
 # P6.3：模拟客户端发送恢复
 
-仓库尚无实际前端。`tests/clientsim` 提供发送状态核心、磁盘适配与有界 HTTP 恢复；P6.3.1—P6.3.3 已实现，生产服务与通知交叉按后续小点验收。
+仓库尚无实际前端。`tests/clientsim` 已提供发送状态核心、磁盘适配、有界 HTTP 恢复及 command.result 接入；P6.3.4.1 已验证生产接口/通知交叉，完整消费故障矩阵归 P6.3.4.2。
 
 | 小点 | 范围 | 状态 |
 | --- | --- | --- |
 | P6.3.1 | 待发送记录、稳定身份、单调状态与可恢复快照；注入式原子提交 | 已完成 |
 | P6.3.2 | 磁盘快照适配、独占所有权、跨进程恢复及存储故障验收 | 已完成 |
 | P6.3.3 | 有界 HTTP 提交、状态查询、退避/取消和原键重试 | 已完成 |
-| P6.3.4 | 通知结果与 HTTP 交叉、真实生产 API 的发送恢复验收 | 下一项 |
+| P6.3.4.1 | 严格 command.result 接入及生产 API/WebSocket 交叉，显式驱动仓储/Outbox | 已完成 |
+| P6.3.4.2 | 完整 MQ 消费与发送恢复故障矩阵 | 下一项 |
 
 本地接收消息集/连续游标归 P6.4，重连/周期同步归 P6.5；不将本项待发送记录中的终态消息当作接收侧完整消息集或 ACK 依据。
 
@@ -22,7 +23,7 @@
 3. 后续传输应再次检查 context，并使用 Attempt.Request 发请求。成功解码的证据交给 CompleteSubmission；响应丢失或不能使用时调用 CompleteUnknown。
 4. 将完整、已解码状态查询结果交给 ApplyStatus。引用式 command.result 应继续查状态，不能伪造完整消息。
 
-P6.3.1 核心不发送 HTTP 或解析原始网络 JSON；P6.3.3 已提供[有界 HTTP 与恢复](client-sender-http.md)，负责 HTTP status/code、响应字节上限、严格解析、鉴权及有限调度。CompleteSubmission 验证逻辑身份/hash、允许状态与 reasonCode、必要的规范 publishAttemptId；ApplyStatus 调用共享 ValidateFor，核对原发送者/key/hash 和完整规范消息。
+P6.3.1 核心不发送 HTTP 或解析原始网络 JSON；P6.3.3 已提供[有界 HTTP 与恢复](client-sender-http.md)。P6.3.4.1 的 [ObserveCommandResult](client-sender-notifications.md) 可在 HTTP 回执前保存完整终态；引用式结果要求后续查询，不伪造消息。CompleteSubmission 验证逻辑身份/hash、允许状态与 reasonCode、必要的规范 publishAttemptId；ApplyStatus 调用共享 ValidateFor，核对原发送者/key/hash 和完整规范消息。
 
 Queue 保留原始字段值，包括 UUID 大小写、目标 ID 的可规范写法、正文空白/NUL/Unicode 和纳秒客户端时间。规范 commandId/hash 由共享 Normalize 派生；不从回执替换本地 hash。已存在规范键只接受完全相同的原请求，即使只改时间或规范写法也拒绝覆盖。主动改内容或业务拒绝后再次发送须显式创建新 UUID；核心不因超时、缺记录或重启生成新业务键。
 
@@ -61,4 +62,4 @@ go vet -mod=readonly -p=2 -tags=integration ./...
 go test -mod=readonly -p=2 -tags=integration ./... -run '^$'
 ```
 
-P6.3.1 受控字节存储覆盖状态与对象重建恢复；P6.3.2 以真实文件和强杀子进程验证 Windows 磁盘及跨进程恢复；P6.3.3 验证真实 loopback HTTP 及磁盘重开的发送恢复。证据分别见[磁盘存储](client-sender-file-store.md)和 [HTTP 恢复](client-sender-http.md)。生产 JWT/MySQL/MQ/通知交叉及实际前端联调仍待后续。运行记录见[实施进度](message-reliability-mq-progress.md)，下一项 P6.3.4。
+P6.3.1 验证状态核心，P6.3.2 验证真实文件/强杀进程，P6.3.3 验证 loopback HTTP/磁盘恢复，P6.3.4.1 验证真实 JWT/MySQL/Redis/Rabbit confirm 与生产 API/WebSocket。通知验收显式驱动仓储/Outbox，不等于生产持久化 consumer；证据见[通知接入](client-sender-notifications.md)和[实施记录](message-reliability-mq-progress.md)。下一项 P6.3.4.2 完整消费/发送恢复故障矩阵，实际前端仍待联调。

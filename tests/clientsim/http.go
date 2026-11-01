@@ -49,6 +49,7 @@ type HTTPRunner struct {
 	work      context.Context
 	cancel    context.CancelFunc
 	slots     chan struct{}
+	notices   chan struct{}
 	mu        sync.Mutex
 	closed    bool
 	keys      map[string]bool
@@ -73,7 +74,7 @@ func NewHTTPRunner(sender *Sender, options HTTPOptions) (*HTTPRunner, error) {
 	dialer := &net.Dialer{Timeout: options.RequestTimeout, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{DialContext: dialer.DialContext, TLSHandshakeTimeout: options.RequestTimeout, ResponseHeaderTimeout: options.RequestTimeout, ExpectContinueTimeout: time.Second, MaxConnsPerHost: options.MaxConcurrent, MaxIdleConnsPerHost: options.MaxConcurrent, MaxIdleConns: options.MaxConcurrent, IdleConnTimeout: 30 * time.Second, DisableCompression: true}
 	work, cancel := context.WithCancel(context.Background())
-	r := &HTTPRunner{sender: sender, options: options, transport: transport, work: work, cancel: cancel, slots: make(chan struct{}, options.MaxConcurrent), keys: make(map[string]bool), wait: waitRecovery}
+	r := &HTTPRunner{sender: sender, options: options, transport: transport, work: work, cancel: cancel, slots: make(chan struct{}, options.MaxConcurrent), notices: make(chan struct{}, 1), keys: make(map[string]bool), wait: waitRecovery}
 	r.client = &http.Client{Transport: transport, Timeout: options.RequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return r, nil
 }

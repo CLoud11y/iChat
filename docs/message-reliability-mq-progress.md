@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。下一项 P6.3.4 通知与生产 API 交叉恢复验收。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。下一项 P6.3.4.2 完整消费/发送恢复故障矩阵。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4216,3 +4216,61 @@ HTTP 契约、默认配置、退避与所有权见[客户端 HTTP 恢复](client
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache；全仓回归使用 GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。
 
 建议 commit message：`feat(clientsim): add bounded HTTP send recovery`
+
+
+## P6.3.4 实施前拆分
+
+用户继续下一项后，将通知适配和完整 MQ 消费恢复矩阵分开验收：
+
+- P6.3.4.1：严格 command.result 接入、完整终态/引用语义、HTTP 回执交叉，以及真实生产 API/JWT/WebSocket 与明确驱动方式的验证。
+- P6.3.4.2：完整 MQ 消费与发送恢复故障矩阵，开始前按实际复杂度继续细分。
+
+本次只实施 P6.3.4.1，不将显式仓储/Outbox 驱动报告为生产持久化 consumer 或默认 worker/all 管线完成。
+
+## 2026-11-01：P6.3.4.1 通知接入与生产接口交叉
+
+状态：本小点实现、代码审查、默认回归及真实隔离验收完成，没有自动提交。下一项 **P6.3.4.2：完整消费/发送恢复故障矩阵**。P6.3.4/P6.3 整体、默认完整 worker/all、接收连续游标、自动重连与实际前端仍未完成。没有修改生产路由、schema、依赖或默认运行模式。
+
+### 实现与审查
+
+- 新增 messaging.DecodeCommandResult，对 16 KiB 内包装/data/可选嵌套 message 使用既有严格 JSON/Unicode/序号规则，复用 NewCommandResultFrame 验证状态组合、规范消息、发送者与派生 eventId；拒绝重复/别名/null/错事件/未知字段及尾随内容。
+- HTTPRunner.ObserveCommandResult 绑定本地用户，再匹配本地 key/hash/commandId/原 conversationId。完整 persisted/rejected 进入已有单调核心；引用式 persisted 返回 needsQuery=true，不伪造完整消息或擅自并发查询。未知本地键返回 ErrNotFound，不创建待发送记录。
+- 已知相同完整结果/引用幂等，矛盾结果返回 ErrContradiction。事件不能覆盖原请求；最大 uint64 序号仍为字符串，存储失败前后实际写入两种结果按原快照规则恢复。
+- 通知有独立单个槽，HTTP MaxConcurrent=1 且 Publish 回执阻塞时仍能先保存终态。StoreTimeout 覆盖等待/保存，不启动后台通知队列；Close 等实际通知调用返回，关闭后拒绝迟到帧，借入存储仍由调用方关闭。
+- 调用方负责已鉴权当前 WebSocket、ready/ping/pong、读期限/大小和 session 选择；本项没有自动连接、订阅恢复或接收侧 ACK/连续游标。
+
+契约、完整/引用行为、独立槽与验证范围见[通知接入](client-sender-notifications.md)。协议、开发清单、README、模拟器/HTTP/磁盘指南及测试入口的当前下一项已同步。
+
+### 真实隔离验收
+
+运行 TestProductionSenderCommandResultIntegration：真实 MySQL/Redis/RabbitMQ、JWT 黑名单、默认 API 工厂、真实 publisher confirm、生产 WebSocket/通知 SQL 核验及 FileStore。健康输入是测试夹具，不报告完整进程健康汇总。回执屏障仅延迟真实 accepted 的返回，没有伪造发布结果。
+
+夹具核对实际 AMQP 信封与原请求/物理 attempt，再显式调用生产 PersistCommand、成功后 control ACK，随后显式 RunBatch/RedisNotificationPublisher。此处没有运行生产 persistence consumer、隔离角色或默认 worker/all。
+
+| 场景 | 实际结果 |
+| --- | --- |
+| persisted_before_HTTP | 完整规范 SQL 结果经真实 WebSocket 提前保存；重复帧幂等，迟到 202 仅结束 inFlight |
+| rejected_before_HTTP | 非好友业务拒绝提前保存；迟到 202 不覆盖 NOT_FRIENDS |
+| reference_after_group_leave | 发送群消息提交后退群，生产通知移除完整 message；客户端保留引用待查询，202 后查询自己原终态得到完整 SQL DTO |
+| result_after_HTTP_timeout | broker 已确认但 202 被延迟，实际 150ms 调用期限后保存 unknown；之后真实通知恢复 persisted，原键/原请求和 attempts=1 保持 |
+
+最终重新加载真实磁盘中的四条终态，并逐条与 SQL 原终态/规范消息核对。数据库 **4 command / 3 message / 2 conversation / 7 completed Outbox / 0 delivery cursor / 0 quarantine**，本轮 MQ 提交队列为空，schema 指纹不变；没有发送业务 ACK 或宣称接收侧消息集已保存。
+
+首轮 runId=`33501410738397267025aad42f545852` 在 publisher WaitReady 失败（42.15s），原因是夹具尚未创建拓扑，而 supervisor 只负责只读核验；修正为先 EnsureLocal，再启动 supervisor，没有放宽核验。重跑 runId=`e7d2bf3d06344143668ca69b82eefde2` 四组全部通过：suite **22.61s**、主包 **23.859s**。两轮 fixture Close 均完成，随后按两轮归属标签只读核验容器/卷/网络全部为 0。
+
+### 最终回归
+
+默认新增五组通知测试及子场景覆盖早终态/迟接受、仅引用转查询、重复/矛盾引用、坏 envelope/eventId/Unicode/消息/路由、未知 key、最大序号与写前/写后存储错误、Close 等实际回调返回及关闭后的迟到帧。通知与既有 HTTP 测试共同重复 30 轮。
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./messaging ./tests/clientsim -run '^Test(CommandResult\|HTTP)' -count=30 -shuffle=on -timeout=120s` | 最终 30 轮通过，clientsim 15.447s，无 race；messaging 此筛选仅编译，解码由通知/HTTP 测试实际调用 |
+| `go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderCommandResultIntegration$' -count=1 -v -timeout=8m` | 四组真实场景通过，23.859s，无 race |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓库通过；主包 8.231s、clientsim 4.174s、messaging 1.930s、database 3.266s、service 1.995s、rabbitmq 8.547s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓库标签编译通过，clientsim 2.236s；不代表执行所有真实基础设施 suite |
+| `git diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache，使用 GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。验收使用本轮归属 Docker 和 t.TempDir，无共享开发数据或实际前端变更。
+
+建议 commit message：`feat(clientsim): reconcile command results before HTTP receipts`

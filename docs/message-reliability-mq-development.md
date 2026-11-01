@@ -836,6 +836,8 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
     - [x] P6.3.2 磁盘快照适配、独占所有权、跨进程恢复与存储故障验收，见[磁盘存储](client-sender-file-store.md)。
     - [x] P6.3.3 有界 HTTP 提交/状态查询、退避/取消和原键重试，见[客户端 HTTP 恢复](client-sender-http.md)。
     - [ ] P6.3.4 通知结果与 HTTP 交叉、真实生产 API 发送恢复验收。
+      - [x] P6.3.4.1 严格 command.result 接入、引用转查询、生产 API/WebSocket 交叉；显式驱动仓储/Outbox，见[通知接入](client-sender-notifications.md)。
+      - [ ] P6.3.4.2 完整 MQ 消费与发送恢复故障矩阵，开始前按实际复杂度继续细分。
 - [ ] 覆盖持续在线尾消息丢失、分页期间并发写入、乱序到达、浏览器本地存储重置。
 - [ ] 输出前端接入说明；真实前端不在仓库时标注实际联调待办，不伪造完成。
 
