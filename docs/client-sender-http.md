@@ -1,6 +1,6 @@
 # P6.3.3：模拟客户端 HTTP 提交与发送恢复
 
-`tests/clientsim.HTTPRunner` 将[发送状态核心](client-sender-simulator.md)接到有界 HTTP。P6.3.3 本轮服务器使用真实 loopback HTTP 夹具；后续 [P6.3.4.1](client-sender-notifications.md) 已验证生产接口/通知交叉，P6.3.4.2.1 已验证[真实消费基线](client-sender-pipeline.md)，响应丢失/原键重发与基础设施故障矩阵继续分项验收。
+`tests/clientsim.HTTPRunner` 将[发送状态核心](client-sender-simulator.md)接到有界 HTTP。P6.3.3 本轮服务器使用真实 loopback HTTP 夹具；后续 [P6.3.4.1](client-sender-notifications.md) 已验证生产接口/通知交叉，P6.3.4.2.1 已验证[真实消费基线](client-sender-pipeline.md)，P6.3.4.2.2.1 已验证[回执丢失恢复](client-sender-lost-response.md)，同键冲突/失败查询与基础设施故障矩阵继续分项验收。
 
 ## 构造、请求与所有权
 
@@ -63,4 +63,4 @@ go test -mod=readonly -p=2 -tags=integration ./... -run '^$'
 
 真实 FileStore 流程：首 POST 已读原请求后主动断开；重开磁盘、查询 pending、显式同键同内容提交 202、再次查询 persisted、再次重开磁盘保留终态。核对两次 POST 请求字节完全相同和原 hash/计数/完整消息。服务器为夹具，不是生产 MQ/SQL 管线。
 
-恢复测试以确定性计时器记录建议等待值（包括 2 秒 poll 下限、3 秒 Retry-After），不把该测试报告成真实耗时测量；另用实际长计时器验证取消/Close 能打断等待。预算、隔离/冲突、认证、SQL/协议失败和存储已写后报错均单独覆盖。阶段证据见[实施记录](message-reliability-mq-progress.md)，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，下一项 P6.3.4.2.2。
+恢复测试以确定性计时器记录建议等待值（包括 2 秒 poll 下限、3 秒 Retry-After），不把该测试报告成真实耗时测量；另用实际长计时器验证取消/Close 能打断等待。预算、隔离/冲突、认证、SQL/协议失败和存储已写后报错均单独覆盖。阶段证据见[实施记录](message-reliability-mq-progress.md)，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，下一项 P6.3.4.2.2.2。

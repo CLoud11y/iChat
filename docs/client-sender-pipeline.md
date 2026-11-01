@@ -1,12 +1,14 @@
 # P6.3.4.2.1：生产消费与发送恢复基线
 
-本项将发送模拟器接到真实持久化消费服务和后台 Outbox，验证 HTTP 接受、SQL 业务终态、WebSocket 通知和本地磁盘之间的关系。P6.3.4.2 在实施前拆为消费基线、响应丢失/原键重发交叉、基础设施故障与隔离恢复三项；下一项为 P6.3.4.2.2。P6.3.4/P6.3 整体仍未收口。
+本项将发送模拟器接到真实持久化消费服务和后台 Outbox，验证 HTTP 接受、SQL 业务终态、WebSocket 通知和本地磁盘之间的关系。P6.3.4.2 在实施前拆为消费基线、响应丢失/原键重发交叉、基础设施故障与隔离恢复三项；P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，下一项为 P6.3.4.2.2.2。P6.3.4/P6.3 整体仍未收口。
 
 ## 装配与资源
 
 `TestProductionSenderPipelineIntegration` 与[通知交叉验收](client-sender-notifications.md)共用独立基础设施/API 初始化夹具，每个 suite 分配自己的 runId、MySQL schema、Redis 实例和 RabbitMQ vhost。仅验证归属后迁移、创建用户/好友/群关系；默认 API 工厂使用自身 SQL/Redis 客户端和真实 JWT/黑名单、publisher confirm 与 v1 WebSocket。
 
 测试显式装配 `DialConsumer`、`NewPersistenceService`、`NewOutboxService`：一个真实独立消费连接、prefetch=1、生产严格解码/事务持久化/提交后手动 ACK，以及生产后台领取/Redis 发布/完成结算。Outbox 轮询间隔仅在本夹具设为 20ms，持久化空闲读取为 100ms；其他处理/租约期限沿用默认值。测试不读取 MQ delivery，不调用 PersistCommand、RunBatch 或 control ACK。
+
+后续 P6.3.4.2.2.1 为共享正常路径夹具增加 Claim 外层准入：停止前等待实际 SQL 领取返回，再持有准入并 Drain，不在领取事务进行时取消。不生成或修改仓储结果，不忽略未知错误；进行中领取被取消的故障验收仍归 Outbox 专项及后续矩阵。
 
 回执屏障复用既有夹具，只在实际 broker accepted 后延迟 Publish 返回，不伪造发布成功。API 的健康输入仍是夹具，两个 worker 服务由测试显式启动，未运行生产监督恢复、隔离角色或默认 worker/all 进程工厂。此项证明正常消费到发送端恢复链路，完整进程装配及故障窗口继续单独验收。
 

@@ -1,6 +1,6 @@
 # P6.3.2：发送模拟器磁盘存储
 
-`tests/clientsim.OpenFileStore(ctx, directory)` 将[发送状态核心](client-sender-simulator.md)的 SnapshotStore 接到真实本地文件。使用已有私有目录，不自动创建目录、替换坏日志或删除旧数据。P6.3.2 已完成，P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，下一项 P6.3.4.2.2 响应丢失与原键重发交叉。
+`tests/clientsim.OpenFileStore(ctx, directory)` 将[发送状态核心](client-sender-simulator.md)的 SnapshotStore 接到真实本地文件。使用已有私有目录，不自动创建目录、替换坏日志或删除旧数据。P6.3.2 已完成，P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，下一项 P6.3.4.2.2.2 同键冲突与失败查询交叉。
 
 ## 所有权与使用
 

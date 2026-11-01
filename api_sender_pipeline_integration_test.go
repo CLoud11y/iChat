@@ -20,10 +20,48 @@ import (
 	"iChat/workers"
 )
 
+// A fixture-only admission gate lets normal-path suites stop between actual
+// SQL claims. Cancellation during a claim may correctly report commit unknown;
+// that fault window belongs to the dedicated Outbox acceptance suites.
+type senderOutboxStore struct {
+	*database.OutboxRepository
+	claim chan struct{}
+}
+
+func (s *senderOutboxStore) Claim(ctx context.Context, o database.OutboxClaimOptions) ([]database.OutboxLease, error) {
+	select {
+	case s.claim <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-s.claim }()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return s.OutboxRepository.Claim(ctx, o)
+}
+
+type senderPipeline struct {
+	persist *workers.PersistenceService
+	outbox  *workers.OutboxService
+	session *rabbitmq.ConsumerSession
+	store   *senderOutboxStore
+}
+
+func (p *senderPipeline) drainOutbox(ctx context.Context) error {
+	select {
+	case p.store.claim <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-p.store.claim }()
+	return p.outbox.Drain(ctx)
+}
+
 // Both services run their production loops. The fixture never receives a
 // delivery, calls PersistCommand/RunBatch, or acknowledges a broker delivery.
 // This explicit assembly does not register default worker/all factories.
-func (f *senderResultFixture) startSenderPipeline(t *testing.T) (*workers.PersistenceService, *workers.OutboxService, *rabbitmq.ConsumerSession) {
+func (f *senderResultFixture) startSenderPipeline(t *testing.T) *senderPipeline {
 	t.Helper()
 	setup, stop := context.WithTimeout(f.ctx, 10*time.Second)
 	defer stop()
@@ -67,16 +105,21 @@ func (f *senderResultFixture) startSenderPipeline(t *testing.T) (*workers.Persis
 	}
 	oo := workers.DefaultOutboxServiceOptions()
 	oo.Loop.PollInterval = 20 * time.Millisecond
+	gate := &senderOutboxStore{OutboxRepository: store, claim: make(chan struct{}, 1)}
 	outbox, err := workers.NewOutboxService(func(context.Context) (workers.OutboxResources, error) {
-		return workers.OutboxResources{Store: store, Publisher: publisher, ProbeStorage: f.pool.PingContext,
+		return workers.OutboxResources{Store: gate, Publisher: publisher, ProbeStorage: f.pool.PingContext,
 			ProbeNotification: func(c context.Context) error { return f.client.Ping(c).Err() }}, nil
 	}, oo)
 	if err != nil {
 		t.Fatal(err)
 	}
+	pipeline := &senderPipeline{persist: persist, outbox: outbox, session: session, store: gate}
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		if err := pipeline.drainOutbox(c); err != nil {
+			t.Error(err)
+		}
 		if err := outbox.Close(c); err != nil {
 			t.Error(err)
 		}
@@ -87,7 +130,7 @@ func (f *senderResultFixture) startSenderPipeline(t *testing.T) (*workers.Persis
 	if !persist.ConsumerReady() || !outbox.OutboxReady() {
 		t.Fatal("production sender pipeline not ready")
 	}
-	return persist, outbox, session
+	return pipeline
 }
 
 func (f *senderResultFixture) readSenderResult(t *testing.T, key string) []byte {
@@ -130,6 +173,13 @@ type pipelineSender struct {
 
 func (f *senderResultFixture) openPipelineSender(t *testing.T, directory string) *pipelineSender {
 	t.Helper()
+	o := clientsim.DefaultHTTPOptions("http://"+apiAddress(f.api), func(context.Context) (string, error) { return f.token, nil })
+	o.MaxConcurrent = 1
+	return f.openPipelineSenderWithOptions(t, directory, o)
+}
+
+func (f *senderResultFixture) openPipelineSenderWithOptions(t *testing.T, directory string, o clientsim.HTTPOptions) *pipelineSender {
+	t.Helper()
 	store, err := clientsim.OpenFileStore(f.ctx, directory)
 	if err != nil {
 		t.Fatal(err)
@@ -143,8 +193,6 @@ func (f *senderResultFixture) openPipelineSender(t *testing.T, directory string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	o := clientsim.DefaultHTTPOptions("http://"+apiAddress(f.api), func(context.Context) (string, error) { return f.token, nil })
-	o.MaxConcurrent = 1
 	runner, err := clientsim.NewHTTPRunner(sender, o)
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +220,7 @@ func (p *pipelineSender) close(t *testing.T) {
 
 func TestProductionSenderPipelineIntegration(t *testing.T) {
 	f := newSenderResultFixture(t)
-	persist, outbox, session := f.startSenderPipeline(t)
+	pipeline := f.startSenderPipeline(t)
 	repo, err := database.NewMessageRepository(f.pool)
 	if err != nil {
 		t.Fatal(err)
@@ -293,20 +341,20 @@ func TestProductionSenderPipelineIntegration(t *testing.T) {
 	// production ACK would requeue on close and fail the non-consuming inspection.
 	c, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 	defer cancel()
-	if err := persist.Drain(c); err != nil {
+	if err := pipeline.persist.Drain(c); err != nil {
 		t.Fatal(err)
 	}
-	if err := persist.Close(c); err != nil {
+	if err := pipeline.persist.Close(c); err != nil {
 		t.Fatal(err)
 	}
-	apiWait(t, persist.Done())
-	if err := session.WaitClosed(c); err != nil {
+	apiWait(t, pipeline.persist.Done())
+	if err := pipeline.session.WaitClosed(c); err != nil {
 		t.Fatal(err)
 	}
-	if err := outbox.Drain(c); err != nil {
+	if err := pipeline.drainOutbox(c); err != nil {
 		t.Fatal(err)
 	}
-	apiWait(t, outbox.Done())
+	apiWait(t, pipeline.outbox.Done())
 	// Broker-side cancellation is observed independently of the local join.
 	apiRealEventually(t, func() bool {
 		queue, err := f.channel.QueueInspect(rabbitmq.PersistQueue)
