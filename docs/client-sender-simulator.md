@@ -1,6 +1,6 @@
 # P6.3：模拟客户端发送恢复
 
-仓库尚无实际前端。`tests/clientsim` 已提供发送状态核心、磁盘适配、有界 HTTP 恢复及 command.result 接入；P6.3.4.1 已验证生产接口/通知交叉，完整消费故障矩阵归 P6.3.4.2。
+仓库尚无实际前端。`tests/clientsim` 已提供发送状态核心、磁盘适配、有界 HTTP 恢复及 command.result 接入；P6.3.4.1 已验证生产接口/通知交叉，P6.3.4.2.1 已完成真实消费恢复基线，其余故障矩阵归 P6.3.4.2.2/.3。
 
 | 小点 | 范围 | 状态 |
 | --- | --- | --- |
@@ -8,7 +8,9 @@
 | P6.3.2 | 磁盘快照适配、独占所有权、跨进程恢复及存储故障验收 | 已完成 |
 | P6.3.3 | 有界 HTTP 提交、状态查询、退避/取消和原键重试 | 已完成 |
 | P6.3.4.1 | 严格 command.result 接入及生产 API/WebSocket 交叉，显式驱动仓储/Outbox | 已完成 |
-| P6.3.4.2 | 完整 MQ 消费与发送恢复故障矩阵 | 下一项 |
+| P6.3.4.2.1 | 生产持久化消费/后台 Outbox、终态与错过通知的磁盘重开恢复 | 已完成 |
+| P6.3.4.2.2 | 响应丢失、原键重发与重复/冲突交叉 | 下一项 |
+| P6.3.4.2.3 | 基础设施故障、隔离与角色恢复矩阵及收口 | 待实施 |
 
 本地接收消息集/连续游标归 P6.4，重连/周期同步归 P6.5；不将本项待发送记录中的终态消息当作接收侧完整消息集或 ACK 依据。
 
@@ -62,4 +64,4 @@ go vet -mod=readonly -p=2 -tags=integration ./...
 go test -mod=readonly -p=2 -tags=integration ./... -run '^$'
 ```
 
-P6.3.1 验证状态核心，P6.3.2 验证真实文件/强杀进程，P6.3.3 验证 loopback HTTP/磁盘恢复，P6.3.4.1 验证真实 JWT/MySQL/Redis/Rabbit confirm 与生产 API/WebSocket。通知验收显式驱动仓储/Outbox，不等于生产持久化 consumer；证据见[通知接入](client-sender-notifications.md)和[实施记录](message-reliability-mq-progress.md)。下一项 P6.3.4.2 完整消费/发送恢复故障矩阵，实际前端仍待联调。
+P6.3.1 验证状态核心，P6.3.2 验证真实文件/强杀进程，P6.3.3 验证 loopback HTTP/磁盘恢复，P6.3.4.1 验证真实 JWT/MySQL/Redis/Rabbit confirm 与生产 API/WebSocket。通知验收显式驱动仓储/Outbox，不等于生产持久化 consumer；证据见[通知接入](client-sender-notifications.md)和[实施记录](message-reliability-mq-progress.md)。P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，下一项 P6.3.4.2.2 响应丢失与原键重发交叉，实际前端仍待联调。

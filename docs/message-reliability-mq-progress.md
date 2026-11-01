@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。下一项 P6.3.4.2 完整消费/发送恢复故障矩阵。默认配置仍为 legacy，完整 worker/all 工厂门禁、全管线交叉和实际客户端恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。下一项 P6.3.4.2.2 响应丢失与原键重发交叉。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4274,3 +4274,53 @@ HTTP 契约、默认配置、退避与所有权见[客户端 HTTP 恢复](client
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache，使用 GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。验收使用本轮归属 Docker 和 t.TempDir，无共享开发数据或实际前端变更。
 
 建议 commit message：`feat(clientsim): reconcile command results before HTTP receipts`
+
+
+## P6.3.4.2 实施前拆分
+
+本轮按复杂项先拆分的约定，只实施 P6.3.4.2.1：真实持久化消费者、后台 Outbox，以及成功/拒绝通知和错过通知后的磁盘重开/查询恢复基线。P6.3.4.2.2 留给响应丢失、原键重发和重复/冲突交叉，P6.3.4.2.3 留给基础设施故障、隔离与角色恢复矩阵及发送侧收口；后两项开始前按实际复杂度继续细分。默认 worker/all 门禁和完整故障矩阵不在本轮收口。
+
+
+## 2026-11-01：P6.3.4.2.1 真实消费与发送恢复基线
+
+状态：本小点实现、代码审查、默认回归和真实隔离验收完成，没有自动提交。下一项 **P6.3.4.2.2：响应丢失、原键重发与重复/冲突交叉**，开始前按复杂度继续细分。P6.3.4.2/P6.3.4/P6.3、默认 worker/all、完整基础设施故障矩阵及接收侧恢复仍未收口；没有修改生产业务代码、schema、依赖或默认运行模式。
+
+### 实施与审查
+
+- 从旧通知 suite 提取共享的独立环境、真实 JWT/Redis 黑名单、默认 API 工厂、publisher 和 WebSocket 初始化。上下文取消注册到 t.Cleanup，保持整个 suite 及其资源关闭期间有效；原有四组显式仓储驱动场景保留原范围。
+- 新增 TestProductionSenderPipelineIntegration，显式启动生产 DialConsumer/PersistenceService（一个独立消费连接、prefetch=1）和后台 OutboxService。原生产严格解码、事务持久化、业务拒绝、提交后手动 ACK、Outbox 领取/Redis 发布/完成结算均实际执行，夹具不领取 delivery、不调用 PersistCommand/RunBatch/control ACK。
+- 复用仅延迟真实 broker accepted 返回的回执屏障，验证 private persisted / NOT_FRIENDS rejected 均在 HTTP 回执前保存本地完整终态，重复真实结果幂等，迟到 202 不降级。
+- 群命令场景先关闭 WebSocket，并通过 Redis PUBSUB NUMSUB 确认发送者个人频道订阅为 0。后台正常提交/通知完成/消费 ACK，客户端只知道 accepted；关闭并重开真实 FileStore/Sender/HTTPRunner 后，Recover 以 MaxRounds=1、MaxSubmissions=0 查询恢复原终态，再次重开磁盘验证。
+- 每组核对大小写/前导零/Unicode/NUL/换行/纳秒时区原请求、稳定 key/hash/commandId、attempts=1、inFlight=false 和完整 SQL 原终态。重开是同一进程内 owner 关闭/重建，不将其报告为跨进程强杀。
+- 关闭时先 drain/close 持久化服务、WaitClosed 消费连接，等待 broker 移除唯一消费者，再做不取消息的 QueueInspect；若原 ACK 遗漏，关闭后的重入队必须使 ready=0 检查失败。drain/join Outbox、API 退出后，借入 fixture SQL/Redis 仍可使用。
+
+装配、场景与准确边界见[真实消费基线](client-sender-pipeline.md)，README、协议、阶段清单、发送端指南和测试入口的当前下一项已同步。本项 API 健康输入是夹具，worker 服务显式装配，没有启动监督恢复/隔离角色或默认 worker/all，也没有验证接收消息集/ACK/自动重连。
+
+### 真实运行与资源
+
+首轮组合命令执行旧四组通知交叉和新三组后台消费场景：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(CommandResult|Pipeline)Integration$' -count=1 -v -timeout=8m`
+
+该次组合命令 **失败（45.462s）**。新 suite runId=`242141b9c62922108b62efb514721293` 三组业务场景均通过，但最终 QueueInspect 仍显示 ready=0、consumers=1（suite 23.00s）。夹具只等了服务 Done，尚未显式 WaitClosed 并等待 broker 观察到连接关闭；修正本地完整 join 和远端消费者移除等待后，仍保持最终 ready=0、consumers=0 的严格检查。旧通知 suite runId=`e8a459a9ffc2a5378f26fe7030ce2399` 四组全部通过（22.23s），保留原 4 command / 3 message / 7 completed Outbox 结果，无 race。
+
+修正后单独运行新 suite：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderPipelineIntegration$' -count=1 -v -timeout=8m`
+
+runId=`50938ab5f89f7feb12eac10792b61fca` 三组及最终关闭检查全部通过，suite **24.29s**、主包 **25.544s**，无 race。最终为 **3 command / 2 message / 2 conversation（last_seq 均为 1）/ 5 completed Outbox / 0 delivery cursor / 0 quarantine**，三份磁盘各一条完整终态；原 SQL 终态逐条一致，schema 指纹复核通过，消费者连接 join，队列 ready=0、consumers=0。
+
+三套 fixture Close 完成后，按三轮 io.ichat.test.run 标签只读核验容器/卷/网络，结果全部为空，**0 遗留资源**。没有读写共享开发数据或停止全局 Docker。
+
+### 最终检查
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓通过；主包 8.076s、clientsim 3.806s、database 3.311s、rabbitmq 8.568s、workers 4.169s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓标签编译通过，不代表执行所有基础设施故障 suite |
+| `git diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查重点为共享夹具 context 生命周期、回执屏障异常路径释放、磁盘 owner 不重叠、借入存储释放责任和生产 ACK 的最终队列证明。
+
+建议 commit message：`test(clientsim): verify production consumer sender recovery`

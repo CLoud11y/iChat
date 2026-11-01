@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"iChat/application"
@@ -56,12 +58,27 @@ func (p *senderResultPublisher) Publish(ctx context.Context, c messaging.Command
 	return result, err
 }
 
-// HTTP/JWT/WebSocket/SQL/Redis and Rabbit confirms are real default adapters.
-// Persistence and Outbox are explicitly driven by this fixture; this is not a
-// production persistence consumer or the default worker/all process assembly.
-func TestProductionSenderCommandResultIntegration(t *testing.T) {
+// Shared owned infrastructure and real API/JWT/WebSocket setup. Tests choose
+// whether to drive repositories explicitly or start production worker services.
+type senderResultFixture struct {
+	ctx            context.Context
+	pool           *sql.DB
+	client         *redis.Client
+	users          []models.User
+	group          models.Group
+	publisher      *senderResultPublisher
+	api            *apiService
+	conn           *websocket.Conn
+	token          string
+	channel        *amqp.Channel
+	management     *rabbitmq.Management
+	address, vhost string
+}
+
+func newSenderResultFixture(t *testing.T) *senderResultFixture {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 	env, err := testenv.StartWithRabbitMQ(ctx, "docker-compose.test.yml")
 	if env != nil {
 		t.Cleanup(func() {
@@ -75,7 +92,7 @@ func TestProductionSenderCommandResultIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("production sender command.result fixture run=%s", env.RunID())
+	t.Logf("production sender fixture run=%s", env.RunID())
 	conf, err := env.Config()
 	if err != nil {
 		t.Fatal(err)
@@ -219,6 +236,16 @@ func TestProductionSenderCommandResultIntegration(t *testing.T) {
 	if err := conn.ReadJSON(&hello); err != nil || hello.Type != "ready" || hello.Data.Version != 1 || len(hello.Data.Session) != 32 || conn.Subprotocol() != "ichat.v1" {
 		t.Fatal("invalid production ready", err)
 	}
+	return &senderResultFixture{ctx: ctx, pool: pool, client: client, users: users, group: group,
+		publisher: publisher, api: api, conn: conn, token: token, channel: channel,
+		management: management, address: broker.AMQPURL(), vhost: broker.VHost}
+}
+
+// Repositories and Outbox are explicitly driven in this suite.
+func TestProductionSenderCommandResultIntegration(t *testing.T) {
+	f := newSenderResultFixture(t)
+	ctx, pool, client, users, group := f.ctx, f.pool, f.client, f.users, f.group
+	publisher, api, conn, token, channel := f.publisher, f.api, f.conn, f.token, f.channel
 	directory := t.TempDir()
 	store, err := clientsim.OpenFileStore(ctx, directory)
 	if err != nil {

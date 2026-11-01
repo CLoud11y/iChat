@@ -1,5 +1,13 @@
 # 独立测试环境
 
+P6.3.4.2.1 真实持久化消费、后台 Outbox 与发送恢复基线：
+
+```powershell
+go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(CommandResult|Pipeline)Integration$' -count=1 -v -timeout=8m
+```
+
+新增 Pipeline suite 显式运行生产 PersistenceService/OutboxService，覆盖私聊成功、非好友拒绝先于 HTTP 回执，以及个人频道零订阅时群消息持久化后重开磁盘、只查询恢复。测试不直接取 MQ 消息、不调用 PersistCommand/RunBatch/control ACK；消费连接 join 和 broker 消费者移除后，QueueInspect 核对 ready=0、consumers=0。最终 3 command / 2 message / 2 conversation（last_seq 均为 1）/ 5 completed Outbox / 0 cursor / 0 quarantine，三份磁盘终态逐条匹配原请求及 SQL。API 健康输入是夹具，服务显式装配，未宣称生产监督恢复或默认 worker/all 完成。下一项 P6.3.4.2.2；见[真实消费基线](../docs/client-sender-pipeline.md)。
+
 P6.3.4.1 发送结果通知与生产 API/WebSocket 交叉：
 
 ```powershell
@@ -7,7 +15,7 @@ go test -mod=readonly -p=2 -race ./messaging ./tests/clientsim -run '^Test(Comma
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderCommandResultIntegration$' -count=1 -v -timeout=8m
 ```
 
-真实 JWT/MySQL/Redis/RabbitMQ confirm、默认 API 工厂和 WebSocket，覆盖成功/拒绝终态早于 HTTP、退群后的引用转查询、HTTP 超时后通知恢复及磁盘终态重开。夹具读回实际 MQ 信封后显式 PersistCommand/control ACK/OutboxLoop，不声称生产 consumer 或默认 worker/all 运行。最终 4 command / 3 message / 2 conversation / 7 completed Outbox / 0 cursor / 0 quarantine、4 本地终态。下一项 P6.3.4.2 完整消费/发送恢复故障矩阵；边界见[通知接入](../docs/client-sender-notifications.md)。
+真实 JWT/MySQL/Redis/RabbitMQ confirm、默认 API 工厂和 WebSocket，覆盖成功/拒绝终态早于 HTTP、退群后的引用转查询、HTTP 超时后通知恢复及磁盘终态重开。夹具读回实际 MQ 信封后显式 PersistCommand/control ACK/OutboxLoop，不声称生产 consumer 或默认 worker/all 运行。最终 4 command / 3 message / 2 conversation / 7 completed Outbox / 0 cursor / 0 quarantine、4 本地终态。P6.3.4.2.1 已验证真实消费基线，下一项 P6.3.4.2.2；边界见[通知接入](../docs/client-sender-notifications.md)。
 
 P6.3.3 模拟客户端有界 HTTP 提交/查询及原键恢复：
 

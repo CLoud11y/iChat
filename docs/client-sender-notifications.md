@@ -1,6 +1,6 @@
 # P6.3.4.1：发送结果通知与 HTTP 交叉
 
-P6.3.4 在实施前拆成两项：本项实现严格 command.result 接入及真实生产 API/WebSocket 交叉；下一项 P6.3.4.2 验证完整 MQ 消费/发送恢复故障矩阵。P6.3.4/P6.3 整体尚未收口，客户端接收消息集和连接恢复仍归 P6.4/P6.5。
+P6.3.4 在实施前拆成两项：本项实现严格 command.result 接入及真实生产 API/WebSocket 交叉；后续 P6.3.4.2.1 已验证[真实消费基线](client-sender-pipeline.md)，下一项 P6.3.4.2.2 验证响应丢失与原键重发交叉。P6.3.4/P6.3 整体尚未收口，客户端接收消息集和连接恢复仍归 P6.4/P6.5。
 
 ## 接入契约
 
@@ -29,7 +29,7 @@ needsQuery 由调用方在当前 HTTP 任务结束后安排 Poll/Recover；同�
 
 `TestProductionSenderCommandResultIntegration` 使用本轮独立 MySQL/Redis/RabbitMQ、真实 JWT/黑名单、默认 API 工厂、真实 publisher confirm、生产 WebSocket/通知 SQL 核验与 FileStore。健康输入是测试夹具，验收不声明完整进程健康汇总或默认 worker/all 可用。
 
-回执屏障仅在真实 broker accepted 后暂停 Publish 返回，不伪造成功；夹具读取并核对真实信封，再显式调用生产 PersistCommand，成功返回后才执行夹具 control ACK，随后显式运行生产 OutboxLoop/RedisNotificationPublisher。**这不是生产持久化 consumer 或全后台进程管线**，其故障交叉留给 P6.3.4.2。
+回执屏障仅在真实 broker accepted 后暂停 Publish 返回，不伪造成功；夹具读取并核对真实信封，再显式调用生产 PersistCommand，成功返回后才执行夹具 control ACK，随后显式运行生产 OutboxLoop/RedisNotificationPublisher。**这不是生产持久化 consumer 或全后台进程管线**，后续真实消费服务验收见[P6.3.4.2.1](client-sender-pipeline.md)，故障矩阵仍待后续。
 
 四组场景：
 
