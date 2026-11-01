@@ -34,10 +34,21 @@ type senderRecoveryExchange struct {
 	at           time.Time
 }
 
-// Forwards actual production responses without changing their contents. Only
-// after validating a real 202 does it close the first caller's TCP connection.
-// The second 202 is held so the test can inspect both queued physical attempts
-// before starting the real consumer. It never publishes or touches business SQL.
+type senderRecoveryAction uint8
+
+const (
+	senderRecoveryForward senderRecoveryAction = iota
+	senderRecoveryDrop
+	senderRecoveryHold
+)
+
+type senderRecoveryProxyOptions struct {
+	dropFirstPost, holdSecondPost bool
+	statusAction                  func(senderRecoveryExchange) senderRecoveryAction
+}
+
+// Forwards actual production responses without changing their contents. Faults
+// only drop or delay already-read responses. It never publishes or touches SQL.
 type senderRecoveryProxy struct {
 	server        *httptest.Server
 	mu            sync.Mutex
@@ -45,9 +56,15 @@ type senderRecoveryProxy struct {
 	posts         int
 	held, release chan struct{}
 	releaseOnce   sync.Once
+	heldOnce      sync.Once
 }
 
 func newSenderRecoveryProxy(t *testing.T, origin string) *senderRecoveryProxy {
+	t.Helper()
+	return newSenderRecoveryProxyWithOptions(t, origin, senderRecoveryProxyOptions{dropFirstPost: true, holdSecondPost: true})
+}
+
+func newSenderRecoveryProxyWithOptions(t *testing.T, origin string, options senderRecoveryProxyOptions) *senderRecoveryProxy {
 	t.Helper()
 	p := &senderRecoveryProxy{held: make(chan struct{}), release: make(chan struct{})}
 	transport := &http.Transport{Proxy: nil, DisableCompression: true,
@@ -95,33 +112,43 @@ func newSenderRecoveryProxy(t *testing.T, origin string) *senderRecoveryProxy {
 				return
 			}
 		}
+		exchange := senderRecoveryExchange{method: r.Method, path: r.URL.Path,
+			query: r.URL.Query(), request: body, response: result, status: response.StatusCode, at: time.Now()}
 		p.mu.Lock()
-		p.exchanges = append(p.exchanges, senderRecoveryExchange{method: r.Method, path: r.URL.Path,
-			query: r.URL.Query(), request: body, response: result, status: response.StatusCode, at: time.Now()})
+		p.exchanges = append(p.exchanges, exchange)
 		if r.Method == http.MethodPost {
 			p.posts++
 		}
 		post := p.posts
 		p.mu.Unlock()
-		if r.Method == http.MethodPost {
-			switch post {
-			case 1:
-				connection, _, err := w.(http.Hijacker).Hijack()
-				if err != nil {
-					fail()
-					return
-				}
-				connection.Close() // No response headers/body reach HTTPRunner.
-				return
-			case 2:
-				close(p.held)
-				select {
-				case <-p.release:
-				case <-r.Context().Done():
-					return
-				}
-			default:
+		action := senderRecoveryForward
+		if r.Method == http.MethodGet && options.statusAction != nil {
+			action = options.statusAction(exchange)
+		} else if r.Method == http.MethodPost {
+			if post > 2 {
 				fail()
+				return
+			}
+			if post == 1 && options.dropFirstPost {
+				action = senderRecoveryDrop
+			} else if post == 2 && options.holdSecondPost {
+				action = senderRecoveryHold
+			}
+		}
+		switch action {
+		case senderRecoveryDrop:
+			connection, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				fail()
+				return
+			}
+			connection.Close() // No response headers/body reach HTTPRunner.
+			return
+		case senderRecoveryHold:
+			p.heldOnce.Do(func() { close(p.held) })
+			select {
+			case <-p.release:
+			case <-r.Context().Done():
 				return
 			}
 		}

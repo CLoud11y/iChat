@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。下一项 P6.3.4.2.2.2 同键冲突与失败查询交叉。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。下一项 P6.3.4.2.3 基础设施/隔离与角色恢复矩阵。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4383,3 +4383,57 @@ runId=`50938ab5f89f7feb12eac10792b61fca` 三组及最终关闭检查全部通过
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖代理无隐式 POST 重放、真实响应校验/字节保留、回执屏障退出路径、磁盘 owner 不重叠、原键预算、Claim 关闭边界以及最终业务/物理投递集合。README、协议、开发清单、发送端指南与测试入口的当前下一项均已同步。
 
 建议 commit message：`test(clientsim): recover lost production send responses`
+
+
+## P6.3.4.2.2.2 实施边界
+
+本轮复用既有代理、磁盘和生产消费夹具，以三个独立场景完成本小点，不再细分：真实 pending 查询回应丢失时不授权重发；独立本地 checkpoint 同键异内容查询真实 409 后禁止提交且原终态保持；真实 WebSocket 完整终态先于被延迟的 pending HTTP 回应时不降级或重发。代理仅丢弃或暂缓真实回应，不伪造状态；SQL/MQ/Redis 故障和隔离/监督恢复仍归 P6.3.4.2.3。
+
+
+## 2026-11-02：P6.3.4.2.2.2 查询失败、同键冲突与迟到结果
+
+状态：本小点实现、代码审查、真实隔离验收和默认回归完成，没有自动提交。**P6.3.4.2.2 的回执丢失/原键重发/查询与冲突交叉范围收口。** 下一项 **P6.3.4.2.3：基础设施故障、隔离与角色恢复矩阵及发送侧收口**，开始前按实际复杂度继续细分。P6.3.4.2/P6.3.4/P6.3、默认 worker/all 和接收侧仍未整体完成；没有修改生产业务代码、schema、依赖或默认运行模式。
+
+### 实施与审查
+
+- 为既有 senderRecoveryProxy 增加显式选项，实际读取生产响应后可原样转发、丢弃或暂缓。GET 只丢弃/延迟实际 API 回应，不伪造 pending、409 或终态；保持请求/响应证据不含 token。旧构造器继续选择丢弃第一次真实 202、暂缓第二次真实 202，原两组恢复场景同步回归。
+- 新增 TestProductionSenderRecoveryGuardsIntegration 三个独立 runId 场景，复用真实 JWT/MySQL/Redis/RabbitMQ confirm、默认 API 工厂、生产消费者/后台 Outbox、WebSocket 与 FileStore，未直接领取 MQ delivery、调用 PersistCommand/RunBatch/control ACK。
+- 失败查询：第一次真实 202 丢失后，无消费者时三次实际 GET 都得到匹配 pending，代理逐次断开下游 TCP。Recover 虽保留两次提交预算，仍只产生 POST→GET→GET→GET，返回 ErrRecoveryExhausted/ErrHTTPUnavailable，不修改原 unknown/attempts=1/request；重开磁盘仍相同，队列 ready=1、consumers=0。恢复转发和正常消费后，仅 GET 原终态，再次重开磁盘保存 persisted，始终无重发。
+- 同键冲突：原请求已通过 HTTP/消费/通知持久化，同一 Sender.Queue 拒绝改内容复用 key。独立磁盘通过 Queue/BeginSubmit/CompleteUnknown 显式建立同键异 hash 的 interrupted checkpoint，实际 GET 得到 409/code=-1/ID_CONFLICT，响应只带请求 hash，无原 hash/消息。原 hash 的真实迟到通知返回 ErrProtocol、不修改冲突；重开后 Recover 和 Submit 均 ErrBlocked、不再 HTTP。原磁盘和 SQL 完整终态保持。该 checkpoint 没有发送冲突 POST，不将其报告为 MQ 冲突隔离验收。
+- 迟到 pending：丢失真实 202、重开磁盘后，代理实际读取 GET pending 并阻塞返回；随后启动生产消费/Outbox，真实 WebSocket 完整 command.result 在 Recover 尚活动时先保存终态。放行原 pending 后完整终态逐字段不变，不使用剩余提交预算。HTTP 只有 POST→GET，attempts=1；再重开磁盘及再次 Recover 都不增加网络请求。
+- 三组最终逐条核对原请求/SQL 终态、消息唯一性、last_seq=1、两条完成 Outbox、生产消费连接加入后队列为空，以及迁移指纹。正常退出继续使用既有 Claim 边界协调，不吞掉错误或放宽集合检查。
+
+完整场景与边界见[查询/冲突交叉](client-sender-recovery-guards.md)。SQL/Redis/broker 实际故障、监督/隔离恢复、默认 worker/all、跨进程强杀及前端/接收侧没有冒充完成；本轮磁盘重开是同一进程中的 owner 关闭/重建。
+
+### 真实验收与资源
+
+执行：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(RecoveryGuards|LostResponseRecovery)Integration$' -count=1 -v -timeout=8m`
+
+首轮全部通过，主包 **120.535s**，无 race。
+
+| 场景 | runId | 结果 |
+| --- | --- | --- |
+| 连续丢失查询回应，不授权重发 | `0f2c989ee57905bbad7c1ec6430cb6a6` | 25.49s；初始 POST 一次、三次查询回应实际丢失，修复后一次 GET 终态，无重发 |
+| 同键异内容真实 409 | `33fcf319e617a2595912b19272422e49` | 22.34s；原命令正常保存，冲突 checkpoint 只 GET 409；两份磁盘分别保留原终态与 blocked 记录 |
+| 真实终态先于迟到 pending | `e18132b3ae3a16979849748abdabf57a` | 22.23s；完整 WebSocket 终态先保存，旧 pending 不降级/重发 |
+| 旧 pending 授权原请求重发 | `b4d8fff9e96c385c91a0e7b775457ffa` | 26.43s；两次实际发布、四次 HTTP，业务幂等保持 |
+| 旧 persisted 阻止重发 | `2743539146140eab86820124e7eedf2a` | 22.78s；一次实际发布、两次 HTTP，已有终态不重发 |
+
+新三组 suite **70.06s**，旧两组 suite **49.21s**。每个新场景最终 **1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 delivery cursor / 0 quarantine**，原 SQL 终态逐字段一致；消费连接 WaitClosed、broker 消费者移除后，QueueInspect ready=0、consumers=0。
+
+五套 fixture Close 全部完成，随后按五轮 io.ichat.test.run 标签只读核验容器/卷/网络均为空，**0 遗留资源**。没有操作共享开发数据或停止全局 Docker。
+
+### 最终检查
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓通过；主包 8.403s、clientsim 3.573s、database 3.322s、rabbitmq 8.597s、workers 4.173s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓标签编译通过，不代表运行其他基础设施 suite |
+| `git diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖代理选项保留原默认行为、atomic 切换查询故障、屏障与 owner 退出、完整终态优先、冲突 hash 隔离、预算不等同重发授权及精确集合。README、协议、阶段清单、发送端指南和测试入口的当前下一项均已同步。
+
+建议 commit message：`test(clientsim): enforce recovery query and conflict guards`

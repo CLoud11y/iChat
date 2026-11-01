@@ -1,6 +1,6 @@
 # P6.2.3.1：向前补拉 HTTP
 
-现代 API 提供 `GET /auth/messages/sync`，默认工厂从自有 SQL 池构造真实 `MessageRepository.SyncMessages`。权限、单页 RR 快照、连续范围和规范 MessageDTO 沿用 P2.7；P6.2.3.2 已完成[历史 HTTP](message-history-http.md)，P6.3.1 [发送状态核心](client-sender-simulator.md)已完成，P6.3.2 [磁盘存储](client-sender-file-store.md)已完成，P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，下一项 P6.3.4.2.2.2 同键冲突与失败查询交叉。
+现代 API 提供 `GET /auth/messages/sync`，默认工厂从自有 SQL 池构造真实 `MessageRepository.SyncMessages`。权限、单页 RR 快照、连续范围和规范 MessageDTO 沿用 P2.7；P6.2.3.2 已完成[历史 HTTP](message-history-http.md)，P6.3.1 [发送状态核心](client-sender-simulator.md)已完成，P6.3.2 [磁盘存储](client-sender-file-store.md)已完成，P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，下一项 P6.3.4.2.3 基础设施故障与角色恢复矩阵。
 
 ## 请求与响应
 
