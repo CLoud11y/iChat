@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。下一项 P6.3.4.2.3.2 Redis 通知故障与 Outbox 恢复。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与查询兜底已完成。下一项 P6.3.4.2.3.3 MQ/消费角色恢复。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4490,3 +4490,57 @@ runId=`50938ab5f89f7feb12eac10792b61fca` 三组及最终关闭检查全部通过
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖可选配置只作用于 API、中继 socket/任务归属与退出、真实 503 不携带 pending、两个阶段预算不授权重发、同一 SQL handle 恢复及精确物理/业务集合。README、协议、阶段清单、发送端指南和测试入口的当前下一项均已同步。
 
 建议 commit message：`test(clientsim): recover from API SQL connection faults`
+
+
+## P6.3.4.2.3.2 实施边界
+
+复用现有 TCP 故障中继、真实消费和磁盘夹具，本轮以 accepted/unknown 两条路径一次验收本小点，不再细分。只切断 Outbox 发布/探针客户端的 Redis 通路，API 鉴权/订阅 Redis 保持正常；验证实际发布错误回退 pending、角色探针失败后退出且加入，再以状态查询兜底。原请求不重发；恢复通路后显式构造新 Outbox 实例处理原事件，迟到真实通知不得改写已保存终态。默认 worker/all、自动监督重启、MQ/消费角色和隔离重放仍在后续范围。
+
+
+## 2026-11-02：P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与查询兜底
+
+状态：本小点实现、代码审查、真实隔离验收与默认回归完成，没有自动提交。下一项 **P6.3.4.2.3.3：MQ 连接、持久化消费角色恢复与发送端交叉**，开始前按复杂度继续细分。P6.3.4.2.3/P6.3.4.2/P6.3、隔离/重放、默认 worker/all、接收侧与实际前端仍未整体收口；没有修改生产业务代码、schema、依赖或默认运行模式。
+
+### 实施与审查
+
+- 共享消费夹具增加可选通知客户端、Outbox 参数与确切预期错误核对；默认入口仍使用原 f.client/默认参数（仅已有 poll=20ms）。静态 drain helper 和 cleanup 捕获各自角色，不因 pipeline 当前指针换代而清理错实例。默认路径及新实例的错误仍导致失败。
+- 新增 TestProductionSenderRedisRecoveryIntegration，accepted/unknown 各用独立真实 MySQL/Redis/RabbitMQ、JWT/黑名单、默认 API 工厂、publisher confirm、生产持久化消费/Outbox、WebSocket 和 FileStore。
+- 仅 Outbox 发布/探针客户端经过真实 TCP 中继，客户端禁用隐式重试、网络/池等待各一秒。服务初次 PING 成功后断开现有连接并拒绝重连；该客户端 Ping 必须失败，API 直连 Redis Ping 仍正常，鉴权/个人订阅不受影响，没有停止 Redis 进程。
+- 两条路径均只实际发布一次：accepted 真实接收 202，unknown 由代理完整读取真实 202 后断开下游 TCP。客户端保持原状态、attempts=1、Result=nil；生产发布错误将两个原事件回退 pending/NOTIFICATION_UNKNOWN，attempts>0、lease 清空、无 completed_at。真实 Redis PING 失败后旧角色撤销 ready，以 dependency probe 错误结束并关闭 Done。
+- 在通知通路恢复前，停止并加入唯一消费者连接、等待 broker 移除消费者后 QueueInspect ready=0/consumers=0，证明生产 MQ ACK 不等待通知。客户端随后只 GET 原 persisted，经仍正常的鉴权/SQL 保存完整终态；查询不修改两条失败事件。重开磁盘仍保留原请求/身份/hash、attempts=1 和完整 SQL DTO。
+- 恢复通知 TCP 通路后，旧实例仍 single-use，Start 返回 ErrOutboxServiceStart、原错误保持且 ready=false。确认旧 Done 后显式构造新的生产 OutboxService，借用原 store/client，按真实 available_at 与抖动重试原事件；没有手动改 deadline 或直接结算 SQL。
+- 迟到完整 command.result 经实际 WebSocket 到达，连续 Observe 两次幂等，已保存终态逐字段不变。原 eventId/payload 保持、attempts 递增、completed 和 last_error 清空；再次磁盘重开仍相同。每条路径 HTTP 恰为 1 POST + 1 GET，不生成新 ID 或重发。
+- 本夹具选择探针 5s、重试上限 1s（Base=1s、真实 jitter/数据库时钟），保证实际发布失败先结算并限制读取等待；其他处理/租约期限沿用默认。cleanup 只接受已经 Done、已核验的确切旧角色错误，不忽略其他来源错误。
+
+装配、故障位置和精确责任见[Redis 通知故障恢复](client-sender-redis-recovery.md)。角色替换由测试显式构造，不声明 RunRuntime 自动重启、默认完整 worker/all 或 Redis 进程故障验收；磁盘重开仍为同一进程中的 owner 关闭/重建，MQ/消费监督及隔离重放留给后续两项。
+
+### 真实验收与资源
+
+执行：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(RedisRecovery|Pipeline)Integration$' -count=1 -v -timeout=8m`
+
+首轮全部通过，主包 **81.030s**，无 race。
+
+| 场景 | runId | 结果 |
+| --- | --- | --- |
+| 原三组消费基线 | `5984a5aabb8d8551636d211af0d4bac2` | 23.60s；默认入口无预期错误例外，原集合和关闭检查保持 |
+| accepted 通知故障及 Outbox 替换 | `f5774c94e27b363647e9abdf933fdc6a` | 27.83s；原事件失败回退、旧角色加入、查询兜底、原事件完成与迟到通知幂等 |
+| unknown 通知故障及 Outbox 替换 | `096733867c4e070eaded70dea62de585` | 28.29s；真实 202 丢失后原 unknown 保持，查询兜底后原事件完成，未重发 |
+
+新 suite 总计 **56.13s**。每个新场景最终 **1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 delivery cursor / 0 quarantine**，本地一条完整终态、attempts=1；原 SQL 终态和迁移指纹保持。消费者在 Redis 恢复前已加入，broker 队列 ready=0、consumers=0；旧 Outbox Done 在新实例构造之前关闭，错误没有被新实例抹掉。
+
+三套 fixture Close 完成，随后按三轮 io.ichat.test.run 标签只读核验容器/卷/网络全部为空，**0 遗留资源**。新角色先加入，借入通知客户端关闭、中继任务退出后再回收本轮环境；没有操作共享开发数据或停止全局 Docker/Redis。
+
+### 最终检查
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓通过；主包 8.653s、clientsim 3.729s、database 3.125s、rabbitmq 8.932s、workers 4.254s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓标签编译通过，不代表执行其他基础设施 suite |
+| `git diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖通知/鉴权通路隔离、原事件身份/内容不可变、ACK 与通知解耦、状态兜底不修改 Outbox、单实例边界、确切错误保留和代际 cleanup。README、协议、阶段清单、发送端指南与测试入口的当前下一项均已同步。
+
+建议 commit message：`test(clientsim): recover from notification Redis faults`

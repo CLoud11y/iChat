@@ -1,6 +1,6 @@
 # P6.3.4.2.1：生产消费与发送恢复基线
 
-本项将发送模拟器接到真实持久化消费服务和后台 Outbox，验证 HTTP 接受、SQL 业务终态、WebSocket 通知和本地磁盘之间的关系。P6.3.4.2 在实施前拆为消费基线、响应丢失/原键重发交叉、基础设施故障与隔离恢复三项；P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，下一项为 P6.3.4.2.3.2。P6.3.4/P6.3 整体仍未收口。
+本项将发送模拟器接到真实持久化消费服务和后台 Outbox，验证 HTTP 接受、SQL 业务终态、WebSocket 通知和本地磁盘之间的关系。P6.3.4.2 在实施前拆为消费基线、响应丢失/原键重发交叉、基础设施故障与隔离恢复三项；P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，下一项为 P6.3.4.2.3.3。P6.3.4/P6.3 整体仍未收口。
 
 ## 装配与资源
 
@@ -40,3 +40,6 @@ go test -mod=readonly -p=2 -tags=integration ./... -run '^$'
 ```
 
 固定工具链和运行/资源证据见[实施记录](message-reliability-mq-progress.md)。第一个命令同时回归四组显式仓储驱动的旧通知测试和三组后台消费测试，不能将标签编译通过当作执行其他故障 suite。
+
+
+P6.3.4.2.3.2 为共享夹具增加可选通知 Redis 客户端/Outbox 参数；默认仍按原配置启动。正常和失败角色的 cleanup 各捕获其本身，预期错误只接受已核验并 Done 的确切旧角色错误，不会忽略新实例或默认路径的错误；真实替换范围见[Redis 通知故障恢复](client-sender-redis-recovery.md)。

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"iChat/database"
 	"iChat/messaging"
@@ -49,19 +50,30 @@ type senderPipeline struct {
 }
 
 func (p *senderPipeline) drainOutbox(ctx context.Context) error {
+	return drainSenderOutbox(ctx, p.outbox, p.store)
+}
+
+func drainSenderOutbox(ctx context.Context, outbox *workers.OutboxService, store *senderOutboxStore) error {
 	select {
-	case p.store.claim <- struct{}{}:
+	case store.claim <- struct{}{}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	defer func() { <-p.store.claim }()
-	return p.outbox.Drain(ctx)
+	defer func() { <-store.claim }()
+	return outbox.Drain(ctx)
 }
 
 // Both services run their production loops. The fixture never receives a
 // delivery, calls PersistCommand/RunBatch, or acknowledges a broker delivery.
 // This explicit assembly does not register default worker/all factories.
 func (f *senderResultFixture) startSenderPipeline(t *testing.T) *senderPipeline {
+	t.Helper()
+	oo := workers.DefaultOutboxServiceOptions()
+	oo.Loop.PollInterval = 20 * time.Millisecond
+	return f.startSenderPipelineWithNotifications(t, f.client, oo, nil)
+}
+
+func (f *senderResultFixture) startSenderPipelineWithNotifications(t *testing.T, client *redis.Client, oo workers.OutboxServiceOptions, expectedFailure func(error) bool) *senderPipeline {
 	t.Helper()
 	setup, stop := context.WithTimeout(f.ctx, 10*time.Second)
 	defer stop()
@@ -99,16 +111,14 @@ func (f *senderResultFixture) startSenderPipeline(t *testing.T) *senderPipeline 
 	if err != nil {
 		t.Fatal(err)
 	}
-	publisher, err := workers.NewRedisNotificationPublisher(f.client)
+	publisher, err := workers.NewRedisNotificationPublisher(client)
 	if err != nil {
 		t.Fatal(err)
 	}
-	oo := workers.DefaultOutboxServiceOptions()
-	oo.Loop.PollInterval = 20 * time.Millisecond
 	gate := &senderOutboxStore{OutboxRepository: store, claim: make(chan struct{}, 1)}
 	outbox, err := workers.NewOutboxService(func(context.Context) (workers.OutboxResources, error) {
 		return workers.OutboxResources{Store: gate, Publisher: publisher, ProbeStorage: f.pool.PingContext,
-			ProbeNotification: func(c context.Context) error { return f.client.Ping(c).Err() }}, nil
+			ProbeNotification: func(c context.Context) error { return client.Ping(c).Err() }}, nil
 	}, oo)
 	if err != nil {
 		t.Fatal(err)
@@ -117,10 +127,11 @@ func (f *senderResultFixture) startSenderPipeline(t *testing.T) *senderPipeline 
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := pipeline.drainOutbox(c); err != nil {
+		// Capture this exact role; later generations have independent cleanup.
+		if err := drainSenderOutbox(c, outbox, gate); err != nil && (expectedFailure == nil || !expectedFailure(err)) {
 			t.Error(err)
 		}
-		if err := outbox.Close(c); err != nil {
+		if err := outbox.Close(c); err != nil && (expectedFailure == nil || !expectedFailure(err)) {
 			t.Error(err)
 		}
 	})

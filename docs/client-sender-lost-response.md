@@ -1,6 +1,6 @@
 # P6.3.4.2.2.1：接受回执丢失与原请求恢复
 
-本项在[真实消费基线](client-sender-pipeline.md)上验证：HTTP 接受回执丢失后，磁盘重开仍保留原请求与 unknown；只有有效 pending 查询允许重发，已持久化的查询结果直接结束恢复。P6.3.4.2.2.2 已完成[查询/冲突/迟到结果交叉](client-sender-recovery-guards.md)，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，下一项 P6.3.4.2.3.2 Redis 通知故障与 Outbox 恢复，P6.3 整体仍未收口。
+本项在[真实消费基线](client-sender-pipeline.md)上验证：HTTP 接受回执丢失后，磁盘重开仍保留原请求与 unknown；只有有效 pending 查询允许重发，已持久化的查询结果直接结束恢复。P6.3.4.2.2.2 已完成[查询/冲突/迟到结果交叉](client-sender-recovery-guards.md)，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，下一项 P6.3.4.2.3.3 MQ 连接与消费角色恢复，P6.3 整体仍未收口。
 
 ## 实际故障注入
 
