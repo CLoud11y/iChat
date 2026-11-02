@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与查询兜底已完成。下一项 P6.3.4.2.3.3 MQ/消费角色恢复。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与查询兜底已完成。P6.3.4.2.3.3.1 消费连接监督换代与原键恢复已完成。下一项 P6.3.4.2.3.3.2 发布通路/确认未知与在途消费交叉。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4544,3 +4544,59 @@ runId=`50938ab5f89f7feb12eac10792b61fca` 三组及最终关闭检查全部通过
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖通知/鉴权通路隔离、原事件身份/内容不可变、ACK 与通知解耦、状态兜底不修改 Outbox、单实例边界、确切错误保留和代际 cleanup。README、协议、阶段清单、发送端指南与测试入口的当前下一项均已同步。
 
 建议 commit message：`test(clientsim): recover from notification Redis faults`
+
+
+## P6.3.4.2.3.3 实施前拆分
+
+本轮先实施 P6.3.4.2.3.3.1：空闲消费连接实际中断后，生产 PersistenceSupervisor 等旧连接/资源加入再建立新一代；故障期间真实 accepted/unknown 命令留在队列，客户端保持原键/请求并经查询恢复，不额外 POST。P6.3.4.2.3.3.2 留给发布通路/确认未知和在途消费故障交叉，开始前按复杂度继续细分。本轮不声称覆盖在途 COMMIT/ACK 丢失、broker 进程故障、默认 worker/all 或父项收口。
+
+
+## 2026-11-02：P6.3.4.2.3.3.1 消费连接监督换代与发送原键恢复
+
+状态：本小点实现、代码审查、真实隔离验收及默认回归完成，没有自动提交。下一项 **P6.3.4.2.3.3.2：发布通路/确认未知及在途消费故障交叉**，开始前按实际复杂度继续细分。P6.3.4.2.3.3/P6.3.4.2.3/P6.3、隔离重放、默认 worker/all 及接收侧仍未整体收口；没有修改生产业务代码、schema、依赖或默认运行模式。
+
+### 实施与审查
+
+- 新增 TestProductionSenderConsumerRecoveryIntegration，accepted/unknown 各用独立 runId 的真实 MySQL/Redis/RabbitMQ、JWT/黑名单、默认 API 工厂、publisher confirm、生产 PersistenceSupervisor/持久化处理、后台 Outbox、WebSocket 与 FileStore。
+- 注入实际调用生产 DialConsumer 的会话资源来源，每轮只提供一个独立拓扑核验连接、prefetch=1。资源组 Close 实际 session.Close/WaitClosed 加入后才释放 active 并关闭 closed；工厂入口和取得会话期间均记录 overlap。来源不处理消息，监督器负责实际换代和退避。
+- 仅消费者 AMQP URI 主机端口经过原字节 TCP 中继。初次就绪后空闲时切断现有连接并拒绝重连，publisher/控制连接、broker 进程、SQL、Redis/Outbox 保持正常。等待旧组实际加入、ready=false、active=0/overlap=false，并等待 broker 移除旧消费者，再开始命令场景。
+- 故障期间只实际 POST 一次，accepted 正常收实际 202，unknown 由记录代理读完实际 202 后断开下游 TCP。broker 确认命令保留在原队列，ready=1/consumers=0，command/message/Outbox 尚为空。单轮/一次可用提交预算 Recover 只 GET 实际匹配 pending，以 ErrRecoveryExhausted 保留记录，不进入下一轮重发。
+- accepted 保留已知接受，unknown 可保留有效 pending 查询证据；原请求/键/hash、attempts=1/inFlight=false 保持，重开磁盘后 checkpoint 逐字段相同。没有把 pending 解释为永久禁止重发，本项只是有意结束在下一轮之前。
+- 恢复 TCP 通路后，由生产监督器自动调用来源创建新会话，Generation 增长、实际 Done channel 不同，旧组已加入、新组不重叠。新消费者处理并 ACK 原排队 delivery，后台 Outbox 完成；客户端只再 GET 原 persisted，实际 WebSocket 迟到完整结果幂等，再次重开磁盘保留原请求和完整 SQL DTO。
+- 最终 drain/close/join 监督器，所有成功取得的组均 closed、active=0、overlap=false，再观察 broker Consumers=0 和 ready=0。原 SQL 终态、业务集合/序号及迁移指纹保持；没有控制端 Get/ACK、直接 PersistCommand/RunBatch 或手工结算。
+
+本夹具选用 connect/close/write/heartbeat=1s、operation=2s，监督 setup=5s/backoff=100—500ms、worker poll=100ms/probe=1s/500ms/close=3s，其余处理/事务重试沿用默认，Outbox poll=20ms。没有修改生产默认值；资源 join 不能由观察期限替代。
+
+准确范围见[消费连接监督恢复](client-sender-consumer-recovery.md)。本项中断的是空闲连接，命令在旧 owner 加入后才发布，不冒充已领取消息的 redelivery 或在途 COMMIT/ACK 丢失。会话来源是测试适配、监督/处理是真实生产实现，API 健康输入仍是夹具，没有声明默认 application 角色来源、worker/all、隔离角色或前端已完成；磁盘重开是在同一进程内关闭/重建 owner。
+
+### 真实验收与资源
+
+执行：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderConsumerRecoveryIntegration$' -count=1 -v -timeout=8m`
+
+首次两条均通过，suite **45.43s**、主包 **46.697s**：accepted runId=`7732dd12e852106eb95437d6d731e45c`（22.88s），unknown runId=`fe35873e879eb52ce3880764f1e07f6c`（22.55s）。随后补齐故障准备阶段 broker 移除旧消费者的显式观察，避免本地 join/远端取消异步窗口，再执行同一命令复验。
+
+最终复验首轮通过，suite **46.75s**、主包 **48.004s**，无 race：
+
+| 场景 | runId | 结果 |
+| --- | --- | --- |
+| accepted 消费连接中断后监督恢复 | `213a9bc28372538b6514fefed7700cb6` | 23.01s；Generation 1→2，两个真实会话组、overlap=false，退出 active=0 |
+| unknown 消费连接中断后监督恢复 | `c9bf59bbe7891e2a4f69ee2b94b733ec` | 23.74s；Generation 1→2，两个真实会话组、overlap=false，退出 active=0 |
+
+每份最终 **1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 delivery cursor / 0 quarantine**，HTTP 恰为 1 POST + 2 GET（pending→persisted）、attempts=1，本地一条完整终态；原 SQL 结果/请求及 schema 指纹保持，队列 ready=0、consumers=0。Generation 计来源调用次数，包括失败调用，不将其等同成功会话数。
+
+初次及复验共四套 fixture Close 完成，随后按四轮 io.ichat.test.run 标签只读核验容器/卷/网络全部为空，**0 遗留资源**。没有修改共享开发数据或停止全局 broker/Docker；会话组不关闭借入 SQL，所有 owner 真实加入后才回收环境。
+
+### 最终检查
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓通过；主包 8.771s、clientsim 4.937s、database 3.166s、rabbitmq 8.704s、workers 3.598s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓标签编译通过，不代表运行其他基础设施 suite |
+| `git diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖来源错误边界、真实 join/代际顺序、broker 远端取消观察、已接受命令不丢失、有限查询与不额外 POST、原键/原内容/序号唯一性及资源责任。README、协议、阶段清单、发送端指南和测试入口的当前下一项均已同步。
+
+建议 commit message：`test(clientsim): recover sender across consumer generations`
