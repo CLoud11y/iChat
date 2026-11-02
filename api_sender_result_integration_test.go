@@ -62,18 +62,19 @@ func (p *senderResultPublisher) Publish(ctx context.Context, c messaging.Command
 // Shared owned infrastructure and real API/JWT/WebSocket setup. Tests choose
 // whether to drive repositories explicitly or start production worker services.
 type senderResultFixture struct {
-	ctx            context.Context
-	pool           *sql.DB
-	client         *redis.Client
-	users          []models.User
-	group          models.Group
-	publisher      *senderResultPublisher
-	api            *apiService
-	conn           *websocket.Conn
-	token          string
-	channel        *amqp.Channel
-	management     *rabbitmq.Management
-	address, vhost string
+	ctx               context.Context
+	pool              *sql.DB
+	client            *redis.Client
+	users             []models.User
+	group             models.Group
+	publisher         *senderResultPublisher
+	api               *apiService
+	conn              *websocket.Conn
+	token             string
+	channel           *amqp.Channel
+	management        *rabbitmq.Management
+	managementAddress string
+	address, vhost    string
 }
 
 func newSenderResultFixture(t *testing.T) *senderResultFixture {
@@ -257,7 +258,7 @@ func newSenderResultFixtureWithOptions(t *testing.T, configure func(*config.Conf
 	}
 	return &senderResultFixture{ctx: ctx, pool: pool, client: client, users: users, group: group,
 		publisher: publisher, api: api, conn: conn, token: token, channel: channel,
-		management: management, address: broker.AMQPURL(), vhost: broker.VHost}
+		management: management, managementAddress: broker.ManagementAddress, address: broker.AMQPURL(), vhost: broker.VHost}
 }
 
 // Repositories and Outbox are explicitly driven in this suite.

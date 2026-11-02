@@ -1,6 +1,6 @@
 # P6.3.4.2.3.2：通知 Redis 故障、Outbox 替换与查询兜底
 
-本项验证通知发布失败不会阻塞业务提交和 MQ ACK；客户端可先查询原 SQL 终态，之后由新的 Outbox 实例完成原事件，迟到通知不改写已保存终态。accepted/unknown 两条路径一起验收，无额外细分。后续 P6.3.4.2.3.3.1 已验证[消费连接监督恢复](client-sender-consumer-recovery.md)，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3 在途消费 COMMIT/ACK 故障交叉，实施前按实际复杂度细分。
+本项验证通知发布失败不会阻塞业务提交和 MQ ACK；客户端可先查询原 SQL 终态，之后由新的 Outbox 实例完成原事件，迟到通知不改写已保存终态。accepted/unknown 两条路径一起验收，无额外细分。后续 P6.3.4.2.3.3.1 已验证[消费连接监督恢复](client-sender-consumer-recovery.md)，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，P6.3.4.2.3.3.2.3.1 [消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2 COMMIT 未知与延迟回调，实施前按实际复杂度细分。
 
 ## 故障范围与装配
 

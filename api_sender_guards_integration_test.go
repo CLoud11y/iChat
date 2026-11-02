@@ -67,6 +67,11 @@ func finishSenderGuard(t *testing.T, f *senderResultFixture, pipeline *senderPip
 	if err := pipeline.drainOutbox(c); err != nil {
 		t.Fatal(err)
 	}
+	assertSenderGuardCollections(t, f, original)
+}
+
+func assertSenderGuardCollections(t *testing.T, f *senderResultFixture, original messaging.CommandStatus) {
+	t.Helper()
 	apiRealEventually(t, func() bool {
 		queue, err := f.channel.QueueInspect(rabbitmq.PersistQueue)
 		return err == nil && queue.Consumers == 0

@@ -1,6 +1,6 @@
 # P6.3.4.1：发送结果通知与 HTTP 交叉
 
-P6.3.4 在实施前拆成两项：本项实现严格 command.result 接入及真实生产 API/WebSocket 交叉；后续 P6.3.4.2.1 已验证[真实消费基线](client-sender-pipeline.md)，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3 在途消费 COMMIT/ACK 故障交叉。P6.3.4/P6.3 整体尚未收口，客户端接收消息集和连接恢复仍归 P6.4/P6.5。
+P6.3.4 在实施前拆成两项：本项实现严格 command.result 接入及真实生产 API/WebSocket 交叉；后续 P6.3.4.2.1 已验证[真实消费基线](client-sender-pipeline.md)，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，P6.3.4.2.3.3.2.3.1 [消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2 COMMIT 未知与延迟回调。P6.3.4/P6.3 整体尚未收口，客户端接收消息集和连接恢复仍归 P6.4/P6.5。
 
 ## 接入契约
 
