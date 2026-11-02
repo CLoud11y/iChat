@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。下一项 P6.3.4.2.3 基础设施/隔离与角色恢复矩阵。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。下一项 P6.3.4.2.3.2 Redis 通知故障与 Outbox 恢复。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4437,3 +4437,56 @@ runId=`50938ab5f89f7feb12eac10792b61fca` 三组及最终关闭检查全部通过
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖代理选项保留原默认行为、atomic 切换查询故障、屏障与 owner 退出、完整终态优先、冲突 hash 隔离、预算不等同重发授权及精确集合。README、协议、阶段清单、发送端指南和测试入口的当前下一项均已同步。
 
 建议 commit message：`test(clientsim): enforce recovery query and conflict guards`
+
+
+## P6.3.4.2.3 实施前拆分
+
+本轮按复杂项先拆分的约定，只实施 P6.3.4.2.3.1：API SQL TCP 路径实际断开时，真实 503 不授权重发，accepted/unknown 不降级；业务通过独立消费池提交后不可查询仍不伪造结果，同一 API 池连通恢复后查询原终态。P6.3.4.2.3.2 留给 Redis/Outbox 角色恢复和查询兜底，P6.3.4.2.3.3 留给 MQ/消费角色恢复，P6.3.4.2.3.4 留给隔离/重放及发送侧矩阵收口。后三项开始前按实际复杂度继续细分；默认 worker/all、父项和接收侧不在本轮收口。
+
+
+## 2026-11-02：P6.3.4.2.3.1 API SQL 连接中断与发送恢复
+
+状态：本小点实现、代码审查、真实隔离验收和默认回归完成，没有自动提交。下一项 **P6.3.4.2.3.2：Redis 通知故障、Outbox 角色恢复与状态查询兜底**，开始前按复杂度继续细分。P6.3.4.2.3/P6.3.4.2/P6.3、默认 worker/all、MQ/消费监督与隔离重放、接收侧仍未整体收口；没有修改生产业务代码、schema、依赖或默认运行模式。
+
+### 实施与审查
+
+- 共享 senderResultFixture 提取可选 API 配置回调，默认 helper 仍传 nil；fixture SQL/Redis、用户关系和 publisher 先按原方式建立，回调仅作用于即将构造的 API 配置。本轮只替换 API MySQL 地址，其他生产依赖和回归路径不变。
+- 新增 TestProductionSenderSQLRecoveryIntegration，accepted/publish_unknown 各用独立 runId 真实环境。API MySQL 通过既有协议无关 TCP 中继，原字节双向复制；先显式 Ping 原 API 池并确认实际连接存在，再关闭中继现有上下游连接并拒绝重连。原 API 池 Ping 必须失败，独立 fixture/消费者池 Ping 仍成功。
+- accepted 分支实际接收生产 202；unknown 分支由 HTTP 记录代理完整读取真实 202 后断开下游 TCP。个人 WebSocket 已关闭并确认 Redis 频道零订阅，两条路径均保留原请求、规范身份/hash、attempts=1/inFlight=false、Result=nil。
+- API SQL 中断后，有限 Recover 两轮/一次可用提交预算，真实 GET 返回两次 503/DEPENDENCY_UNAVAILABLE，不携带 state/message/部分业务身份/pollAfterMs；返回 ErrRecoveryExhausted/ErrHTTPUnavailable，不改写原记录、不重发。队列 ready=1/consumers=0，command/message/Outbox 尚为空。
+- SQL 通路仍中断时启动直连 SQL 的生产消费者/后台 Outbox，原命令实际提交且两条通知结算完成。再运行两轮 Recover，实际仍是两个 503，本地 accepted/unknown 保持；不从提交成功或 Outbox completed 推断本地已经保存终态。
+- 故障期间关闭并重开磁盘仍保留原状态；恢复中继后等待原 API SQL 池 Ping 成功，检查自有 SQL handle 没有替换，再以一轮/一次可用提交预算只 GET 原 persisted。再次重开磁盘核对原请求（大小写 UUID/前导零/Unicode/NUL/换行/纳秒时区）、稳定 key/hash/commandId、完整 SQL DTO 和 attempts=1。
+- 每条路径 HTTP 恰为 1 POST + 4 GET 503 + 1 GET 200。HTTP 记录代理原样转发生产回应，没有注入 503/pending。测试只切断 API SQL TCP 路径，没有停止 MySQL 进程，不将其报告为全库宕机、COMMIT 未知或消费角色故障验收。
+
+详细注入位置、恢复顺序和责任见[SQL 查询故障恢复](client-sender-sql-recovery.md)。API 健康输入仍为夹具，worker 服务显式装配；没有直接领取 MQ delivery、PersistCommand/RunBatch/control ACK。磁盘重开是同一进程内 owner 关闭/重建，实际前端、默认完整 worker/all 和接收侧没有冒充完成。
+
+### 真实验收与资源
+
+执行：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(SQLRecovery|Pipeline)Integration$' -count=1 -v -timeout=8m`
+
+首轮全部通过，主包 **73.707s**，无 race。
+
+| 场景 | runId | 结果 |
+| --- | --- | --- |
+| 原三组消费基线（配置回调 nil） | `19502a0658ff237ed095f636d862e275` | 23.03s；原 3 command / 2 message / 2 conversation / 5 completed Outbox、三份磁盘终态和关闭检查保持 |
+| accepted 遇到 SQL 路径中断 | `056a1cc106c01e60af6197eab666e2d3` | 24.27s；四个真实 503 保留 accepted、不重发，同一 API 池恢复查回终态 |
+| unknown 遇到 SQL 路径中断 | `273d5631b4ab1fa7784e0331bce85dc3` | 25.15s；四个真实 503 保留 unknown、不重发，同一 API 池恢复查回终态 |
+
+新 suite 总计 **49.41s**。故障时 mysql 驱动记录预期的连接中止/EOF，生产 API 对调用方保持受控 503，无部分结果。每份新场景最终 **1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 delivery cursor / 0 quarantine**、一份完整磁盘终态；原 SQL 终态和迁移指纹保持，生产消费连接 WaitClosed、broker 消费者移除后 QueueInspect ready=0/consumers=0。
+
+三套 fixture Close 完成，随后按三轮 io.ichat.test.run 标签只读核验容器/卷/网络全部为空，**0 遗留资源**。没有停止 MySQL/Docker 全局服务或操作共享开发数据；API 自有客户端先关闭，中继任务加入后才回收本轮基础设施。
+
+### 最终检查
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓通过；主包 8.035s、clientsim 3.776s、database 3.149s、rabbitmq 8.582s、workers 4.245s，无 race |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 全仓标签编译通过，不代表运行其他基础设施 suite |
+| `git diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖可选配置只作用于 API、中继 socket/任务归属与退出、真实 503 不携带 pending、两个阶段预算不授权重发、同一 SQL handle 恢复及精确物理/业务集合。README、协议、阶段清单、发送端指南和测试入口的当前下一项均已同步。
+
+建议 commit message：`test(clientsim): recover from API SQL connection faults`

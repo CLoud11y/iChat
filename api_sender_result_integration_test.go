@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/websocket"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"iChat/application"
+	"iChat/config"
 	"iChat/database"
 	"iChat/messaging"
 	"iChat/messaging/rabbitmq"
@@ -76,6 +77,11 @@ type senderResultFixture struct {
 }
 
 func newSenderResultFixture(t *testing.T) *senderResultFixture {
+	t.Helper()
+	return newSenderResultFixtureWithAPIConfig(t, nil)
+}
+
+func newSenderResultFixtureWithAPIConfig(t *testing.T, configure func(*config.Config)) *senderResultFixture {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	t.Cleanup(cancel)
@@ -196,9 +202,13 @@ func newSenderResultFixture(t *testing.T) *senderResultFixture {
 		t.Fatal(err)
 	}
 	publisher := &senderResultPublisher{MQPublisher: supervisor, barriers: make(map[string]*senderResultReceipt)}
-	o := defaultAPIOptions(base)
+	apiConfig := base
+	if configure != nil {
+		configure(&apiConfig)
+	}
+	o := defaultAPIOptions(apiConfig)
 	o.Address = "127.0.0.1:0"
-	api, err := newAPIService(base, application.RoleDependencies{Publisher: publisher, Health: apiTestHealth{}}, o, defaultAPIDependencies())
+	api, err := newAPIService(apiConfig, application.RoleDependencies{Publisher: publisher, Health: apiTestHealth{}}, o, defaultAPIDependencies())
 	if err != nil {
 		t.Fatal(err)
 	}
