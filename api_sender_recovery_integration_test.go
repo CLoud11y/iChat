@@ -44,6 +44,7 @@ const (
 
 type senderRecoveryProxyOptions struct {
 	dropFirstPost, holdSecondPost bool
+	allowNotPublished             bool
 	statusAction                  func(senderRecoveryExchange) senderRecoveryAction
 }
 
@@ -106,8 +107,11 @@ func newSenderRecoveryProxyWithOptions(t *testing.T, origin string, options send
 		}
 		if r.Method == http.MethodPost {
 			value, err := messaging.DecodeSubmissionResponse(result)
-			if err != nil || response.StatusCode != 202 || value.Code != 0 || value.Data.State != "accepted" ||
-				!messaging.ValidPublishAttemptID(value.Data.PublishAttemptID) {
+			accepted := response.StatusCode == 202 && value.Code == 0 && value.Data.State == "accepted" &&
+				messaging.ValidPublishAttemptID(value.Data.PublishAttemptID)
+			notPublished := options.allowNotPublished && response.StatusCode == 503 && value.Code == -1 &&
+				value.Data.State == "not_published" && value.Data.ReasonCode == "DEPENDENCY_UNAVAILABLE" && value.Data.PublishAttemptID == ""
+			if err != nil || (!accepted && !notPublished) {
 				fail()
 				return
 			}

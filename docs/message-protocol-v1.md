@@ -183,7 +183,7 @@ P6.2.3.1 已挂载 `GET /auth/messages/sync`：必填 conversationId，省略 af
 
 成功 HTTP 200，`{"code":0,"msg":"message history loaded","data":<HistoryPage>}`。items 按 seq 升序，nextBeforeSeq 为最老返回序号；空页保留输入游标，省略时为零。beforeSeq 响应字段与请求的有无和值一致。每页复核规范 DTO、连续完整范围、页长、hasMore 和下一游标，省略游标可包含最大 uint64，显式最大值排除该序号。
 
-400 只用于格式错误，401 为无效身份，纯权限拒绝 403；鉴权/SQL/释放/取消/坏页 503，无部分 items/state/底层诊断，所有响应 no-store。默认三秒父期限和关闭资源责任沿用现代 API；不读写服务器 ACK，不按 MQ 或缓存 readiness 门禁。完整例子、真实故障验收和最大序号夹具边界见[历史接口](message-history-http.md)。P6.2 的 HTTP 范围完成，P6.3.1 发送状态核心已完成，P6.3.2 磁盘恢复已完成，P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，下一项 P6.3.4.2.3.3.2 发布通路/确认未知与在途消费交叉。
+400 只用于格式错误，401 为无效身份，纯权限拒绝 403；鉴权/SQL/释放/取消/坏页 503，无部分 items/state/底层诊断，所有响应 no-store。默认三秒父期限和关闭资源责任沿用现代 API；不读写服务器 ACK，不按 MQ 或缓存 readiness 门禁。完整例子、真实故障验收和最大序号夹具边界见[历史接口](message-history-http.md)。P6.2 的 HTTP 范围完成，P6.3.1 发送状态核心已完成，P6.3.2 磁盘恢复已完成，P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown。
 
 ## P6.3.1：发送模拟器状态核心
 
@@ -195,19 +195,19 @@ P6.2.3.1 已挂载 `GET /auth/messages/sync`：必填 conversationId，省略 af
 
 `OpenFileStore(ctx, directory)` 在显式私有目录持有操作系统独占锁，追加带编号、长度及两层校验的完整快照；Sync 成功后才返回。未完成的末尾候选可截断并 Sync 后恢复，完整记录或最新业务快照损坏则拒绝，不能回退到更早状态或更换业务键。Close 等实际同步操作退出后才释放句柄，不删除持久锁文件。
 
-Windows 已以真实文件和强杀子进程验证跨进程互斥、queued/submitting/accepted/两类终态及写入/Sync 前后中断。原请求/ID/hash/计数和终态保持，写入结果不确定时关闭并重新加载。单快照 16 MiB、累计日志 256 MiB，不自动压缩或删除。格式、错误、平台与断电验收边界见[磁盘存储](client-sender-file-store.md)。P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，下一项 P6.3.4.2.3.3.2 发布通路/确认未知与在途消费交叉。
+Windows 已以真实文件和强杀子进程验证跨进程互斥、queued/submitting/accepted/两类终态及写入/Sync 前后中断。原请求/ID/hash/计数和终态保持，写入结果不确定时关闭并重新加载。单快照 16 MiB、累计日志 256 MiB，不自动压缩或删除。格式、错误、平台与断电验收边界见[磁盘存储](client-sender-file-store.md)。P6.3.3 [HTTP 恢复](client-sender-http.md)已完成，P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown。
 
 ## P6.3.3：有界 HTTP 与原键恢复
 
 HTTPRunner 复用本地原请求与规范身份/hash，先保存 Attempt 再提交；查询只使用本地 key/hash。响应限 16 KiB，严格检查 HTTP/code/state、身份、嵌套 JSON 和规范 DTO，不跟随重定向或把旧 HTTP 200 当作 accepted。网络或回执不可用时使用独立有期限的 context 同步保存未知结果；存储结果未知则停止继续请求。
 
-默认并发 2、请求/结算各三秒，同键仅一个活动任务；有限恢复默认八轮/最多两次提交。只有有效 pending_or_unknown 查询允许退避后原键原内容重发，错误查询不授权重发；隔离只查询、冲突停止、终态不倒退。指数退避与服务器建议间隔有上限且可取消，Close 等实际回调退出，不关闭借入磁盘。详细配置、loopback HTTP/磁盘恢复证据及生产服务待办见[客户端 HTTP 恢复](client-sender-http.md)。P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，下一项 P6.3.4.2.3.3.2 发布通路/确认未知与在途消费交叉。
+默认并发 2、请求/结算各三秒，同键仅一个活动任务；有限恢复默认八轮/最多两次提交。只有有效 pending_or_unknown 查询允许退避后原键原内容重发，错误查询不授权重发；隔离只查询、冲突停止、终态不倒退。指数退避与服务器建议间隔有上限且可取消，Close 等实际回调退出，不关闭借入磁盘。详细配置、loopback HTTP/磁盘恢复证据及生产服务待办见[客户端 HTTP 恢复](client-sender-http.md)。P6.3.4.1 [通知接入](client-sender-notifications.md)已完成，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown。
 
 ## P6.3.4.1：command.result 接入
 
 DecodeCommandResult 严格解析 16 KiB 内的通知帧及嵌套消息，并复用 NewCommandResultFrame 校验事件 ID、发送者和字段组合。ObserveCommandResult 再匹配本地请求 key/hash/路由，完整结果进入单调状态核心；引用式成功只要求后续查询，不伪造完整消息。通知有独立单槽，可在 HTTP 接受回执前保存终态，Close 等实际写入退出后才完成。
 
-真实生产 API/JWT/WebSocket、SQL/Redis、Rabbit confirm 和 FileStore 已验证成功/拒绝先到、退群后引用转查询、HTTP 超时后通知恢复与终态重开。仓储/Outbox 由夹具显式驱动，control ACK 不冒充生产 consumer。范围及集合核对见[通知接入](client-sender-notifications.md)，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，下一项 P6.3.4.2.3.3.2 发布通路/确认未知与在途消费交叉；P6.3.4/P6.3 尚未整体完成。
+真实生产 API/JWT/WebSocket、SQL/Redis、Rabbit confirm 和 FileStore 已验证成功/拒绝先到、退群后引用转查询、HTTP 超时后通知恢复与终态重开。仓储/Outbox 由夹具显式驱动，control ACK 不冒充生产 consumer。范围及集合核对见[通知接入](client-sender-notifications.md)，P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown；P6.3.4/P6.3 尚未整体完成。
 
 ## 验证与后续
 
@@ -244,12 +244,12 @@ P2.1 的原始范围只包括协议；数据库表/约束、命令终态、权�
 
 ## P6.3.4.2.1 真实消费与发送端恢复基线
 
-显式启动生产 PersistenceService 和后台 OutboxService，已验证私聊持久化/非好友拒绝先于 HTTP 回执，以及个人频道零订阅时群命令照常提交、通知完成和消费 ACK，随后重开本地磁盘并通过状态 HTTP 恢复原终态。测试不手动读取 MQ、持久化业务或 ACK；关闭并 join 消费连接、等待 broker 移除消费者后，队列 ready/consumers 均为 0。最终集合与完整范围见[真实消费基线](client-sender-pipeline.md)。P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，下一项 P6.3.4.2.3.3.2 发布通路/确认未知与在途消费交叉；P6.3.4/P6.3 及默认 worker/all 仍未收口。
+显式启动生产 PersistenceService 和后台 OutboxService，已验证私聊持久化/非好友拒绝先于 HTTP 回执，以及个人频道零订阅时群命令照常提交、通知完成和消费 ACK，随后重开本地磁盘并通过状态 HTTP 恢复原终态。测试不手动读取 MQ、持久化业务或 ACK；关闭并 join 消费连接、等待 broker 移除消费者后，队列 ready/consumers 均为 0。最终集合与完整范围见[真实消费基线](client-sender-pipeline.md)。P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown；P6.3.4/P6.3 及默认 worker/all 仍未收口。
 
 
 ## P6.3.4.2.2.1 接受回执丢失后的原请求恢复
 
-真实生产 API 的 202 完整返回到故障代理后，下游 TCP 被关闭，调用方保存 unknown。无消费者时，重开磁盘后经生产状态 pending 查询和服务器等待下限，按原键/原请求字节重发；两个不同物理 attempt 最终由生产消费幂等为一条消息/一个 seq/两条 Outbox。已落库时，即使保留重发预算，重开磁盘后也只查询原终态，不再次 POST。两条路径各用独立环境、个人频道零订阅和真实计时器，未伪造查询/接受结果。注入位置、逐条集合和范围见[回执丢失恢复](client-sender-lost-response.md)。P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，下一项 P6.3.4.2.3.3.2 发布通路/确认未知与在途消费交叉；默认 worker/all 和发送侧完整故障矩阵仍未收口。
+真实生产 API 的 202 完整返回到故障代理后，下游 TCP 被关闭，调用方保存 unknown。无消费者时，重开磁盘后经生产状态 pending 查询和服务器等待下限，按原键/原请求字节重发；两个不同物理 attempt 最终由生产消费幂等为一条消息/一个 seq/两条 Outbox。已落库时，即使保留重发预算，重开磁盘后也只查询原终态，不再次 POST。两条路径各用独立环境、个人频道零订阅和真实计时器，未伪造查询/接受结果。注入位置、逐条集合和范围见[回执丢失恢复](client-sender-lost-response.md)。P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown；默认 worker/all 和发送侧完整故障矩阵仍未收口。
 
 
 ## P6.3.4.2.2.2 查询失败、冲突与迟到结果
@@ -259,14 +259,19 @@ P2.1 的原始范围只包括协议；数据库表/约束、命令终态、权�
 
 ## P6.3.4.2.3.1 API SQL 通路中断与恢复
 
-仅切断 API 自有 SQL 池的实际 TCP 路径时，生产状态 GET 返回 503/DEPENDENCY_UNAVAILABLE，不携带 pending、消息或部分业务身份；accepted/unknown 记录保持原请求和 attempts=1，不因错误查询重发。独立消费者/Outbox 在 API SQL 仍中断时提交后，客户端仍保持原状态；重开磁盘、恢复通路后由同一 API 池 GET 原 persisted，再重开磁盘保留完整结果。两条路径各实际 1 POST + 4 GET 503 + 1 GET 200；范围及真实集合见[SQL 查询故障恢复](client-sender-sql-recovery.md)。MySQL 进程没有停止，未声称整个数据库宕机或 COMMIT 未知；P6.3.4.2.3.2 已验证[Redis 通知故障恢复](client-sender-redis-recovery.md)，P6.3.4.2.3.3.1 已验证[消费连接监督恢复](client-sender-consumer-recovery.md)，下一项 P6.3.4.2.3.3.2 发布/确认与在途交叉，父项及默认 worker/all 仍未收口。
+仅切断 API 自有 SQL 池的实际 TCP 路径时，生产状态 GET 返回 503/DEPENDENCY_UNAVAILABLE，不携带 pending、消息或部分业务身份；accepted/unknown 记录保持原请求和 attempts=1，不因错误查询重发。独立消费者/Outbox 在 API SQL 仍中断时提交后，客户端仍保持原状态；重开磁盘、恢复通路后由同一 API 池 GET 原 persisted，再重开磁盘保留完整结果。两条路径各实际 1 POST + 4 GET 503 + 1 GET 200；范围及真实集合见[SQL 查询故障恢复](client-sender-sql-recovery.md)。MySQL 进程没有停止，未声称整个数据库宕机或 COMMIT 未知；P6.3.4.2.3.2 已验证[Redis 通知故障恢复](client-sender-redis-recovery.md)，P6.3.4.2.3.3.1 已验证[消费连接监督恢复](client-sender-consumer-recovery.md)，P6.3.4.2.3.3.2.1 已验证[发布前断连恢复](client-sender-publisher-recovery.md)，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown，父项及默认 worker/all 仍未收口。
 
 
 ## P6.3.4.2.3.2 通知失败、Outbox 替换与查询兜底
 
-仅切断 Outbox 发布/探针 Redis 通路时，生产发布错误将两个原事件回退 pending/NOTIFICATION_UNKNOWN；旧 Outbox 探针失败撤销就绪并退出，MQ ACK 不等待通知。accepted/unknown 客户端仍可通过正常鉴权/SQL 的一次 GET 保存原 persisted，磁盘重开保留 attempts=1 和完整结果。恢复通知通路后，确认旧 Done 再显式启动新的生产 Outbox 实例，原 eventId/payload 保持并完成，迟到真实 WebSocket 结果不能改写已保存终态。每条路径只实际 1 POST + 1 GET；范围见[Redis 通知故障恢复](client-sender-redis-recovery.md)。此处是测试显式角色替换，不是默认 worker/all 自动监督重启；P6.3.4.2.3.3.1 已验证[消费连接监督恢复](client-sender-consumer-recovery.md)，下一项 P6.3.4.2.3.3.2 发布/确认与在途交叉，父项及接收侧仍未收口。
+仅切断 Outbox 发布/探针 Redis 通路时，生产发布错误将两个原事件回退 pending/NOTIFICATION_UNKNOWN；旧 Outbox 探针失败撤销就绪并退出，MQ ACK 不等待通知。accepted/unknown 客户端仍可通过正常鉴权/SQL 的一次 GET 保存原 persisted，磁盘重开保留 attempts=1 和完整结果。恢复通知通路后，确认旧 Done 再显式启动新的生产 Outbox 实例，原 eventId/payload 保持并完成，迟到真实 WebSocket 结果不能改写已保存终态。每条路径只实际 1 POST + 1 GET；范围见[Redis 通知故障恢复](client-sender-redis-recovery.md)。此处是测试显式角色替换，不是默认 worker/all 自动监督重启；P6.3.4.2.3.3.1 已验证[消费连接监督恢复](client-sender-consumer-recovery.md)，P6.3.4.2.3.3.2.1 已验证[发布前断连恢复](client-sender-publisher-recovery.md)，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown，父项及接收侧仍未收口。
 
 
 ## P6.3.4.2.3.3.1 消费连接监督恢复
 
-仅切断空闲消费者 AMQP TCP 通路时，生产 PersistenceSupervisor 等旧 service/session/资源组加入，再创建新的拓扑核验会话，撤销并恢复消费者就绪。期间真实 accepted/unknown 命令保留在原队列，状态查询返回原 pending；客户端重开磁盘后保留原请求和尝试次数。恢复后新消费者处理/ACK 原 delivery，客户端再查询完整 persisted，迟到真实通知幂等；仅 1 POST + 2 GET，attempts=1。每组原消息/序号/Outbox 唯一性和 owner 不重叠均核对，范围见[消费连接监督恢复](client-sender-consumer-recovery.md)。本项是空闲连接中断，会话来源为测试适配，不声明默认 worker/all 或在途 COMMIT/ACK 故障已覆盖；下一项 P6.3.4.2.3.3.2 发布通路/确认未知与在途消费交叉，父项仍未收口。
+仅切断空闲消费者 AMQP TCP 通路时，生产 PersistenceSupervisor 等旧 service/session/资源组加入，再创建新的拓扑核验会话，撤销并恢复消费者就绪。期间真实 accepted/unknown 命令保留在原队列，状态查询返回原 pending；客户端重开磁盘后保留原请求和尝试次数。恢复后新消费者处理/ACK 原 delivery，客户端再查询完整 persisted，迟到真实通知幂等；仅 1 POST + 2 GET，attempts=1。每组原消息/序号/Outbox 唯一性和 owner 不重叠均核对，范围见[消费连接监督恢复](client-sender-consumer-recovery.md)。本项是空闲连接中断，会话来源为测试适配，不声明默认 worker/all 或在途 COMMIT/ACK 故障已覆盖；P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown，父项仍未收口。
+
+
+## P6.3.4.2.3.3.2.1 发布前断连与 not_published
+
+在空闲 publisher 断连并撤销 Ready 后，生产 API 真实返回 503/not_published/DEPENDENCY_UNAVAILABLE，保留规范身份但没有物理 attemptId。磁盘重开保存原记录，MQ 离线仍能 GET SQL pending；逻辑 pending 查询证据可记为 unknown，但不增加尝试次数。publisher 监督器恢复新 epoch 后队列仍为空，没有自动重放；客户端显式恢复再查 pending、按服务器下限等待并 POST 相同字节，随后 GET 原终态。最终两次 HTTP 提交（503+202），只有后者发布，attempts=2，业务消息/序号唯一。范围见[发布前断连恢复](client-sender-publisher-recovery.md)。本项不是实际 confirm 丢失，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失/unknown；父项和默认 worker/all 尚未收口。

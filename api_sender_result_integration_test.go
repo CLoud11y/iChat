@@ -83,6 +83,11 @@ func newSenderResultFixture(t *testing.T) *senderResultFixture {
 
 func newSenderResultFixtureWithAPIConfig(t *testing.T, configure func(*config.Config)) *senderResultFixture {
 	t.Helper()
+	return newSenderResultFixtureWithOptions(t, configure, nil)
+}
+
+func newSenderResultFixtureWithOptions(t *testing.T, configure func(*config.Config), publisherAddress func(string) string) *senderResultFixture {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	t.Cleanup(cancel)
 	env, err := testenv.StartWithRabbitMQ(ctx, "docker-compose.test.yml")
@@ -184,7 +189,11 @@ func newSenderResultFixtureWithAPIConfig(t *testing.T, configure func(*config.Co
 	pubOptions := rabbitmq.DefaultSupervisorOptions()
 	pubOptions.Session.Publisher.Slots = 1
 	pubOptions.Session.OperationTimeout = 2 * time.Second
-	supervisor, err := rabbitmq.StartSupervisor(ctx, broker.AMQPURL(), management, broker.VHost, pubOptions)
+	publishAddress := broker.AMQPURL()
+	if publisherAddress != nil {
+		publishAddress = publisherAddress(publishAddress)
+	}
+	supervisor, err := rabbitmq.StartSupervisor(ctx, publishAddress, management, broker.VHost, pubOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
