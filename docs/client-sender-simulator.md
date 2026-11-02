@@ -1,6 +1,6 @@
 # P6.3：模拟客户端发送恢复
 
-仓库尚无实际前端。`tests/clientsim` 已提供发送状态核心、磁盘适配、有界 HTTP 恢复及 command.result 接入；P6.3.4.1 已验证生产接口/通知交叉，P6.3.4.2.1 已完成真实消费恢复基线，P6.3.4.2.2.1 已验证接受回执丢失后的原请求恢复，P6.3.4.2.2.2 已完成查询/冲突/迟到结果交叉，P6.3.4.2.2 范围收口，P6.3.4.2.3.1 已完成 API SQL 查询故障恢复，P6.3.4.2.3.2 已完成 Redis 通知故障与 Outbox 替换，P6.3.4.2.3.3.1 已完成消费连接监督恢复，P6.3.4.2.3.3.2.1 已完成发布前断连恢复，确认丢失/在途消费及隔离重放继续分项验收。
+仓库尚无实际前端。`tests/clientsim` 已提供发送状态核心、磁盘适配、有界 HTTP 恢复及 command.result 接入；P6.3.4.1 已验证生产接口/通知交叉，P6.3.4.2.1 已完成真实消费恢复基线，P6.3.4.2.2.1 已验证接受回执丢失后的原请求恢复，P6.3.4.2.2.2 已完成查询/冲突/迟到结果交叉，P6.3.4.2.2 范围收口，P6.3.4.2.3.1 已完成 API SQL 查询故障恢复，P6.3.4.2.3.2 已完成 Redis 通知故障与 Outbox 替换，P6.3.4.2.3.3.1 已完成消费连接监督恢复，P6.3.4.2.3.3.2.1 已完成发布前断连恢复，P6.3.4.2.3.3.2.2 已完成真实确认丢失恢复，在途消费和隔离重放继续分项验收。
 
 | 小点 | 范围 | 状态 |
 | --- | --- | --- |
@@ -15,8 +15,8 @@
 | P6.3.4.2.3.2 | Redis 通知故障、Outbox 角色恢复与状态查询兜底 | 已完成 |
 | P6.3.4.2.3.3.1 | 空闲消费连接实际中断、监督换代与原键恢复 | 已完成 |
 | P6.3.4.2.3.3.2.1 | 空闲 publisher 断连、真实 not_published、新 epoch 与原请求恢复 | 已完成 |
-| P6.3.4.2.3.3.2.2 | AMQP 确认丢失、publish_unknown 与恢复不隐式重放 | 下一项 |
-| P6.3.4.2.3.3.2.3 | 在途 COMMIT/ACK、监督重投与发送恢复交叉 | 待实施 |
+| P6.3.4.2.3.3.2.2 | AMQP 确认丢失、publish_unknown 与恢复不隐式重放 | 已完成 |
+| P6.3.4.2.3.3.2.3 | 在途 COMMIT/ACK、监督重投与发送恢复交叉 | 下一项 |
 | P6.3.4.2.3.4 | 隔离/重放与客户端查询门禁、发送侧矩阵收口 | 待实施 |
 
 本地接收消息集/连续游标归 P6.4，重连/周期同步归 P6.5；不将本项待发送记录中的终态消息当作接收侧完整消息集或 ACK 依据。
@@ -71,4 +71,4 @@ go vet -mod=readonly -p=2 -tags=integration ./...
 go test -mod=readonly -p=2 -tags=integration ./... -run '^$'
 ```
 
-P6.3.1 验证状态核心，P6.3.2 验证真实文件/强杀进程，P6.3.3 验证 loopback HTTP/磁盘恢复，P6.3.4.1 验证真实 JWT/MySQL/Redis/Rabbit confirm 与生产 API/WebSocket。通知验收显式驱动仓储/Outbox，不等于生产持久化 consumer；证据见[通知接入](client-sender-notifications.md)和[实施记录](message-reliability-mq-progress.md)。P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，下一项 P6.3.4.2.3.3.2.2 AMQP 确认丢失与 publish_unknown，实际前端仍待联调。
+P6.3.1 验证状态核心，P6.3.2 验证真实文件/强杀进程，P6.3.3 验证 loopback HTTP/磁盘恢复，P6.3.4.1 验证真实 JWT/MySQL/Redis/Rabbit confirm 与生产 API/WebSocket。通知验收显式驱动仓储/Outbox，不等于生产持久化 consumer；证据见[通知接入](client-sender-notifications.md)和[实施记录](message-reliability-mq-progress.md)。P6.3.4.2.1 [真实消费基线](client-sender-pipeline.md)已完成，P6.3.4.2.2.1 [回执丢失恢复](client-sender-lost-response.md)已完成，P6.3.4.2.2.2 [查询/冲突交叉](client-sender-recovery-guards.md)已完成，P6.3.4.2.3.1 [SQL 查询故障恢复](client-sender-sql-recovery.md)已完成，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3 在途消费 COMMIT/ACK 故障交叉，实际前端仍待联调。

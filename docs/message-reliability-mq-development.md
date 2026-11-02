@@ -849,7 +849,7 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
             - [x] P6.3.4.2.3.3.1 空闲消费连接实际中断、监督代际替换与已接受命令的原键恢复；覆盖 accepted/unknown，见[消费连接监督恢复](client-sender-consumer-recovery.md)。
             - [ ] P6.3.4.2.3.3.2 发布通路/确认未知及在途消费故障交叉。
               - [x] P6.3.4.2.3.3.2.1 空闲 publisher 通路中断、真实 not_published 回执、新 epoch 与原请求恢复，见[发布前断连恢复](client-sender-publisher-recovery.md)。
-              - [ ] P6.3.4.2.3.3.2.2 AMQP 确认丢失、publish_unknown 与恢复不隐式重放；实施前按复杂度继续细分。
+              - [x] P6.3.4.2.3.3.2.2 AMQP 确认丢失、publish_unknown 与恢复不隐式重放，见[真实确认丢失恢复](client-sender-confirm-loss.md)。
               - [ ] P6.3.4.2.3.3.2.3 在途消费 COMMIT/ACK 故障、监督重投与发送恢复交叉；实施前按复杂度继续细分。
           - [ ] P6.3.4.2.3.4 隔离/重放与客户端查询门禁、发送侧故障矩阵收口；实施前按复杂度继续细分。
 - [ ] 覆盖持续在线尾消息丢失、分页期间并发写入、乱序到达、浏览器本地存储重置。
