@@ -1,6 +1,6 @@
 # P6.3.4.2.3.3.2.2：真实 AMQP 确认丢失与 unknown 恢复
 
-本项完成未消费/已落库两条实际 confirm 丢失路径，不额外细分。broker 实际产生正确认，但 publisher 没收到该帧，生产 API 返回带物理 attempt 的 publish_unknown；新 epoch 不隐式发布，客户端再查询恢复。后续 P6.3.4.2.3.3.2.3.1 已验证[消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)，下一项 P6.3.4.2.3.3.2.3.2 COMMIT 未知与延迟回调，实施前按实际复杂度细分，父项与默认 worker/all 尚未收口。
+本项完成未消费/已落库两条实际 confirm 丢失路径，不额外细分。broker 实际产生正确认，但 publisher 没收到该帧，生产 API 返回带物理 attempt 的 publish_unknown；新 epoch 不隐式发布，客户端再查询恢复。后续 P6.3.4.2.3.3.2.3.1 已验证[消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉，实施前按实际复杂度细分，父项与默认 worker/all 尚未收口。
 
 ## 精确帧故障
 

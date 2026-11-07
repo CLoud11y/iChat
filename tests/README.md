@@ -1,12 +1,20 @@
 # 独立测试环境
 
+P6.3.4.2.3.3.2.3.2.1 消费 COMMIT OK 实际丢响应、监督重投与发送终态保持：
+
+```powershell
+go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(CommitLoss|ConsumerAckLoss)Integration$' -count=1 -v -timeout=8m
+```
+
+新 CommitLoss suite 仅对消费 SQL 通路丢弃一个真实服务器 COMMIT OK；独立 SQL/Outbox 已可见而 broker unacked=1、消费 ACK=0。驱动实际 EOF 后生产监督器按 commit_unknown 退休旧组，资源获取屏障期间队列 ready=1/consumers=0，客户端仅 GET 原终态并重开磁盘保存。放行生产请求的新一代后，真实 redelivered=true、原信封/attempt 不变，幂等读取只 ROLLBACK 后发出唯一 ACK。精确 1 COMMIT/1 replay ROLLBACK/1 ACK、1 POST+1 GET/attempts=1；原 SQL、两条完成 Outbox 和磁盘终态保持。测试处理期限显式容纳响应/管理观察屏障，不混入默认处理超时。旧 ACK 丢失专项同步回归；下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉。见[COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)。
+
 P6.3.4.2.3.3.2.3.1 消费提交后 ACK 丢失、实际重投与终态保持：
 
 ```powershell
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(ConsumerAckLoss|ConfirmLossRecovery)Integration$' -count=1 -v -timeout=8m
 ```
 
-新 ConsumerAckLoss suite 只丢一个消费者→broker ACK，SQL/Outbox 已提交而 broker 实际 unacked=1；客户端正常 202 后只 GET 保存原终态，再中断消费连接触发生产监督换代。实际 redelivered=true、新连接、字节一致信封及同一 publishAttemptId，生产仓储去重、第二个 ACK 正确转发。以真实转发/唯一消费者加入后零重入队/最终管理零计数交叉证明完成，不以活动连接期采样值或写成功单独判定。1 POST + 1 GET，attempts=1，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine。旧两组 publisher confirm 丢失同步回归方向隔离。下一项 P6.3.4.2.3.3.2.3.2；见[消费 ACK 丢失恢复](../docs/client-sender-consumer-ack-loss.md)。
+新 ConsumerAckLoss suite 只丢一个消费者→broker ACK，SQL/Outbox 已提交而 broker 实际 unacked=1；客户端正常 202 后只 GET 保存原终态，再中断消费连接触发生产监督换代。实际 redelivered=true、新连接、字节一致信封及同一 publishAttemptId，生产仓储去重、第二个 ACK 正确转发。以真实转发/唯一消费者加入后零重入队/最终管理零计数交叉证明完成，不以活动连接期采样值或写成功单独判定。1 POST + 1 GET，attempts=1，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine。旧两组 publisher confirm 丢失同步回归方向隔离。P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；见[消费 ACK 丢失恢复](../docs/client-sender-consumer-ack-loss.md)。
 
 P6.3.4.2.3.3.2.2 真实 AMQP Basic.Ack 丢失与 unknown 恢复：
 
@@ -14,7 +22,7 @@ P6.3.4.2.3.3.2.2 真实 AMQP Basic.Ack 丢失与 unknown 恢复：
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(ConfirmLossRecovery|PublisherRecovery)Integration$' -count=1 -v -timeout=8m
 ```
 
-新 ConfirmLossRecovery suite 两个独立真实环境，只丢弃一个 broker 实际产生的 Basic.Ack，其余帧原样转发；HTTP 实际 503/PUBLISH_UNKNOWN 带原规范身份/物理 attempt，磁盘保存 unknown。新 epoch 无隐式 Basic.Publish：未消费时经实际 pending 同字节重发，2 publish/2 ACK（只丢 1），最终生产消费去重；已提交时只 GET 终态，1 publish/1 ACK（被丢弃），没有第二次 POST。每份最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine，磁盘 attempts 分别 2/1。旧发布前断连回归仍保持无 attempt 的 not_published；P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；见[真实确认丢失恢复](../docs/client-sender-confirm-loss.md)。
+新 ConfirmLossRecovery suite 两个独立真实环境，只丢弃一个 broker 实际产生的 Basic.Ack，其余帧原样转发；HTTP 实际 503/PUBLISH_UNKNOWN 带原规范身份/物理 attempt，磁盘保存 unknown。新 epoch 无隐式 Basic.Publish：未消费时经实际 pending 同字节重发，2 publish/2 ACK（只丢 1），最终生产消费去重；已提交时只 GET 终态，1 publish/1 ACK（被丢弃），没有第二次 POST。每份最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine，磁盘 attempts 分别 2/1。旧发布前断连回归仍保持无 attempt 的 not_published；P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；见[真实确认丢失恢复](../docs/client-sender-confirm-loss.md)。
 
 P6.3.4.2.3.3.2.1 空闲 publisher 断连、not_published 与原请求恢复：
 
@@ -22,7 +30,7 @@ P6.3.4.2.3.3.2.1 空闲 publisher 断连、not_published 与原请求恢复：
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(PublisherRecovery|LostResponseRecovery)Integration$' -count=1 -v -timeout=8m
 ```
 
-新 PublisherRecovery suite 只切断 publisher 实际 AMQP TCP 通路，生产 API 返回真实 503/not_published、无物理 attemptId；磁盘重开保持原记录，离线期间 SQL GET pending 仍可用。监督器恢复新 epoch 后队列/业务表仍空，没有自动重放；客户端显式恢复，先查 pending、真实等待服务器下限，再 POST 相同原请求并 GET persisted。HTTP 恰为 POST503→GETpending→GETpending→POST202→GETpersisted，本地 attempts=2，只有后一次实际发布，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine。旧回执丢失两组同步回归共享初始化/代理默认行为。此项不是 confirm 丢失，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；见[发布前断连恢复](../docs/client-sender-publisher-recovery.md)。
+新 PublisherRecovery suite 只切断 publisher 实际 AMQP TCP 通路，生产 API 返回真实 503/not_published、无物理 attemptId；磁盘重开保持原记录，离线期间 SQL GET pending 仍可用。监督器恢复新 epoch 后队列/业务表仍空，没有自动重放；客户端显式恢复，先查 pending、真实等待服务器下限，再 POST 相同原请求并 GET persisted。HTTP 恰为 POST503→GETpending→GETpending→POST202→GETpersisted，本地 attempts=2，只有后一次实际发布，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine。旧回执丢失两组同步回归共享初始化/代理默认行为。此项不是 confirm 丢失，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；见[发布前断连恢复](../docs/client-sender-publisher-recovery.md)。
 
 P6.3.4.2.3.3.1 消费连接实际中断、监督换代与原键恢复：
 
@@ -30,7 +38,7 @@ P6.3.4.2.3.3.1 消费连接实际中断、监督换代与原键恢复：
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderConsumerRecoveryIntegration$' -count=1 -v -timeout=8m
 ```
 
-新 ConsumerRecovery suite 从 accepted/unknown 出发，只切断消费者实际 AMQP TCP 通路，生产 PersistenceSupervisor 先加入旧会话组，再自动创建新的 DialConsumer 会话，跟踪 overlap=false、最终 active=0。故障期间真实 broker accepted 的命令在原队列，只有 pending GET；磁盘重开后保持原请求，连通恢复后新消费者提交/ACK 原 delivery，客户端再 GET persisted 并幂等接受迟到通知。每份 1 POST + 2 GET，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine、attempts=1，队列 ready=0、consumers=0。会话来源是测试适配，监督和处理均为生产实现；未声称在途 redelivery/COMMIT/ACK 或默认 worker/all 已完成。P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；见[消费连接监督恢复](../docs/client-sender-consumer-recovery.md)。
+新 ConsumerRecovery suite 从 accepted/unknown 出发，只切断消费者实际 AMQP TCP 通路，生产 PersistenceSupervisor 先加入旧会话组，再自动创建新的 DialConsumer 会话，跟踪 overlap=false、最终 active=0。故障期间真实 broker accepted 的命令在原队列，只有 pending GET；磁盘重开后保持原请求，连通恢复后新消费者提交/ACK 原 delivery，客户端再 GET persisted 并幂等接受迟到通知。每份 1 POST + 2 GET，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine、attempts=1，队列 ready=0、consumers=0。会话来源是测试适配，监督和处理均为生产实现；未声称在途 redelivery/COMMIT/ACK 或默认 worker/all 已完成。P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；见[消费连接监督恢复](../docs/client-sender-consumer-recovery.md)。
 
 P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与状态查询兜底：
 
@@ -38,7 +46,7 @@ P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与状态查询兜底：
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(RedisRecovery|Pipeline)Integration$' -count=1 -v -timeout=8m
 ```
 
-新 RedisRecovery suite 从 accepted/unknown 出发，只切断 Outbox 发布/探针的实际 Redis TCP 通路，API 鉴权/订阅保持正常。两个原事件实际发布失败并回退 pending，旧角色探针失败并 Done，MQ ACK 已完成；客户端一次 GET 兜底保存原终态。通路恢复后显式启动新 Outbox 处理原事件，eventId/payload 保持、attempts 递增，迟到真实 WebSocket 结果幂等。每份仅 1 POST + 1 GET，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine、磁盘 attempts=1，消费者加入后 ready=0、consumers=0。默认夹具三组基线同步回归；角色替换是测试显式构造，不声称自动监督重启。P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；见[Redis 通知故障恢复](../docs/client-sender-redis-recovery.md)。
+新 RedisRecovery suite 从 accepted/unknown 出发，只切断 Outbox 发布/探针的实际 Redis TCP 通路，API 鉴权/订阅保持正常。两个原事件实际发布失败并回退 pending，旧角色探针失败并 Done，MQ ACK 已完成；客户端一次 GET 兜底保存原终态。通路恢复后显式启动新 Outbox 处理原事件，eventId/payload 保持、attempts 递增，迟到真实 WebSocket 结果幂等。每份仅 1 POST + 1 GET，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine、磁盘 attempts=1，消费者加入后 ready=0、consumers=0。默认夹具三组基线同步回归；角色替换是测试显式构造，不声称自动监督重启。P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；见[Redis 通知故障恢复](../docs/client-sender-redis-recovery.md)。
 
 P6.3.4.2.3.1 API SQL 连接实际中断、503 与发送恢复：
 
@@ -46,7 +54,7 @@ P6.3.4.2.3.1 API SQL 连接实际中断、503 与发送恢复：
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(SQLRecovery|Pipeline)Integration$' -count=1 -v -timeout=8m
 ```
 
-新 SQLRecovery suite 从 accepted/unknown 两种磁盘状态出发，切断 API 自有 SQL 池的实际 TCP 中继，生产接口在提交前后各返回两次真实 503，不授权重发、不伪造 pending；消费者直连池仍可提交业务/Outbox。重开磁盘、恢复通路后，同一 API 池查回原终态。每份实际 1 POST + 4 GET 503 + 1 GET 200，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine、磁盘 attempts=1，生产 ACK 后队列 ready=0、consumers=0。没有停止 MySQL 进程，不声称全库宕机/事务未知；共享配置回调默认 nil 的三组消费基线同步回归。P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；边界见[SQL 查询故障恢复](../docs/client-sender-sql-recovery.md)。
+新 SQLRecovery suite 从 accepted/unknown 两种磁盘状态出发，切断 API 自有 SQL 池的实际 TCP 中继，生产接口在提交前后各返回两次真实 503，不授权重发、不伪造 pending；消费者直连池仍可提交业务/Outbox。重开磁盘、恢复通路后，同一 API 池查回原终态。每份实际 1 POST + 4 GET 503 + 1 GET 200，最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine、磁盘 attempts=1，生产 ACK 后队列 ready=0、consumers=0。没有停止 MySQL 进程，不声称全库宕机/事务未知；共享配置回调默认 nil 的三组消费基线同步回归。P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；边界见[SQL 查询故障恢复](../docs/client-sender-sql-recovery.md)。
 
 P6.3.4.2.2.2 查询失败、同键冲突与迟到结果：
 
@@ -54,7 +62,7 @@ P6.3.4.2.2.2 查询失败、同键冲突与迟到结果：
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(RecoveryGuards|LostResponseRecovery)Integration$' -count=1 -v -timeout=8m
 ```
 
-新 RecoveryGuards suite 三组独立真实环境验证：连续丢失实际 pending 查询回应不授权重发；独立同键异内容 checkpoint 查询真实 409 后持久阻止提交，原 SQL/磁盘保持；完整 WebSocket 终态先于被延迟的 pending 回应时不降级或重发。每份最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine，生产 ACK 后队列 ready=0、consumers=0。代理只丢弃或延迟真实响应，不伪造状态；冲突 checkpoint 未发送冲突 POST，MQ 隔离归后续。旧两组回执丢失同时回归。P6.3.4.2.2 范围收口，P6.3.4.2.3.1 已验证 SQL 查询故障恢复，P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；见[查询/冲突交叉](../docs/client-sender-recovery-guards.md)。
+新 RecoveryGuards suite 三组独立真实环境验证：连续丢失实际 pending 查询回应不授权重发；独立同键异内容 checkpoint 查询真实 409 后持久阻止提交，原 SQL/磁盘保持；完整 WebSocket 终态先于被延迟的 pending 回应时不降级或重发。每份最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine，生产 ACK 后队列 ready=0、consumers=0。代理只丢弃或延迟真实响应，不伪造状态；冲突 checkpoint 未发送冲突 POST，MQ 隔离归后续。旧两组回执丢失同时回归。P6.3.4.2.2 范围收口，P6.3.4.2.3.1 已验证 SQL 查询故障恢复，P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；见[查询/冲突交叉](../docs/client-sender-recovery-guards.md)。
 
 P6.3.4.2.2.1 生产接受回执丢失、磁盘重开与原请求恢复：
 
@@ -62,7 +70,7 @@ P6.3.4.2.2.1 生产接受回执丢失、磁盘重开与原请求恢复：
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(LostResponseRecovery|Pipeline)Integration$' -count=1 -v -timeout=8m
 ```
 
-新增 LostResponseRecovery suite 每条路径使用独立 MySQL/Redis/RabbitMQ 和真实 API/JWT/confirm。代理读取真实 202 后断开客户端 TCP；无消费者时经生产 pending 查询后原请求字节重发，两份队列 delivery 由生产消费者幂等为一个业务终态；已落库时保留重发预算但只查询恢复。每份最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine、一个磁盘终态，队列 ready=0、consumers=0。真实退避计时，个人频道零订阅，不手动取 MQ/持久化业务/ACK。共享正常路径夹具在 SQL Claim 之间停止，不忽略未知错误。P6.3.4.2.2.2 已完成查询/冲突交叉，P6.3.4.2.3.1 已验证 SQL 查询故障恢复，P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；边界见[回执丢失恢复](../docs/client-sender-lost-response.md)。
+新增 LostResponseRecovery suite 每条路径使用独立 MySQL/Redis/RabbitMQ 和真实 API/JWT/confirm。代理读取真实 202 后断开客户端 TCP；无消费者时经生产 pending 查询后原请求字节重发，两份队列 delivery 由生产消费者幂等为一个业务终态；已落库时保留重发预算但只查询恢复。每份最终 1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 cursor / 0 quarantine、一个磁盘终态，队列 ready=0、consumers=0。真实退避计时，个人频道零订阅，不手动取 MQ/持久化业务/ACK。共享正常路径夹具在 SQL Claim 之间停止，不忽略未知错误。P6.3.4.2.2.2 已完成查询/冲突交叉，P6.3.4.2.3.1 已验证 SQL 查询故障恢复，P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；边界见[回执丢失恢复](../docs/client-sender-lost-response.md)。
 
 P6.3.4.2.1 真实持久化消费、后台 Outbox 与发送恢复基线：
 
@@ -70,7 +78,7 @@ P6.3.4.2.1 真实持久化消费、后台 Outbox 与发送恢复基线：
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(CommandResult|Pipeline)Integration$' -count=1 -v -timeout=8m
 ```
 
-新增 Pipeline suite 显式运行生产 PersistenceService/OutboxService，覆盖私聊成功、非好友拒绝先于 HTTP 回执，以及个人频道零订阅时群消息持久化后重开磁盘、只查询恢复。测试不直接取 MQ 消息、不调用 PersistCommand/RunBatch/control ACK；消费连接 join 和 broker 消费者移除后，QueueInspect 核对 ready=0、consumers=0。最终 3 command / 2 message / 2 conversation（last_seq 均为 1）/ 5 completed Outbox / 0 cursor / 0 quarantine，三份磁盘终态逐条匹配原请求及 SQL。API 健康输入是夹具，服务显式装配，未宣称生产监督恢复或默认 worker/all 完成。后续 P6.3.4.2.2.1 已验证回执丢失恢复，P6.3.4.2.2.2 已完成查询/冲突交叉，P6.3.4.2.3.1 已验证 SQL 查询故障恢复，P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；见[真实消费基线](../docs/client-sender-pipeline.md)。
+新增 Pipeline suite 显式运行生产 PersistenceService/OutboxService，覆盖私聊成功、非好友拒绝先于 HTTP 回执，以及个人频道零订阅时群消息持久化后重开磁盘、只查询恢复。测试不直接取 MQ 消息、不调用 PersistCommand/RunBatch/control ACK；消费连接 join 和 broker 消费者移除后，QueueInspect 核对 ready=0、consumers=0。最终 3 command / 2 message / 2 conversation（last_seq 均为 1）/ 5 completed Outbox / 0 cursor / 0 quarantine，三份磁盘终态逐条匹配原请求及 SQL。API 健康输入是夹具，服务显式装配，未宣称生产监督恢复或默认 worker/all 完成。后续 P6.3.4.2.2.1 已验证回执丢失恢复，P6.3.4.2.2.2 已完成查询/冲突交叉，P6.3.4.2.3.1 已验证 SQL 查询故障恢复，P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；见[真实消费基线](../docs/client-sender-pipeline.md)。
 
 P6.3.4.1 发送结果通知与生产 API/WebSocket 交叉：
 
@@ -79,7 +87,7 @@ go test -mod=readonly -p=2 -race ./messaging ./tests/clientsim -run '^Test(Comma
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderCommandResultIntegration$' -count=1 -v -timeout=8m
 ```
 
-真实 JWT/MySQL/Redis/RabbitMQ confirm、默认 API 工厂和 WebSocket，覆盖成功/拒绝终态早于 HTTP、退群后的引用转查询、HTTP 超时后通知恢复及磁盘终态重开。夹具读回实际 MQ 信封后显式 PersistCommand/control ACK/OutboxLoop，不声称生产 consumer 或默认 worker/all 运行。最终 4 command / 3 message / 2 conversation / 7 completed Outbox / 0 cursor / 0 quarantine、4 本地终态。P6.3.4.2.1 已验证真实消费基线，P6.3.4.2.2.2 已完成查询/冲突交叉，P6.3.4.2.3.1 已验证 SQL 查询故障恢复，P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，下一项 P6.3.4.2.3.3.2.3.2；边界见[通知接入](../docs/client-sender-notifications.md)。
+真实 JWT/MySQL/Redis/RabbitMQ confirm、默认 API 工厂和 WebSocket，覆盖成功/拒绝终态早于 HTTP、退群后的引用转查询、HTTP 超时后通知恢复及磁盘终态重开。夹具读回实际 MQ 信封后显式 PersistCommand/control ACK/OutboxLoop，不声称生产 consumer 或默认 worker/all 运行。最终 4 command / 3 message / 2 conversation / 7 completed Outbox / 0 cursor / 0 quarantine、4 本地终态。P6.3.4.2.1 已验证真实消费基线，P6.3.4.2.2.2 已完成查询/冲突交叉，P6.3.4.2.3.1 已验证 SQL 查询故障恢复，P6.3.4.2.3.2 已验证 Redis 通知故障与角色替换，P6.3.4.2.3.3.1 已验证消费连接监督恢复，P6.3.4.2.3.3.2.1 已验证发布前断连恢复，P6.3.4.2.3.3.2.2 已验证真实确认丢失恢复，P6.3.4.2.3.3.2.3.1 已验证消费 ACK 丢失恢复，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](../docs/client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉；边界见[通知接入](../docs/client-sender-notifications.md)。
 
 P6.3.3 模拟客户端有界 HTTP 提交/查询及原键恢复：
 

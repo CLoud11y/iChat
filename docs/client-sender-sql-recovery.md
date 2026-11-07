@@ -1,6 +1,6 @@
 # P6.3.4.2.3.1：SQL 查询连接中断与发送恢复
 
-本项验证 API 自有 SQL 池的实际 TCP 通路中断时，生产状态接口返回 503，发送端不能据此重发或伪造结果；通路恢复后，同一 API 池查询原终态。P6.3.4.2.3 实施前已拆成 SQL、Redis/Outbox、MQ/消费角色、隔离重放与矩阵收口四项，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，P6.3.4.2.3.3.2.3.1 [消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)已完成，下一项为 P6.3.4.2.3.3.2.3.2。父项、默认 worker/all 和接收侧仍未收口。
+本项验证 API 自有 SQL 池的实际 TCP 通路中断时，生产状态接口返回 503，发送端不能据此重发或伪造结果；通路恢复后，同一 API 池查询原终态。P6.3.4.2.3 实施前已拆成 SQL、Redis/Outbox、MQ/消费角色、隔离重放与矩阵收口四项，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，P6.3.4.2.3.3.2.3.1 [消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)已完成，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉。父项、默认 worker/all 和接收侧仍未收口。
 
 ## 故障边界与装配
 
