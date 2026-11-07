@@ -1,6 +1,6 @@
 # P6.3.4.2.3.3.2.3.2.1：消费 COMMIT OK 丢响应与发送恢复
 
-本项验证生产消费事务已提交、真实 COMMIT OK 未到达驱动时的恢复交叉：原 delivery 不 ACK，监督器按 commit_unknown 退休旧会话并请求新一代，broker 重投原信封，生产仓储幂等复用原终态；发送端只查询、不再次 POST。P6.3.4.2.3.3.2.3.2.2.1 [延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2.2 强制关闭后迟到回调与重投，实施前继续细分；父项、默认 worker/all、完整故障矩阵和接收侧仍未收口。
+本项验证生产消费事务已提交、真实 COMMIT OK 未到达驱动时的恢复交叉：原 delivery 不 ACK，监督器按 commit_unknown 退休旧会话并请求新一代，broker 重投原信封，生产仓储幂等复用原终态；发送端只查询、不再次 POST。P6.3.4.2.3.3.2.3.2.2.1 [延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)已完成，P6.3.4.2.3.3.2.3.2.2.2 [强制关闭与迟到回调](client-sender-commit-forced-close.md)已完成，下一项 P6.3.4.2.3.4 隔离/重放与发送侧矩阵收口，实施前继续细分；完整发送矩阵、默认 worker/all、完整故障矩阵和接收侧仍未收口。
 
 ## 故障与证据
 

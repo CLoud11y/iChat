@@ -1,6 +1,6 @@
 # P6.3.4.2.3.3.2.3.1：提交后消费 ACK 丢失、重投与终态保持
 
-本项验证生产消费已提交后，一个消费者 ACK 帧丢失会使 broker 仍持有原 unacked delivery；客户端可先保存原终态，连接中断后再由生产监督器换代、broker 重投，原信封/发布 attempt 不变且业务去重。P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，P6.3.4.2.3.3.2.3.2.2.1 [延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2.2 强制关闭后迟到回调与重投，实施前继续细分。父项、默认 worker/all 与接收侧仍未收口。
+本项验证生产消费已提交后，一个消费者 ACK 帧丢失会使 broker 仍持有原 unacked delivery；客户端可先保存原终态，连接中断后再由生产监督器换代、broker 重投，原信封/发布 attempt 不变且业务去重。P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，P6.3.4.2.3.3.2.3.2.2.1 [延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)已完成，P6.3.4.2.3.3.2.3.2.2.2 [强制关闭与迟到回调](client-sender-commit-forced-close.md)已完成，下一项 P6.3.4.2.3.4 隔离/重放与发送侧矩阵收口，实施前继续细分。完整发送矩阵、默认 worker/all 与接收侧仍未收口。
 
 ## 注入与观察
 
@@ -30,7 +30,7 @@ ACK 丢失之后的连接中断是显式的第二个故障步骤，未声称单�
 
 HTTP 恰为 **1 POST + 1 GET**，原 publisher 正确认没有丢失，也没有客户端重发。最终 **1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 delivery cursor / 0 quarantine**，一条完整磁盘终态、attempts=1。原 UUID 大写、目标前导零、Unicode/NUL/换行正文与纳秒时区时间保持，原 SQL 结果和迁移指纹保持。
 
-测试不调用控制 Get/ACK、不直接 PersistCommand/RunBatch、不手工修改消息/事件状态。SQL/Redis/publisher/管理通路保持正常，没有停止 broker 进程或改共享开发数据。API 健康输入为夹具，worker 显式装配；磁盘重开为同一进程内 owner 关闭/重建。真实 COMMIT OK 丢响应与优雅 drain 延迟回调已另项验证，强制关闭后的迟到回调留下一项，隔离重放/发送侧矩阵收口、实际前端和接收侧 ACK/连续游标/重连仍待后续。
+测试不调用控制 Get/ACK、不直接 PersistCommand/RunBatch、不手工修改消息/事件状态。SQL/Redis/publisher/管理通路保持正常，没有停止 broker 进程或改共享开发数据。API 健康输入为夹具，worker 显式装配；磁盘重开为同一进程内 owner 关闭/重建。真实 COMMIT OK 丢响应与优雅 drain 延迟回调已另项验证，强制关闭后的迟到回调也已验证，隔离重放/发送侧矩阵收口、实际前端和接收侧 ACK/连续游标/重连仍待后续。
 
 ```powershell
 go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(ConsumerAckLoss|ConfirmLossRecovery)Integration$' -count=1 -v -timeout=8m

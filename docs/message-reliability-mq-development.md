@@ -845,18 +845,18 @@ P3.1 版本与环境见 [MQ 测试环境](mq-test-environment.md)，P3.2 拓扑�
         - [ ] P6.3.4.2.3 基础设施故障、隔离与角色恢复矩阵及发送侧收口。
           - [x] P6.3.4.2.3.1 API SQL 连接实际中断、503 不授权重发与原池恢复查询；覆盖 accepted/unknown 和业务已提交时仍不可查询，见[SQL 查询故障恢复](client-sender-sql-recovery.md)。
           - [x] P6.3.4.2.3.2 Redis 通知故障、Outbox 角色恢复与状态查询兜底，见[Redis 通知故障恢复](client-sender-redis-recovery.md)。
-          - [ ] P6.3.4.2.3.3 MQ 连接、持久化消费角色恢复与发送端交叉。
+          - [x] P6.3.4.2.3.3 MQ 连接、持久化消费角色恢复与发送端交叉；显式生产角色与测试会话来源范围完成，默认 worker/all 仍待装配。
             - [x] P6.3.4.2.3.3.1 空闲消费连接实际中断、监督代际替换与已接受命令的原键恢复；覆盖 accepted/unknown，见[消费连接监督恢复](client-sender-consumer-recovery.md)。
-            - [ ] P6.3.4.2.3.3.2 发布通路/确认未知及在途消费故障交叉。
+            - [x] P6.3.4.2.3.3.2 发布通路/确认未知及在途消费故障交叉。
               - [x] P6.3.4.2.3.3.2.1 空闲 publisher 通路中断、真实 not_published 回执、新 epoch 与原请求恢复，见[发布前断连恢复](client-sender-publisher-recovery.md)。
               - [x] P6.3.4.2.3.3.2.2 AMQP 确认丢失、publish_unknown 与恢复不隐式重放，见[真实确认丢失恢复](client-sender-confirm-loss.md)。
-              - [ ] P6.3.4.2.3.3.2.3 在途消费 COMMIT/ACK 故障、监督重投与发送恢复交叉。
+              - [x] P6.3.4.2.3.3.2.3 在途消费 COMMIT/ACK 故障、监督重投与发送恢复交叉。
                 - [x] P6.3.4.2.3.3.2.3.1 提交后消费者 ACK 实际丢失、监督换代重投去重与客户端终态保持，见[消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)。
-                - [ ] P6.3.4.2.3.3.2.3.2 在途 COMMIT 结果未知/延迟回调与发送恢复。
+                - [x] P6.3.4.2.3.3.2.3.2 在途 COMMIT 结果未知/延迟回调与发送恢复。
                   - [x] P6.3.4.2.3.3.2.3.2.1 真实 COMMIT OK 丢响应、生产监督重投与发送终态保持，见[COMMIT 响应丢失恢复](client-sender-commit-loss.md)。
-                  - [ ] P6.3.4.2.3.3.2.3.2.2 在途 COMMIT 延迟回调与退出/发送恢复交叉。
+                  - [x] P6.3.4.2.3.3.2.3.2.2 在途 COMMIT 延迟回调与退出/发送恢复交叉。
                     - [x] P6.3.4.2.3.3.2.3.2.2.1 真实 COMMIT OK 延迟、优雅 drain pending 与发送终态保持，见[延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)。
-                    - [ ] P6.3.4.2.3.3.2.3.2.2.2 强制关闭后的迟到 COMMIT 回调、原消息重投与发送终态保持；实施前按复杂度继续细分。
+                    - [x] P6.3.4.2.3.3.2.3.2.2.2 强制关闭后的迟到 COMMIT 回调、原消息重投与发送终态保持，见[强制关闭与迟到回调](client-sender-commit-forced-close.md)。
           - [ ] P6.3.4.2.3.4 隔离/重放与客户端查询门禁、发送侧故障矩阵收口；实施前按复杂度继续细分。
 - [ ] 覆盖持续在线尾消息丢失、分页期间并发写入、乱序到达、浏览器本地存储重置。
 - [ ] 输出前端接入说明；真实前端不在仓库时标注实际联调待办，不伪造完成。
