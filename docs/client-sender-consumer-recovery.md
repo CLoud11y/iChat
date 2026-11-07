@@ -1,6 +1,6 @@
 # P6.3.4.2.3.3.1：消费连接中断、监督换代与发送恢复
 
-本项验证空闲持久化消费连接实际中断后，生产监督器先加入旧 owner，再创建新的独立会话；期间已由 broker 接受的命令留在原队列，客户端以原键查询恢复。P6.3.4.2.3.3 在实施前拆为本项与发布通路/确认未知/在途消费故障交叉两项，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，P6.3.4.2.3.3.2.3.1 [消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)已完成，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉，开始前按实际复杂度继续细分。
+本项验证空闲持久化消费连接实际中断后，生产监督器先加入旧 owner，再创建新的独立会话；期间已由 broker 接受的命令留在原队列，客户端以原键查询恢复。P6.3.4.2.3.3 在实施前拆为本项与发布通路/确认未知/在途消费故障交叉两项，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，P6.3.4.2.3.3.2.3.1 [消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)已完成，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，P6.3.4.2.3.3.2.3.2.2.1 [延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2.2 强制关闭后迟到回调与重投，开始前按实际复杂度继续细分。
 
 ## 装配与故障范围
 

@@ -1,6 +1,6 @@
 # P6.3.4.2.2.2：查询失败、同键冲突与迟到结果
 
-本项完成发送恢复中“不应重发”的三个生产接口交叉场景，与[接受回执丢失恢复](client-sender-lost-response.md)共同收口 P6.3.4.2.2。后续 P6.3.4.2.3.1 已完成[SQL 查询故障恢复](client-sender-sql-recovery.md)，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，P6.3.4.2.3.3.2.3.1 [消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)已完成，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2 延迟回调与退出交叉。P6.3.4.2/P6.3、默认 worker/all 与接收侧恢复仍未收口。
+本项完成发送恢复中“不应重发”的三个生产接口交叉场景，与[接受回执丢失恢复](client-sender-lost-response.md)共同收口 P6.3.4.2.2。后续 P6.3.4.2.3.1 已完成[SQL 查询故障恢复](client-sender-sql-recovery.md)，P6.3.4.2.3.2 [Redis 通知故障恢复](client-sender-redis-recovery.md)已完成，P6.3.4.2.3.3.1 [消费连接监督恢复](client-sender-consumer-recovery.md)已完成，P6.3.4.2.3.3.2.1 [发布前断连恢复](client-sender-publisher-recovery.md)已完成，P6.3.4.2.3.3.2.2 [真实确认丢失恢复](client-sender-confirm-loss.md)已完成，P6.3.4.2.3.3.2.3.1 [消费 ACK 丢失恢复](client-sender-consumer-ack-loss.md)已完成，P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，P6.3.4.2.3.3.2.3.2.2.1 [延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)已完成，下一项 P6.3.4.2.3.3.2.3.2.2.2 强制关闭后迟到回调与重投。P6.3.4.2/P6.3、默认 worker/all 与接收侧恢复仍未收口。
 
 ## 共享夹具
 

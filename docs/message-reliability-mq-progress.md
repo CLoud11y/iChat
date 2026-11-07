@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与查询兜底已完成。P6.3.4.2.3.3.1 消费连接监督换代与原键恢复已完成。P6.3.4.2.3.3.2.1 发布前断连与原请求恢复已完成。P6.3.4.2.3.3.2.2 实际 Basic.Ack 丢失与 unknown 恢复已完成。P6.3.4.2.3.3.2.3.1 提交后消费 ACK 丢失与重投终态保持已完成。P6.3.4.2.3.3.2.3.2.1 真实 COMMIT OK 丢响应与终态保持已完成。下一项 P6.3.4.2.3.3.2.3.2.2 COMMIT 延迟回调与退出交叉。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与查询兜底已完成。P6.3.4.2.3.3.1 消费连接监督换代与原键恢复已完成。P6.3.4.2.3.3.2.1 发布前断连与原请求恢复已完成。P6.3.4.2.3.3.2.2 实际 Basic.Ack 丢失与 unknown 恢复已完成。P6.3.4.2.3.3.2.3.1 提交后消费 ACK 丢失与重投终态保持已完成。P6.3.4.2.3.3.2.3.2.1 真实 COMMIT OK 丢响应与终态保持已完成。P6.3.4.2.3.3.2.3.2.2.1 真实 COMMIT OK 延迟、优雅 drain pending 与终态保持已完成。下一项 P6.3.4.2.3.3.2.3.2.2.2 强制关闭后迟到回调与重投。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4841,3 +4841,60 @@ runId=`50938ab5f89f7feb12eac10792b61fca` 三组及最终关闭检查全部通过
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。README、协议、阶段清单、相关指南与测试入口同步已完成项和下一项，检查没有过期的父项下一项指针，新指南相对链接均存在。审查涵盖真实 SQL 包/方向/唯一目标响应、独立 SQL 可见性、消费未 ACK、生产错误分类/退休与资源屏障、完整信封/原 attempt、原终态单调/无重发、最终 broker 责任及回调/连接退出归属。
 
 建议 commit message：`test(clientsim): recover after lost consumer COMMIT replies`
+
+
+## 2026-11-08：P6.3.4.2.3.3.2.3.2.2 实施前拆分
+
+本轮先实施 .2.1：真实 COMMIT OK 延迟期间优雅 drain 的观察期限耗尽，保留原消费回调和 SQL/会话责任，客户端实际 GET/保存终态并重开磁盘；再转发同一个真实 OK，由原消费 ACK 后正常 drain/close，不换代、不重投。强制关闭后工作取消、迟到回调与原消息重投归 .2.2，开始前继续细分。SQL 代理仅增加显式延迟转发模式，旧默认丢响应路径同步回归；不能将 drain pending 视为已加入或借入存储可释放。
+
+## 2026-11-08：P6.3.4.2.3.3.2.3.2.2.1 延迟 COMMIT OK、优雅 drain 与发送终态
+
+状态：本小点实现、审查、真实隔离验收和默认回归完成，没有自动提交。下一项 **P6.3.4.2.3.3.2.3.2.2.2：强制关闭后的迟到 COMMIT 回调、原消息重投与发送终态保持**，实施前继续细分。父项、默认 worker/all、完整故障矩阵、实际前端及接收侧仍未整体收口。起点为用户已提交的 `3674984`；本轮仅新增 integration 测试、扩展测试代理和更新文档，没有修改生产业务代码、schema、依赖或默认期限。
+
+### 实施与审查
+
+- 既有消费 SQL 包代理增加显式延迟转发模式，默认构造器仍只丢一个实际 COMMIT OK 并关闭 SQL socket。共享完整包读取、精确 COM_QUERY/COMMIT、sequence/OK/零 affected rows/last insert id/IN_TRANS 清除检查及 1 MiB 上限；模式在任务启动前固定。新模式解除屏障后原字节转发实际 OK、清除该连接等待标记并继续转发后续包，完整写入后通过有界通道记录连接/字节。没有伪造响应、包装驱动 Commit 或直接执行仓储。
+- 新增 TestProductionSenderCommitDrainIntegration，沿用真实隔离 MySQL/Redis/RabbitMQ、正常 publisher/API/WebSocket、生产 PersistenceSupervisor、后台 Outbox 和 FileStore。只有消费 SQL 经过代理，AMQP 代理只观察、不 arm；独立直连 SQL/Outbox 与 broker 管理证明原事务已提交但回调仍等响应。
+- 实际 HTTP 202 后本地 accepted/attempts=1/无 Result；原 Basic.Deliver redelivered=false，完整信封严格匹配原规范 command、回执身份及 publishAttemptId。截住真实 COMMIT OK 后，SQL 原 persisted/两条 completed Outbox 可见，broker 实际 ready=0/unacked=1/consumers=1，消费 ACK=0，原角色仍 Ready。
+- 生产 supervisor.Drain(150ms) 实际返回同时匹配 ErrPersistenceSupervisorPending 和 DeadlineExceeded 的错误。Ready 撤销、状态 Stopping，Done 未关闭；旧组未 closed、active=1/无重叠、generation 不变，消费 ACK=0、OK 未转发或丢弃，借入 pool 仍可 Ping。观察期限耗尽没有替代回调/资源加入。
+- 响应仍被保留时，客户端有限 Recover 只 GET 原 persisted，真实 WebSocket 完整结果幂等；保存完整 SQL DTO、原请求/身份/hash、attempts=1/非 inFlight 终态，关闭并重开磁盘 owner 完全一致。随后才解除 SQL 响应屏障。
+- 同一 SQL 连接的同一份实际 OK 原样转发，原证据用独立 bytes.Clone 快照保存，避免比较共享切片弱化字节断言。原生产回调在 drain pending 之后完成 ACK；实际 AMQP connection/channel/tag 匹配最初 delivery，没有新连接重投。精确 1 COMMIT/0 ROLLBACK/1 forwarded OK、1 delivery/1 consumer ACK。
+- 原 SQL 终态、两条 completed Outbox 的 eventId/payload 和磁盘终态保持。已知终态再次 Recover 无 HTTP，再次磁盘重开保持。正常 Drain/Close/Done 与全部会话加入后 generation=1/Failures=0/Err=nil、active=0/无重叠；唯一消费者退出后 QueueInspect 无重入队，最终管理 ready/unacked/consumers 全零。借入 pool 在退出后仍可 Ping，最终由测试 owner 关闭。
+
+最终 **1 POST + 1 GET、attempts=1；1 command / 1 message / 1 conversation（last_seq=1）/ 2 completed Outbox / 0 delivery cursor / 0 quarantine**。原 UUID 大写、目标前导零、Unicode/NUL/换行、纳秒时区时间、完整 SQL DTO 和迁移指纹保持。实际迟到 ACK 同时证明优雅 drain 观察超时未取消已准入回调；活动连接的管理采样可保留 unacked=1，完成仍以实际转发、退出后无重入队和最终管理全零交叉确认。
+
+完整范围见[延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)。这里迟到仅相对于 drain 观察期限，未超出显式 45 秒处理期限，也未调用强制取消路径。API 健康输入为夹具，worker 显式装配，会话来源为测试调用生产 DialConsumer 的适配；不报告默认 worker/all 或完整 RunRuntime 退出编排完成。磁盘重开仅同一进程内 owner 重建，强制关闭后迟到回调和重投留下一项。
+
+### 真实验收与资源
+
+组合命令：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderCommit(Drain|Loss)Integration$' -count=1 -v -timeout=8m`
+
+**通过，主包 71.772s，无 race**：
+
+| 场景 | runId | 结果 |
+| --- | --- | --- |
+| 新延迟 OK、优雅 drain pending、原回调 ACK | `51193e1a6520f5dca8d76533e0f20772` | 35.32s；generation=1 不变，1 COMMIT/0 ROLLBACK/1 ACK，1 POST+1 GET/attempts=1 |
+| 默认 COMMIT OK 丢响应与监督重投回归 | `7ddbe2ce66bce675810faa81684418c3` | 35.20s；actual EOF/commit_unknown，generation 1→2，1 COMMIT/1 replay ROLLBACK/1 ACK，原终态保持 |
+
+审查后将原 OK 保存为独立字节快照，再执行最终专项：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderCommitDrainIntegration$' -count=1 -v -timeout=5m`
+
+**通过，主包 34.817s，无 race**；runId **`462311bc415a4b42e5d84377a5a6f6a4`**，suite **33.57s**。两个新场景实际 COMMIT OK 均为 connection=1/sequence=1/bytes=11，迟到原 delivery ACK 均为 **connection=1/channel=2/tag=1/multiple=false**；SQL/Outbox/磁盘保持、最终队列/管理全零。初次标签编译曾因新测试的未使用 rabbitmq import 失败，删除该 import 后检查通过；未创建额外基础设施环境，也没有失败的真实测试轮次。
+
+三套 fixture 均已 Close。随后按三轮 io.ichat.test.run 标签只读核验容器、卷、网络，**3 组均为 0 遗留资源**。响应屏障失败清理先解除，owner/SQL/socket/双向转发加入后才回收归属环境；没有停止共享 Docker/broker 或修改共享开发数据。
+
+### 最终检查
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓通过；主包 8.581s、application 5.038s、database 4.235s、rabbitmq 9.703s、clientsim 4.601s、workers 4.931s，无 race；本轮 Go 变更均为 integration 标签文件 |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 最终全仓标签编译通过，主包 1.026s；不代表运行其他基础设施故障 suite |
+| `git -c core.safecrlf=false diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖默认丢响应与显式延迟模式隔离、真实 OK 的独立快照/连接、观察超时与工作取消区分、未加入资源责任、原 delivery ACK/无换代重投、终态单调/无 HTTP 重发及退出归属。README、协议、清单、相关指南与测试入口同步当前完成项/下一项，无过期父项下一项指针，新指南相对链接均存在。
+
+建议 commit message：`test(clientsim): preserve terminals through delayed COMMIT drains`

@@ -21,8 +21,9 @@ type senderCommitOK struct {
 
 // Test-only, plaintext MySQL packet relay for the pinned driver without query
 // attributes. Only the persistence pool uses it; API and Outbox stay direct.
-// A real COMMIT OK is withheld at a barrier, then discarded and the socket
-// closed. No driver result, SQL success packet or transaction is fabricated.
+// A real COMMIT OK is withheld at a barrier, then either discarded with a socket
+// close or forwarded unchanged. No driver result, SQL success packet or
+// transaction is fabricated. Loss remains the default mode.
 type senderCommitLossProxy struct {
 	listener                              net.Listener
 	upstream                              string
@@ -34,18 +35,32 @@ type senderCommitLossProxy struct {
 	stop                                  chan struct{}
 	discard                               chan struct{}
 	captured                              chan senderCommitOK
+	forwarded                             chan senderCommitOK
+	relayOK                               bool
+	relayed                               atomic.Uint64
 	armed, invalid                        atomic.Bool
 	accepted, commits, rollbacks, dropped atomic.Uint64
 }
 
 func newSenderCommitLossProxy(t *testing.T, upstream string) *senderCommitLossProxy {
 	t.Helper()
+	return newSenderCommitProxy(t, upstream, false)
+}
+
+func newSenderCommitDelayProxy(t *testing.T, upstream string) *senderCommitLossProxy {
+	t.Helper()
+	return newSenderCommitProxy(t, upstream, true)
+}
+
+func newSenderCommitProxy(t *testing.T, upstream string, relay bool) *senderCommitLossProxy {
+	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := &senderCommitLossProxy{listener: l, upstream: upstream, connections: make(map[net.Conn]bool),
-		stop: make(chan struct{}), discard: make(chan struct{}), captured: make(chan senderCommitOK, 1)}
+		stop: make(chan struct{}), discard: make(chan struct{}), captured: make(chan senderCommitOK, 1),
+		forwarded: make(chan senderCommitOK, 1), relayOK: relay}
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
@@ -145,10 +160,23 @@ func (p *senderCommitLossProxy) bridge(client net.Conn, index uint64) {
 			p.captured <- senderCommitOK{connection: index, packet: packet}
 			select {
 			case <-p.discard:
-				p.dropped.Add(1)
 			case <-p.stop:
+				client.Close()
+				backend.Close()
+				<-upstreamDone
+				return
 			}
-			break
+			if !p.relayOK {
+				p.dropped.Add(1)
+				break
+			}
+			waiting.Store(false)
+			if err := senderConfirmWrite(client, packet); err != nil {
+				break
+			}
+			p.relayed.Add(1)
+			p.forwarded <- senderCommitOK{connection: index, packet: packet}
+			continue
 		}
 		if err := senderConfirmWrite(client, packet); err != nil {
 			break
@@ -160,6 +188,10 @@ func (p *senderCommitLossProxy) bridge(client net.Conn, index uint64) {
 }
 
 func (p *senderCommitLossProxy) discardResponse() {
+	p.releaseResponse()
+}
+
+func (p *senderCommitLossProxy) releaseResponse() {
 	p.discardOnce.Do(func() { close(p.discard) })
 }
 
