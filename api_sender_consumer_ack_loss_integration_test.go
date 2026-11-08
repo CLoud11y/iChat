@@ -22,12 +22,17 @@ import (
 
 func senderQueueProbe(t *testing.T, f *senderResultFixture) func() (int, int, int, bool) {
 	t.Helper()
+	return senderNamedQueueProbe(t, f, rabbitmq.PersistQueue)
+}
+
+func senderNamedQueueProbe(t *testing.T, f *senderResultFixture, queue string) func() (int, int, int, bool) {
+	t.Helper()
 	transport := &http.Transport{Proxy: nil, DisableCompression: true}
 	client := &http.Client{Transport: transport, Timeout: 2 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	t.Cleanup(transport.CloseIdleConnections)
 	return func() (int, int, int, bool) {
-		req, err := http.NewRequestWithContext(f.ctx, http.MethodGet, "http://"+f.managementAddress+"/api/queues/"+url.PathEscape(f.vhost)+"/"+url.PathEscape(rabbitmq.PersistQueue), nil)
+		req, err := http.NewRequestWithContext(f.ctx, http.MethodGet, "http://"+f.managementAddress+"/api/queues/"+url.PathEscape(f.vhost)+"/"+url.PathEscape(queue), nil)
 		if err != nil {
 			return 0, 0, 0, false
 		}

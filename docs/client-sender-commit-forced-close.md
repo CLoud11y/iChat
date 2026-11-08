@@ -2,7 +2,7 @@
 
 本项验证真实 MySQL Commit 已成功、驱动回调仍未返回时的强制关闭：观察期限耗尽返回 pending，工作已取消但回调/SQL/会话责任仍有 owner。客户端可只查询保存原终态；释放迟到成功回调后，旧消费者保留取消错误且不 ACK，不会自动复活。待旧 owner 完全加入，显式启动新的生产 owner，由 broker 重投原信封、仓储去重并 ACK。
 
-该项与[优雅 drain](client-sender-commit-drain.md)、[真实 COMMIT OK 丢响应](client-sender-commit-loss.md)及[消费 ACK 丢失](client-sender-consumer-ack-loss.md)补齐当前 MQ/在途消费交叉范围。下一项为 **P6.3.4.2.3.4 隔离/重放与客户端查询门禁、发送侧矩阵收口**，实施前继续细分。完整发送矩阵、默认 worker/all、实际前端及接收侧仍未收口。
+该项与[优雅 drain](client-sender-commit-drain.md)、[真实 COMMIT OK 丢响应](client-sender-commit-loss.md)及[消费 ACK 丢失](client-sender-consumer-ack-loss.md)补齐当前 MQ/在途消费交叉范围。P6.3.4.2.3.4.1 [隔离审计与发送门禁](client-sender-quarantine.md)已完成，下一项 P6.3.4.2.3.4.2 受控重放与客户端原请求恢复，实施前继续细分。完整发送矩阵、默认 worker/all、实际前端及接收侧仍未收口。
 
 ## 屏障和观察
 

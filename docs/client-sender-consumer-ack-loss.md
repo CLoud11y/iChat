@@ -1,6 +1,6 @@
 # P6.3.4.2.3.3.2.3.1：提交后消费 ACK 丢失、重投与终态保持
 
-本项验证生产消费已提交后，一个消费者 ACK 帧丢失会使 broker 仍持有原 unacked delivery；客户端可先保存原终态，连接中断后再由生产监督器换代、broker 重投，原信封/发布 attempt 不变且业务去重。P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，P6.3.4.2.3.3.2.3.2.2.1 [延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)已完成，P6.3.4.2.3.3.2.3.2.2.2 [强制关闭与迟到回调](client-sender-commit-forced-close.md)已完成，下一项 P6.3.4.2.3.4 隔离/重放与发送侧矩阵收口，实施前继续细分。完整发送矩阵、默认 worker/all 与接收侧仍未收口。
+本项验证生产消费已提交后，一个消费者 ACK 帧丢失会使 broker 仍持有原 unacked delivery；客户端可先保存原终态，连接中断后再由生产监督器换代、broker 重投，原信封/发布 attempt 不变且业务去重。P6.3.4.2.3.3.2.3.2.1 [COMMIT 响应丢失恢复](client-sender-commit-loss.md)已完成，P6.3.4.2.3.3.2.3.2.2.1 [延迟 COMMIT 与优雅 drain](client-sender-commit-drain.md)已完成，P6.3.4.2.3.3.2.3.2.2.2 [强制关闭与迟到回调](client-sender-commit-forced-close.md)已完成，P6.3.4.2.3.4.1 [隔离审计与发送门禁](client-sender-quarantine.md)已完成，下一项 P6.3.4.2.3.4.2 受控重放与客户端原请求恢复，实施前继续细分。完整发送矩阵、默认 worker/all 与接收侧仍未收口。
 
 ## 注入与观察
 

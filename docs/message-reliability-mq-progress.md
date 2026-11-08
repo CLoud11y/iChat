@@ -4,7 +4,7 @@
 
 执行约定：每次只实施一个小点，完成代码审查和对应测试后提供 commit message；用户确认后才继续下一个小点。不自动提交。阶段完成必须满足原规范验收条件。
 
-当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与查询兜底已完成。P6.3.4.2.3.3.1 消费连接监督换代与原键恢复已完成。P6.3.4.2.3.3.2.1 发布前断连与原请求恢复已完成。P6.3.4.2.3.3.2.2 实际 Basic.Ack 丢失与 unknown 恢复已完成。P6.3.4.2.3.3.2.3.1 提交后消费 ACK 丢失与重投终态保持已完成。P6.3.4.2.3.3.2.3.2.1 真实 COMMIT OK 丢响应与终态保持已完成。P6.3.4.2.3.3.2.3.2.2.1 真实 COMMIT OK 延迟、优雅 drain pending 与终态保持已完成。P6.3.4.2.3.3.2.3.2.2.2 强制关闭后迟到回调与重投已完成，P6.3.4.2.3.3 的显式 MQ/在途消费交叉范围完成。下一项 P6.3.4.2.3.4 隔离/重放与发送侧矩阵收口。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
+当前总进度：**P0—P3、P4 显式持久化/隔离与重放范围、P5.1 Outbox、P5.2 通知授权、P5.3 生产 v1 WebSocket、P5.4 当前会话 ACK/持久化游标、P6.1 状态 HTTP 接口、P6.2.1 会话发现仓储、P6.2.2 会话列表 HTTP、P6.2.3.1 向前补拉 HTTP 和 P6.2.3.2 历史 HTTP 已完成对应验收，P6.2 HTTP 范围收口。P6.3.1 待发送记录/状态核心及注入式原子快照契约已完成。P6.3.2 磁盘快照与跨进程恢复已完成。P6.3.3 有界 HTTP 与原键恢复已完成。P6.3.4.1 通知与生产接口交叉已完成（仓储/Outbox 显式驱动）。P6.3.4.2.1 真实消费与发送恢复基线已完成。P6.3.4.2.2.1 真实回执丢失、原请求恢复与消费幂等已完成。P6.3.4.2.2.2 查询失败、同键冲突与迟到结果交叉已完成，P6.3.4.2.2 范围收口。P6.3.4.2.3.1 API SQL 通路中断与发送恢复已完成。P6.3.4.2.3.2 Redis 通知故障、Outbox 替换与查询兜底已完成。P6.3.4.2.3.3.1 消费连接监督换代与原键恢复已完成。P6.3.4.2.3.3.2.1 发布前断连与原请求恢复已完成。P6.3.4.2.3.3.2.2 实际 Basic.Ack 丢失与 unknown 恢复已完成。P6.3.4.2.3.3.2.3.1 提交后消费 ACK 丢失与重投终态保持已完成。P6.3.4.2.3.3.2.3.2.1 真实 COMMIT OK 丢响应与终态保持已完成。P6.3.4.2.3.3.2.3.2.2.1 真实 COMMIT OK 延迟、优雅 drain pending 与终态保持已完成。P6.3.4.2.3.3.2.3.2.2.2 强制关闭后迟到回调与重投已完成，P6.3.4.2.3.3 的显式 MQ/在途消费交叉范围完成。P6.3.4.2.3.4.1 真实隔离审计与 accepted/unknown 发送门禁已完成。下一项 P6.3.4.2.3.4.2 受控重放与客户端原请求恢复。默认配置仍为 legacy，完整 worker/all 工厂门禁、完整故障矩阵和接收侧恢复仍待后续，不能据此切换共享开发数据或声称端到端恢复完成。** 以下“当前”“未覆盖”等为历史记录，最新证据见文末对应小点。
 
 ## 开发拆分
 
@@ -4978,3 +4978,72 @@ runId=`50938ab5f89f7feb12eac10792b61fca` 三组及最终关闭检查全部通过
 固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖真实 Commit 先于屏障且结果不改写、工作取消与观察超时、SQL InUse/会话/Done 责任、旧 ACK 门禁/无复活、显式新 owner 不重叠、原信封/attempt、终态单调与无 HTTP 重发、broker 重入队及最终存储释放。README、协议、清单、相关指南和测试入口同步当前完成范围/下一项，新指南链接存在，无已完成小点的过期下一项指针，历史记录保持。
 
 建议 commit message：`test(clientsim): retain ownership through late COMMIT callbacks`
+
+
+## 2026-11-09：P6.3.4.2.3.4 实施前拆分
+
+本轮先实施 .1：在本轮 schema 临时添加可恢复 CHECK 约束，使正常 HTTP 接受的规范命令遇到真实 MySQL 约束失败，生产持久化角色转移隔离并 ACK，真实隔离 worker 完成审计/ACK。accepted 与丢失 HTTP 回执的 unknown 客户端只 GET quarantined，磁盘重开保持并禁止自动/显式重发；移除约束修复故障后，open 审计仍阻止重发，不伪造业务终态。 .2 留受控重放与终态核验交叉，.3 留发送侧矩阵/缺口与范围汇总。临时约束仅属本轮独立 schema，清理后复核迁移指纹；不修改生产迁移、隔离策略或默认 worker/all。
+
+## 2026-11-09：P6.3.4.2.3.4.1 真实隔离审计与 accepted/unknown 发送门禁
+
+状态：本小点实现、审查、真实隔离验收和默认回归完成，没有自动提交。下一项 **P6.3.4.2.3.4.2：受控重放/终态核验与客户端原请求恢复**，实施前继续细分；.4.3 留发送侧矩阵/缺口汇总，父项和默认 worker/all、实际前端及接收侧仍未完成。起点为用户已提交的 `72feb72`。最终实现只新增 integration 夹具/测试及更新文档，没有改变 schema、权限、数据库全局设置、生产迁移、隔离白名单、依赖或默认运行模式。
+
+### 最终实施与审查
+
+- 新增消费 SQL 连接适配，沿用既有 testenv retrySQLConn 的实际辅助 SQL 故障方式。生产真实 message INSERT 成功后，同一事务执行 `UPDATE message SET seq=0 WHERE id=?`，现有 CHECK 返回服务器原始 MySQL 3819。错误原样返回，不伪造驱动错误、不改原规范信封/原 INSERT，也不直接调用业务仓储。独立计数要求 1 BeginTx/1 辅助 UPDATE/1 实际 3819/0 Commit/1 Rollback，排除本地事务重试及部分写入未回滚。
+- 新增 TestProductionSenderQuarantineIntegration/accepted 和 /lost_acceptance_unknown，各自独立真实 MySQL/Redis/RabbitMQ。真实 API 202 分别被完整收到或只丢弃 HTTP 回应，磁盘为 accepted/publish_unknown、attempts=1、原请求/身份/hash 保持；没有丢 publisher confirm 冒充 HTTP unknown。
+- 原 Basic.Deliver 的完整信封严格核验规范 command、HTTP receipt 身份和 publishAttemptId，redelivered=false。生产 PersistenceSupervisor 接入真实隔离 publisher，实际数据约束错误回滚后由保守 DATA_CONSTRAINT 策略转移；独立帧观察器核对目标新增 1 Basic.Publish/1 broker Basic.Ack，源 ACK 的连接/channel/tag 匹配原 delivery，未 arm 或丢弃 AMQP 帧。
+- 正常 drain/close/加入源角色后，主队列 ready=0/consumers=0，隔离队列 ready=1/consumers=0；先证明目标 MQ 已持有责任，再启动真实隔离消费连接和 QuarantineService。真实 wrapper 解码为 DATA_CONSTRAINT，内部 source body 与原信封逐字相同、commandId/物理 attempt 保持；生产审计仓储提交后才 ACK wrapper，没有控制 Get/ACK 或手工保存审计。
+- 只读 QuarantineRepository.Get 核验完整审计与冗余字段，严格匹配 transportId、规范 sender/client/command/hash、完整稳定内容、state=open、无 replayAttemptId/ResolvedAt。正常 drain/close/加入隔离 service/session 后停用故障适配；恢复正常写入条件不解除 open 审计。
+- 客户端真实 GET 返回 200/code=0/quarantined、Message=nil，保存完整非终态 DTO、原请求及 attempts=1。显式 Submit 本地 ErrBlocked，无 HTTP；磁盘关闭/重开完全相同，Submit 仍 ErrBlocked。有两轮/两次可用提交预算的 Recover 实际只发两次 GET，并返回 ErrRecoveryExhausted：仅表示有限查询耗尽、未得到业务终态，不授权重发。
+- 最后再次重开磁盘，完整待发送记录保持。Get 前后完整审计（原文、首份观察和时间、规范身份及状态）完全相同。真实故障解除后没有新 POST、attempt 或 MQ 转移，技术隔离未变成 persisted/rejected，未触发业务 Outbox/command.result。
+- 只读队列探针提取为按名称观察，原 senderQueueProbe 仍默认主队列。缺 ready/unacked/consumers 字段不当作 0；两队列最终都要求实际 QueueInspect 无重入队/无消费者及管理三项全零。原 ACK 丢失 suite 同步运行验证默认路径，后续故障适配调整没有修改该探针。
+
+每条路径最终精确 **1 POST + 3 GET、attempts=1；源 delivery/ACK 各 1，目标新增 publish/confirm 各 1，审计 wrapper delivery/ACK 各 1；0 command / 0 message / 0 conversation / 0 Outbox / 0 delivery cursor / 1 immutable open quarantine audit**。真实先前 INSERT/命令占用/会话写入均已回滚，没有持久业务序号。原 UUID 大写、目标前导零、Unicode/NUL/换行及纳秒时区时间保持，迁移验证仍匹配原 schema 指纹。
+
+完整流程见[隔离审计与发送门禁](client-sender-quarantine.md)。API 健康输入为夹具，角色显式装配，会话来源为测试调用生产 DialConsumer 的适配；此处没有启动 Outbox worker，因无业务 Outbox/结果。磁盘重开仅同一进程内 owner 重建，未执行受控重放、replay_pending/resolved 转换、实际前端、进程强杀或默认完整 worker/all。
+
+### 早期失败与最终故障边界
+
+开始前计划使用临时 CHECK；以下失败保留，均不计为通过：
+
+| 尝试 | 实际结果 | 修正 |
+| --- | --- | --- |
+| 首次组合，主包 86.803s 失败 | 旧 ACK 丢失 `081be0ec9e846d2046c8561984719543` 35.71s 通过；新 accepted `f5ad143eab3aecbfbf7aeb6a46dd72b8` 25.81s、unknown `1aaaa01c73853d4e8a4ac4ef82d4e5b4` 25.03s 均在最终迁移指纹检查失败；新 suite 50.83s | 两条已通过隔离/审计/发送门禁，但新增并删除 CHECK 后仍报 schema drift。未采集 SHOW CREATE 的精确差异，不将具体原因确定为某一种约束序列重排，也未覆盖/重写已存指纹 |
+| 临时 trigger 触发现有 CHECK，主包 44.083s 失败 | accepted `a2e394f51ad69da07cf8c645fb328e0c` 21.76s、unknown `ffa9a6213d8b984a9974d545bcbdf002` 22.07s；suite 43.84s。CREATE TRIGGER 实际 1419，binlog 开启时当前测试账号缺 SUPER | 未改变权限或 log_bin_trust_function_creators。放弃 schema 对象方案，改用同事务实际辅助 UPDATE 触发现有 CHECK |
+
+最终适配不改表结构、不创建 trigger；借入消费 pool 的真实连接处理原生产事务，辅助 UPDATE 的服务器原始错误被保留，由生产仓储负责 Rollback。故障只作用于消费 pool，API/审计 SQL 正常；源角色加入后显式停用适配。最终完整迁移指纹和 1 Begin/0 Commit/1 Rollback/1 实际 3819 同时通过，没有通过删掉迁移检查或伪造错误绕过上述失败。
+
+### 最终真实验收与资源
+
+最终专项：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSenderQuarantineIntegration$' -count=1 -v -timeout=5m`
+
+**通过，主包 49.815s、suite 48.57s，无 race**：
+
+| 路径 | runId | 结果 |
+| --- | --- | --- |
+| 已收到真实 accepted，审计后保护 | `591abc59ad4f440a98f40b198e8ac186` | 24.36s；1 POST/3 GET、attempts=1，真实回滚/隔离/审计/门禁及原指纹全部通过 |
+| 真实 202 回执丢失为 unknown，审计后保护 | `394de4be193ac19f54f82b7dcffecf4b` | 24.21s；同上，原 unknown 经实际 GET 保存 quarantined，无额外 POST |
+
+共享队列探针的旧消费 ACK 丢失回归使用首次组合命令：
+
+`go test -mod=readonly -p=1 -race -tags=integration . -run '^TestProductionSender(Quarantine|ConsumerAckLoss)Integration$' -count=1 -v -timeout=8m`
+
+该次**整体失败**如上表，不能报告为组合全通过；其中旧 TestProductionSenderConsumerAckLossIntegration **35.71s 通过**，实际 generation 1→2、2 ACK/只丢第一条、原 SQL/磁盘保持及主队列最终全零。其后只调整新故障适配/专项，没有再改变共享探针；因此最终证据为新专项两路径通过加旧回归已通过，未声称本轮再次执行全部历史矩阵。
+
+七套成功/失败 fixture 全部 Close，之后按七个 io.ichat.test.run 标签只读核验容器、卷、网络，**7 组均为 0 遗留资源**。所有角色/会话/代理转发先加入，再由测试 owner 释放借入 pool 并回收环境；没有停止共享 Docker/broker 或修改共享开发数据。
+
+### 最终检查
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test -mod=readonly -p=2 -race ./... -count=1 -timeout=120s` | 全仓通过；主包 8.289s、application 4.991s、database 4.527s、rabbitmq 9.749s、clientsim 5.058s、workers 5.262s，无 race；其后 Go 调整仅在 integration 夹具/专项 |
+| `go vet -mod=readonly -p=2 -tags=integration ./...` | 最终代码通过 |
+| `go test -mod=readonly -p=2 -tags=integration ./... -run '^$'` | 最终全仓标签编译通过，主包 1.363s；不代表运行其他基础设施 suite |
+| `git -c core.safecrlf=false diff --check` | 通过 |
+
+固定 Go 1.27.1、空 GOROOT、GOMAXPROCS=2、仓库 .gocache、GIN_MODE=release 和不存在的单元测试 ICHAT_CONFIG_FILE。审查涵盖辅助真实 SQL/原始 3819/完整回滚、主/隔离两次 ACK 责任、实际目标 confirm、原文/物理 attempt/完整审计、quarantined 非业务终态、显式/有限恢复门禁和磁盘重开、队列字段存在性/最终清空、迁移指纹及资源归属。README、协议、清单、相关指南和测试入口同步当前完成项/下一项，新指南链接存在，无过期父项下一项指针，历史记录保持。
+
+建议 commit message：`test(clientsim): block resend after quarantine audits`
